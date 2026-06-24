@@ -1,0 +1,6 @@
+{
+  "framework": "nextjs",
+  "crons": [
+    { "path": "/api/schedule/generate", "schedule": "30 0 * * *" }
+  ]
+}
