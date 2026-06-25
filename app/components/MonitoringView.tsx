@@ -5,40 +5,40 @@ import Lifecycle, { LifeStep } from "./Lifecycle";
 
 const cityName = (slug: string) => slug.replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
 
-const TYPE: Record<string, { label: string; cls: string }> = {
-  pickup: { label: "Pickup", cls: "bg-blue-50 text-blue-700 ring-blue-200" },
-  full_retrieval: { label: "Retrieval", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
-  partial_retrieval: { label: "Partial retrieval", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
-};
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const isPickup = (o: any) => o.order_type === "pickup";
+const isDone = (o: any) => String(o.order_status ?? "").toLowerCase() === "completed";
 
-function fmt(iso?: string | null): string | null {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
-  } catch { return null; }
+// Order within each leg: by planned arrival (from the day plan) if we have it, else stop sequence.
+function ordered(orders: any[], plan: any) {
+  return [...orders].sort((a, b) =>
+    (plan?.byOrder?.[a.customer_unique_id]?.arrive ?? a.stop_seq ?? 0) -
+    (plan?.byOrder?.[b.customer_unique_id]?.arrive ?? b.stop_seq ?? 0));
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// On-ground flow. A pickup is collected from the customer and dropped at the warehouse. A retrieval
-// is collected from the warehouse the evening before, then delivered to the customer in the morning.
-// `done` flags for the field steps come from the WMS / pickup-done / delivery-done endpoints (wired
-// when provided); for now a "completed" order marks them all done, otherwise only the assignment is.
-function buildSteps(o: any, assignedAt: string | null, assigned: boolean): LifeStep[] {
-  const pickup = o.order_type === "pickup";
-  const completed = String(o.order_status ?? "").toLowerCase() === "completed";
-  const a = (label: string, done: boolean, at: string | null = null): LifeStep => ({ label, done, at });
-  if (pickup) {
-    return [
-      a("Vendor Assigned", assigned, assigned ? fmt(assignedAt) : null),
-      a("Picked Up", completed),
-      a("Dropped at Warehouse", completed),
-    ];
+// One combined chain for the vendor's whole day:
+//   (evening before) Collect retrievals from warehouse → deliver each retrieval → do each pickup →
+//   drop pickups at warehouse. Customer info sits above each node; the action below.
+function vendorChain(v: any): LifeStep[] {
+  const retr = ordered(v.orders.filter((o: any) => !isPickup(o)), v.plan);
+  const pick = ordered(v.orders.filter((o: any) => isPickup(o)), v.plan);
+  const steps: LifeStep[] = [];
+
+  if (retr.length) {
+    steps.push({
+      label: "Collect", sub: "warehouse · evening before", done: retr.every(isDone),
+      top: { ref: `${retr.length} retrieval${retr.length > 1 ? "s" : ""}`, name: "from warehouse" },
+    });
+    for (const o of retr) steps.push({ label: "Deliver", done: isDone(o), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
   }
-  return [
-    a("Vendor Assigned", assigned, assigned ? fmt(assignedAt) : null),
-    a("Collected from Warehouse", completed), // evening before
-    a("Delivered to Customer", completed),
-  ];
+  for (const o of pick) steps.push({ label: "Pick up", done: isDone(o), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
+  if (pick.length) {
+    steps.push({
+      label: "Drop", sub: "pickups · warehouse", done: pick.every(isDone),
+      top: { ref: `${pick.length} pickup${pick.length > 1 ? "s" : ""}`, name: "to warehouse" },
+    });
+  }
+  return steps;
 }
 
 export default function MonitoringView({ cities }: { cities: ScheduleData[] }) {
@@ -46,43 +46,49 @@ export default function MonitoringView({ cities }: { cities: ScheduleData[] }) {
   return (
     <div className="space-y-8">
       {cities.map((c) => {
-        const rows = c.vendors.flatMap((v: any) => v.orders.map((o: any) => ({ o, v })));
-        if (rows.length === 0) return null;
+        const assigned = c.vendors.filter((v: any) => !v.isUnassigned && v.orders.length);
+        const unassigned = c.vendors.filter((v: any) => v.isUnassigned).flatMap((v: any) => v.orders);
+        if (assigned.length === 0 && unassigned.length === 0) return null;
         return (
           <section key={c.city}>
             <div className="mb-3 flex flex-wrap items-baseline gap-x-3 border-b border-slate-200 pb-1">
               <h2 className="text-base font-bold text-slate-900">{cityName(c.city)}</h2>
-              <span className="text-xs text-slate-500">{rows.length} bookings today</span>
+              <span className="text-xs text-slate-500">{assigned.length} teams · {c.vendors.reduce((s: number, v: any) => s + v.orders.length, 0)} bookings</span>
             </div>
+
             <div className="space-y-3">
-              {rows.map(({ o, v }, i) => {
-                const t = TYPE[o.order_type] ?? TYPE.pickup;
-                const steps = buildSteps(o, v.vendorNotifiedAt ?? null, !v.isUnassigned);
+              {assigned.map((v: any) => {
+                const retr = v.orders.filter((o: any) => !isPickup(o)).length;
+                const pick = v.orders.filter((o: any) => isPickup(o)).length;
                 const vendorContact = v.driverContact || v.supervisorContact || null;
                 return (
-                  <div key={(o.customer_unique_id ?? o.id ?? i) + "-" + i} className="rounded-xl border border-slate-200 border-l-4 border-l-emerald-500 bg-white p-4">
-                    {/* TOP: order number + customer name */}
+                  <div key={v.vendorId ?? v.vendorName} className="rounded-xl border border-slate-200 border-l-4 border-l-emerald-500 bg-white p-4">
+                    {/* vendor header */}
                     <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span className="text-sm font-bold text-slate-900">{o.customer_unique_id ?? o.order_id}</span>
-                      <span className="text-sm text-slate-700">{o.customer_name}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${t.cls}`}>{t.label}{o.is_intercity ? " · intercity" : ""}</span>
-                      {o.locality && <span className="text-xs text-slate-400">{o.locality}</span>}
-                      {o.time_slot && <span className="text-xs text-slate-400">wants {String(o.time_slot).replace(/:00/g, "")}</span>}
+                      <span className="text-sm font-bold text-slate-900">{v.vendorName}</span>
+                      {vendorContact && <span className="text-xs text-slate-400">{vendorContact}</span>}
+                      {v.isIntercity && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 ring-1 ring-violet-200">intercity</span>}
+                      <span className="text-xs text-slate-500">{retr ? `${retr} retrieval${retr > 1 ? "s" : ""}` : ""}{retr && pick ? " · " : ""}{pick ? `${pick} pickup${pick > 1 ? "s" : ""}` : ""}</span>
                     </div>
-
-                    <Lifecycle steps={steps} />
-
-                    {/* BOTTOM: vendor (number) + customer (number) */}
-                    <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-2 text-xs text-slate-500">
-                      <span>
-                        Vendor: {v.isUnassigned ? <span className="font-medium text-amber-600">unassigned</span> : <b className="font-medium text-slate-700">{v.vendorName}</b>}
-                        {vendorContact && <span className="text-slate-400"> · {vendorContact}</span>}
-                      </span>
-                      <span>Customer: <b className="font-medium text-slate-700">{o.customer_name}</b>{o.contact ? <span className="text-slate-400"> · {o.contact}</span> : null}</span>
-                    </div>
+                    <Lifecycle steps={vendorChain(v)} />
                   </div>
                 );
               })}
+
+              {/* orders still awaiting a vendor */}
+              {unassigned.length > 0 && (
+                <div className="rounded-xl border border-amber-200 border-l-4 border-l-amber-400 bg-amber-50/40 p-4">
+                  <div className="mb-2 text-sm font-bold text-amber-700">Awaiting team assignment · {unassigned.length}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {unassigned.map((o: any, i: number) => (
+                      <span key={(o.customer_unique_id ?? i) + "-" + i} className="rounded-lg bg-white px-2.5 py-1 text-xs ring-1 ring-amber-200">
+                        <b className="font-semibold text-slate-800">{o.customer_unique_id}</b> <span className="text-slate-600">{o.customer_name}</span>
+                        <span className="ml-1 text-slate-400">{isPickup(o) ? "pickup" : "retrieval"}{o.is_intercity ? " · intercity" : ""}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         );

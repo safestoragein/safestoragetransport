@@ -18,7 +18,7 @@ function fmtClock(min: number) {
   return `${hh}:${String(m).padStart(2, "0")} ${ap}`;
 }
 
-const KIND_DOT: Record<string, string> = { start: "bg-slate-300", wh: "bg-slate-400", deliver: "bg-emerald-500", pickup: "bg-blue-500" };
+const KIND_DOT: Record<string, string> = { start: "bg-slate-300", "wh-eve": "bg-violet-500", wh: "bg-slate-400", deliver: "bg-emerald-500", pickup: "bg-blue-500" };
 
 // Lift available at the site? No lift => more manual carry => the team typically adds a resource.
 function liftBadge(raw: string | null | undefined) {
@@ -138,7 +138,7 @@ export default function ScheduleCityView({ initial }: { initial: ScheduleData })
                   {plan.steps.map((s, i) => (
                     <li key={i} className="flex items-start gap-2 text-xs">
                       <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${KIND_DOT[s.kind] ?? "bg-slate-400"}`} />
-                      <span className="w-28 shrink-0 font-medium text-slate-700">{fmtClock(s.arrive)}–{fmtClock(s.depart)}</span>
+                      <span className="w-28 shrink-0 font-medium text-slate-700">{s.kind === "wh-eve" ? "evening before" : `${fmtClock(s.arrive)}–${fmtClock(s.depart)}`}</span>
                       <span className="min-w-0 text-slate-600">
                         {s.label}
                         <span className="text-slate-400"> · {s.travel}m travel + {s.work}m work</span>

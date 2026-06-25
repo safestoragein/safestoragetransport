@@ -8,7 +8,6 @@ import { durationMatrix } from "./routing";
 const START_MIN = 9 * 60;   // 9:00 AM
 const PICKUP_WORK = 240;    // pickup = packing + loading ~4h
 const RETR_DELIVER = 60;    // retrieval = deliver/unload ~1h
-const WH_LOAD = 30;         // load retrieval goods at the warehouse
 const WH_UNLOAD = 30;       // unload pickups at the warehouse
 const FLAT_TRAVEL = 30;     // fallback when a point has no coordinates
 
@@ -53,7 +52,6 @@ export async function buildVendorPlan(v: any): Promise<VendorPlan> {
   const byOrder: VendorPlan["byOrder"] = {};
   let clock = START_MIN;
   let prev: Pt = depot;
-  steps.push({ kind: "start", label: `Start from ${v.startingPoint || "depot"}`, travel: 0, work: 0, arrive: clock, depart: clock });
 
   const push = (kind: string, label: string, t: number, work: number, o?: any) => {
     const arrive = clock + t; clock = arrive + work;
@@ -63,23 +61,25 @@ export async function buildVendorPlan(v: any): Promise<VendorPlan> {
     if (o) byOrder[o.customer_unique_id] = { arrive, depart: clock, late };
   };
 
-  const byTrip = new Map<number, any[]>();
-  v.orders.forEach((o: any) => { (byTrip.get(o.trip_no) ?? byTrip.set(o.trip_no, []).get(o.trip_no)!).push(o); });
-  const tripWindow = (tn: number) => Math.min(...byTrip.get(tn)!.map(slotStart));
-  for (const tn of [...byTrip.keys()].sort((a, b) => tripWindow(a) - tripWindow(b) || a - b)) {
-    const ords = byTrip.get(tn)!.slice().sort((a, b) => slotStart(a) - slotStart(b) || a.stop_seq - b.stop_seq);
-    const retr = ords.filter((o) => o.order_type !== "pickup");
-    const pick = ords.filter((o) => o.order_type === "pickup");
-    const whPt = whOf(ords.find((o) => whOf(o)) ?? {});
-    const whName = ords[0]?.warehouse_name ? ` (${String(ords[0].warehouse_name).split("·")[0].trim()})` : "";
-    if (retr.length) {
-      push("wh", `Go to warehouse${whName} — load goods for ${retr.map((o) => o.customer_unique_id).join(", ")}`, travel(prev, whPt), WH_LOAD + 10 * retr.length);
-      prev = whPt;
-      for (const o of retr) { push("deliver", `Deliver to ${o.locality || "site"} — ${o.customer_name}`, travel(prev, ptOf(o)), RETR_DELIVER, o); prev = ptOf(o); }
-    }
-    for (const o of pick) { push("pickup", `Pick up & pack at ${o.locality || "site"} — ${o.customer_name}`, travel(prev, ptOf(o)), PICKUP_WORK, o); prev = ptOf(o); }
-    if (pick.length) { push("wh", `Return to warehouse${whName} — unload`, travel(prev, whPt), WH_UNLOAD); prev = whPt; }
+  // Real-world flow: retrieval goods are collected from the warehouse the EVENING BEFORE, so the
+  // vehicle starts the morning already loaded. The team then delivers all retrievals first, then
+  // does pickups, and finally drops the pickup goods at the warehouse.
+  const retr = v.orders.filter((o: any) => o.order_type !== "pickup").sort((a: any, b: any) => slotStart(a) - slotStart(b) || a.stop_seq - b.stop_seq);
+  const pick = v.orders.filter((o: any) => o.order_type === "pickup").sort((a: any, b: any) => slotStart(a) - slotStart(b) || a.stop_seq - b.stop_seq);
+  const whPt = whOf(v.orders.find((o: any) => whOf(o)) ?? {});
+  const whName = v.orders[0]?.warehouse_name ? ` (${String(v.orders[0].warehouse_name).split("·")[0].trim()})` : "";
+
+  if (retr.length) {
+    // evening-before collection — not on the morning clock (goods already in the vehicle at start)
+    steps.push({ kind: "wh-eve", label: `Collect ${retr.length} retrieval load${retr.length > 1 ? "s" : ""} from warehouse${whName} — evening before`, travel: 0, work: 0, arrive: START_MIN, depart: START_MIN });
   }
+  steps.push({ kind: "start", label: `Start from ${v.startingPoint || "depot"} (goods already loaded)`, travel: 0, work: 0, arrive: clock, depart: clock });
+  // morning: deliver retrievals first
+  for (const o of retr) { push("deliver", `Deliver to ${o.locality || "site"} — ${o.customer_name}`, travel(prev, ptOf(o)), RETR_DELIVER, o); prev = ptOf(o); }
+  // then pickups
+  for (const o of pick) { push("pickup", `Pick up & pack at ${o.locality || "site"} — ${o.customer_name}`, travel(prev, ptOf(o)), PICKUP_WORK, o); prev = ptOf(o); }
+  // drop pickup goods at the warehouse
+  if (pick.length) { push("wh", `Drop pickups at warehouse${whName}`, travel(prev, whPt), WH_UNLOAD); prev = whPt; }
   return { steps, end: clock, byOrder };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
