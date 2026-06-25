@@ -18,10 +18,12 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
   const [vendors, setVendors] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [open, setOpen] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
+  // One expanded row at a time, in one of three modes.
+  const [exp, setExp] = useState<{ id: string; mode: "details" | "compliance" | "edit" } | null>(null);
+  const toggle = (id: string, mode: "details" | "compliance" | "edit") =>
+    setExp((e) => (e && e.id === id && e.mode === mode ? null : { id, mode }));
   const canEdit = user?.role === "admin";
-  const onSaved = (u: VendorMaster) => { setVendors((arr) => arr.map((x) => (x.id === u.id ? u : x))); setEditing(null); };
+  const onSaved = (u: VendorMaster) => { setVendors((arr) => arr.map((x) => (x.id === u.id ? u : x))); setExp(null); };
 
   const cities = [...new Set(vendors.map((v) => v.city))].sort();
   const [cityFilter, setCityFilter] = useState("All");
@@ -171,9 +173,6 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                   {header("Tier", "tier")}
                   {header("Starting point", "startingPoint")}
                   {header("Daily price", "dailyPrice")}
-                  <th className="px-3 py-2 font-medium">Security deposit</th>
-                  <th className="px-3 py-2 font-medium">Service agreement</th>
-                  <th className="px-3 py-2 font-medium">GST doc</th>
                   {header("Supervisor", "supervisorName")}
                   {header("Intercity", "isIntercityVendor")}
                   <th className="px-3 py-2 font-medium"></th>
@@ -183,42 +182,48 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                 {sorted.map((v) => (
                   <Row
                     key={v.id} v={v}
-                    open={open === v.id} onToggleOpen={() => setOpen(open === v.id ? null : v.id)}
+                    mode={exp?.id === v.id ? exp.mode : null}
                     busy={busy === v.id} onToggleIntercity={() => toggleIntercity(v)}
-                    canEdit={canEdit} editing={editing === v.id}
-                    onEdit={() => { setEditing(v.id); setOpen(v.id); }} onCancelEdit={() => setEditing(null)} onSaved={onSaved}
+                    canEdit={canEdit}
+                    onDetails={() => toggle(v.id, "details")} onCompliance={() => toggle(v.id, "compliance")}
+                    onEdit={() => toggle(v.id, "edit")} onCancelEdit={() => setExp(null)} onSaved={onSaved}
                   />
                 ))}
               </tbody>
             </table>
           </div>
         </Card>
-        <p className="mt-3 text-xs text-slate-400">Click a row to see supervisor, driver, packers &amp; vehicle. Click the Intercity cell to toggle. Edits are saved &amp; shared.</p>
+        <p className="mt-3 text-xs text-slate-400">Details = team &amp; vehicle · Compliance = security deposit &amp; documents · Edit (admin) to change details or upload documents. Click the Intercity cell to toggle.</p>
     </AppShell>
   );
 }
 
-function DocCell({ url }: { url?: string | null }) {
-  if (!url) return <td className="px-3 py-2.5 text-slate-300">—</td>;
+function DocLink({ label, url }: { label: string; url?: string | null }) {
   return (
-    <td className="px-3 py-2.5">
-      <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
-        View
-      </a>
-    </td>
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
+      {url ? (
+        <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+          View document
+        </a>
+      ) : (
+        <div className="text-sm text-slate-400">Not uploaded</div>
+      )}
+    </div>
   );
 }
 
-function Row({ v, open, onToggleOpen, busy, onToggleIntercity, canEdit, editing, onEdit, onCancelEdit, onSaved }: {
-  v: VendorMaster; open: boolean; onToggleOpen: () => void; busy: boolean; onToggleIntercity: () => void;
-  canEdit: boolean; editing: boolean; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void;
+function Row({ v, mode, busy, onToggleIntercity, canEdit, onDetails, onCompliance, onEdit, onCancelEdit, onSaved }: {
+  v: VendorMaster; mode: "details" | "compliance" | "edit" | null; busy: boolean; onToggleIntercity: () => void;
+  canEdit: boolean; onDetails: () => void; onCompliance: () => void; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void;
 }) {
+  const open = mode !== null;
   return (
     <>
       <tr className="border-t border-slate-100 hover:bg-slate-50">
         <td className="px-3 py-2.5 text-slate-600">{v.city}</td>
-        <td className="cursor-pointer px-3 py-2.5 font-medium text-slate-800" onClick={onToggleOpen}>
+        <td className="cursor-pointer px-3 py-2.5 font-medium text-slate-800" onClick={onDetails}>
           <span className="mr-1 text-slate-400">{open ? "▾" : "▸"}</span>{v.name}
           {v.source === "panel" && <span className="ml-1.5 rounded bg-blue-50 px-1 text-[10px] text-blue-600">added</span>}
         </td>
@@ -226,9 +231,6 @@ function Row({ v, open, onToggleOpen, busy, onToggleIntercity, canEdit, editing,
         <td className="px-3 py-2.5"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${TIER_BADGE[v.tier] ?? TIER_BADGE.general}`}>{TIER_LABEL[v.tier] ?? v.tier}</span></td>
         <td className="px-3 py-2.5 text-slate-500">{v.startingPoint || "—"}</td>
         <td className="px-3 py-2.5 text-slate-700">{v.dailyPrice != null ? `${money(v.dailyPrice)}/day` : v.pricingNote || "—"}</td>
-        <td className="px-3 py-2.5 text-slate-700">{v.securityDeposit != null ? money(v.securityDeposit) : "—"}</td>
-        <DocCell url={v.serviceAgreementUrl} />
-        <DocCell url={v.gstDocumentUrl} />
         <td className="px-3 py-2.5 text-slate-500">{v.supervisorName ? <>{v.supervisorName}{v.supervisorContact ? <span className="block text-xs text-slate-400">{v.supervisorContact}</span> : null}</> : "—"}</td>
         <td className="px-3 py-2.5">
           <button disabled={busy} onClick={onToggleIntercity} className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${v.isIntercityVendor ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-50 text-slate-500 ring-slate-200"}`}>
@@ -236,15 +238,22 @@ function Row({ v, open, onToggleOpen, busy, onToggleIntercity, canEdit, editing,
           </button>
         </td>
         <td className="whitespace-nowrap px-3 py-2.5 text-right">
-          {canEdit && <button onClick={onEdit} className="mr-3 text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline">Edit</button>}
-          <button onClick={onToggleOpen} className="text-xs text-blue-600 hover:underline">{open ? "Hide" : "Details"}</button>
+          <button onClick={onCompliance} className={`mr-3 text-xs font-medium hover:underline ${mode === "compliance" ? "text-indigo-600" : "text-slate-600 hover:text-slate-900"}`}>Compliance</button>
+          {canEdit && <button onClick={onEdit} className={`mr-3 text-xs font-medium hover:underline ${mode === "edit" ? "text-indigo-600" : "text-slate-600 hover:text-slate-900"}`}>Edit</button>}
+          <button onClick={onDetails} className="text-xs text-blue-600 hover:underline">{mode === "details" ? "Hide" : "Details"}</button>
         </td>
       </tr>
       {open && (
         <tr className="border-t border-slate-100 bg-slate-50">
-          <td colSpan={12} className="px-3 py-3">
-            {editing ? (
+          <td colSpan={9} className="px-3 py-3">
+            {mode === "edit" ? (
               <EditForm v={v} onSaved={onSaved} onCancel={onCancelEdit} />
+            ) : mode === "compliance" ? (
+              <div className="grid gap-x-8 gap-y-3 text-xs sm:grid-cols-3">
+                <Detail label="Security deposit" value={v.securityDeposit != null ? money(v.securityDeposit) : null} />
+                <DocLink label="Service agreement" url={v.serviceAgreementUrl} />
+                <DocLink label="GST document" url={v.gstDocumentUrl} />
+              </div>
             ) : (
               <div className="grid gap-x-8 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
                 <Detail label="Supervisor" value={v.supervisorName} sub={v.supervisorContact} />
@@ -253,7 +262,6 @@ function Row({ v, open, onToggleOpen, busy, onToggleIntercity, canEdit, editing,
                 <Detail label="Vehicle no" value={v.vehicleNo} />
                 <Detail label="System team" value={v.systemTeamNo} />
                 <Detail label="Pallet capacity" value={`${v.palletCapacity} pallets`} />
-                <Detail label="Security deposit" value={v.securityDeposit != null ? money(v.securityDeposit) : null} />
               </div>
             )}
           </td>
