@@ -16,3 +16,10 @@ create table if not exists safestorage.transport_users (
 -- case-insensitive email lookup
 create unique index if not exists transport_users_email_lower_idx
   on safestorage.transport_users (lower(email));
+
+-- The app reads this table with the SERVICE ROLE key only. A table newly created in a custom schema
+-- has no grants for Supabase's API roles, so without this the login query fails with
+-- "permission denied for table transport_users". Grant ONLY service_role — never anon/authenticated,
+-- since this table stores password hashes.
+grant all privileges on table safestorage.transport_users to service_role;
+notify pgrst, 'reload schema';
