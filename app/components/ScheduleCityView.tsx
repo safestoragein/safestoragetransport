@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ScheduleData } from "@/lib/schedule";
 import { money } from "@/lib/format";
 import { Card } from "./ui";
+import VendorDetails from "./VendorDetails";
 
 const TYPE: Record<string, { label: string; cls: string; dot: string }> = {
   pickup: { label: "Pickup", cls: "bg-blue-50 border-blue-200", dot: "bg-blue-500" },
@@ -18,7 +19,6 @@ function fmtClock(min: number) {
   return `${hh}:${String(m).padStart(2, "0")} ${ap}`;
 }
 
-const KIND_DOT: Record<string, string> = { start: "bg-slate-300", "wh-eve": "bg-violet-500", wh: "bg-slate-400", deliver: "bg-emerald-500", pickup: "bg-blue-500" };
 
 // Lift available at the site? No lift => more manual carry => the team typically adds a resource.
 function liftBadge(raw: string | null | undefined) {
@@ -106,9 +106,9 @@ export default function ScheduleCityView({ initial }: { initial: ScheduleData })
               <div className="flex shrink-0 items-center gap-2">
                 <span className="flex items-center gap-1 text-[11px] text-slate-500" title="Extra labour resource for the whole day">
                   <span>Resource:</span>
-                  <button disabled={pending === `res:${v.vendorName}` || v.resources <= 0} onClick={() => setResources(v.vendorName, v.resources - 1)} className="h-5 w-5 rounded bg-white text-slate-600 ring-1 ring-slate-200 disabled:opacity-30">−</button>
+                  <button disabled={pending === `res:${v.vendorName}` || v.resources <= 0} onClick={() => setResources(v.vendorName, v.resources - 1)} className="h-6 w-6 rounded bg-white text-slate-600 ring-1 ring-slate-200 disabled:opacity-30">−</button>
                   <span className="w-4 text-center font-medium text-slate-700">{v.resources}</span>
-                  <button disabled={pending === `res:${v.vendorName}`} onClick={() => setResources(v.vendorName, v.resources + 1)} className="rounded bg-white px-1.5 py-0.5 text-slate-700 ring-1 ring-slate-200">+ {money(sched.resourceCost)}</button>
+                  <button disabled={pending === `res:${v.vendorName}`} onClick={() => setResources(v.vendorName, v.resources + 1)} className="rounded-md bg-amber-500 px-2 py-1 font-semibold text-white shadow-sm hover:bg-amber-600 disabled:opacity-50">+ {money(sched.resourceCost)}</button>
                 </span>
                 <button
                   onClick={() => setOpenPlan(openPlan === (v.vendorId ?? v.vendorName) ? null : (v.vendorId ?? v.vendorName))}
@@ -127,30 +127,7 @@ export default function ScheduleCityView({ initial }: { initial: ScheduleData })
             )}
           </div>
 
-          {!v.isUnassigned && plan && openPlan === (v.vendorId ?? v.vendorName) && (() => {
-            return (
-              <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
-                <div className="mb-2 text-xs font-semibold text-slate-700">
-                  Estimated day plan · starts {fmtClock(plan.steps[0]?.arrive ?? 540)} · ends ~{fmtClock(plan.end)}
-                  <span className="ml-2 font-normal text-slate-400">real road travel (OSRM); pack ~4h/pickup, deliver ~1h</span>
-                </div>
-                <ol className="space-y-1.5">
-                  {plan.steps.map((s, i) => (
-                    <li key={i} className="flex items-start gap-2 text-xs">
-                      <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${KIND_DOT[s.kind] ?? "bg-slate-400"}`} />
-                      <span className="w-28 shrink-0 font-medium text-slate-700">{s.kind === "wh-eve" ? "evening before" : `${fmtClock(s.arrive)}–${fmtClock(s.depart)}`}</span>
-                      <span className="min-w-0 text-slate-600">
-                        {s.label}
-                        <span className="text-slate-400"> · {s.travel}m travel + {s.work}m work</span>
-                        {s.slot && <span className={`ml-1 rounded px-1 text-[10px] ring-1 ${s.late ? "bg-red-50 text-red-600 ring-red-200" : "bg-white text-slate-500 ring-slate-200"}`}>customer wants {s.slot.replace(/:00/g, "")}{s.late ? " · LATE" : ""}</span>}
-                        {liftBadge(s.lift)?.ok === false && <span className="ml-1 rounded bg-orange-100 px-1 text-[10px] font-medium text-orange-700">⚠ no lift</span>}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            );
-          })()}
+          {!v.isUnassigned && plan && openPlan === (v.vendorId ?? v.vendorName) && <VendorDetails v={v} />}
 
           <div className="divide-y divide-slate-100">
             {(v.isUnassigned ? v.orders : [...v.orders].sort((a: any, b: any) => (plan?.byOrder?.[a.customer_unique_id]?.arrive ?? 1e9) - (plan?.byOrder?.[b.customer_unique_id]?.arrive ?? 1e9))).map((o: any, idx: number) => {
