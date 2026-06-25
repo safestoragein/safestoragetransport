@@ -19,6 +19,9 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
   const [busy, setBusy] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const canEdit = user?.role === "admin";
+  const onSaved = (u: VendorMaster) => { setVendors((arr) => arr.map((x) => (x.id === u.id ? u : x))); setEditing(null); };
 
   const cities = [...new Set(vendors.map((v) => v.city))].sort();
   const [cityFilter, setCityFilter] = useState("All");
@@ -168,6 +171,9 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                   {header("Tier", "tier")}
                   {header("Starting point", "startingPoint")}
                   {header("Daily price", "dailyPrice")}
+                  <th className="px-3 py-2 font-medium">Security deposit</th>
+                  <th className="px-3 py-2 font-medium">Service agreement</th>
+                  <th className="px-3 py-2 font-medium">GST doc</th>
                   {header("Supervisor", "supervisorName")}
                   {header("Intercity", "isIntercityVendor")}
                   <th className="px-3 py-2 font-medium"></th>
@@ -175,7 +181,13 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
               </thead>
               <tbody>
                 {sorted.map((v) => (
-                  <Row key={v.id} v={v} open={open === v.id} onToggleOpen={() => setOpen(open === v.id ? null : v.id)} busy={busy === v.id} onToggleIntercity={() => toggleIntercity(v)} />
+                  <Row
+                    key={v.id} v={v}
+                    open={open === v.id} onToggleOpen={() => setOpen(open === v.id ? null : v.id)}
+                    busy={busy === v.id} onToggleIntercity={() => toggleIntercity(v)}
+                    canEdit={canEdit} editing={editing === v.id}
+                    onEdit={() => { setEditing(v.id); setOpen(v.id); }} onCancelEdit={() => setEditing(null)} onSaved={onSaved}
+                  />
                 ))}
               </tbody>
             </table>
@@ -186,7 +198,22 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
   );
 }
 
-function Row({ v, open, onToggleOpen, busy, onToggleIntercity }: { v: VendorMaster; open: boolean; onToggleOpen: () => void; busy: boolean; onToggleIntercity: () => void }) {
+function DocCell({ url }: { url?: string | null }) {
+  if (!url) return <td className="px-3 py-2.5 text-slate-300">—</td>;
+  return (
+    <td className="px-3 py-2.5">
+      <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+        View
+      </a>
+    </td>
+  );
+}
+
+function Row({ v, open, onToggleOpen, busy, onToggleIntercity, canEdit, editing, onEdit, onCancelEdit, onSaved }: {
+  v: VendorMaster; open: boolean; onToggleOpen: () => void; busy: boolean; onToggleIntercity: () => void;
+  canEdit: boolean; editing: boolean; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void;
+}) {
   return (
     <>
       <tr className="border-t border-slate-100 hover:bg-slate-50">
@@ -199,25 +226,36 @@ function Row({ v, open, onToggleOpen, busy, onToggleIntercity }: { v: VendorMast
         <td className="px-3 py-2.5"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${TIER_BADGE[v.tier] ?? TIER_BADGE.general}`}>{TIER_LABEL[v.tier] ?? v.tier}</span></td>
         <td className="px-3 py-2.5 text-slate-500">{v.startingPoint || "—"}</td>
         <td className="px-3 py-2.5 text-slate-700">{v.dailyPrice != null ? `${money(v.dailyPrice)}/day` : v.pricingNote || "—"}</td>
+        <td className="px-3 py-2.5 text-slate-700">{v.securityDeposit != null ? money(v.securityDeposit) : "—"}</td>
+        <DocCell url={v.serviceAgreementUrl} />
+        <DocCell url={v.gstDocumentUrl} />
         <td className="px-3 py-2.5 text-slate-500">{v.supervisorName ? <>{v.supervisorName}{v.supervisorContact ? <span className="block text-xs text-slate-400">{v.supervisorContact}</span> : null}</> : "—"}</td>
         <td className="px-3 py-2.5">
           <button disabled={busy} onClick={onToggleIntercity} className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${v.isIntercityVendor ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-50 text-slate-500 ring-slate-200"}`}>
             {busy ? "…" : v.isIntercityVendor ? "Yes" : "No"}
           </button>
         </td>
-        <td className="px-3 py-2.5 text-right"><button onClick={onToggleOpen} className="text-xs text-blue-600 hover:underline">{open ? "Hide" : "Details"}</button></td>
+        <td className="whitespace-nowrap px-3 py-2.5 text-right">
+          {canEdit && <button onClick={onEdit} className="mr-3 text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline">Edit</button>}
+          <button onClick={onToggleOpen} className="text-xs text-blue-600 hover:underline">{open ? "Hide" : "Details"}</button>
+        </td>
       </tr>
       {open && (
         <tr className="border-t border-slate-100 bg-slate-50">
-          <td colSpan={9} className="px-3 py-3">
-            <div className="grid gap-x-8 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
-              <Detail label="Supervisor" value={v.supervisorName} sub={v.supervisorContact} />
-              <Detail label="Driver" value={v.driverName} sub={v.driverContact} />
-              <Detail label="Packers" value={v.packerNames} />
-              <Detail label="Vehicle no" value={v.vehicleNo} />
-              <Detail label="System team" value={v.systemTeamNo} />
-              <Detail label="Pallet capacity" value={`${v.palletCapacity} pallets`} />
-            </div>
+          <td colSpan={12} className="px-3 py-3">
+            {editing ? (
+              <EditForm v={v} onSaved={onSaved} onCancel={onCancelEdit} />
+            ) : (
+              <div className="grid gap-x-8 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                <Detail label="Supervisor" value={v.supervisorName} sub={v.supervisorContact} />
+                <Detail label="Driver" value={v.driverName} sub={v.driverContact} />
+                <Detail label="Packers" value={v.packerNames} />
+                <Detail label="Vehicle no" value={v.vehicleNo} />
+                <Detail label="System team" value={v.systemTeamNo} />
+                <Detail label="Pallet capacity" value={`${v.palletCapacity} pallets`} />
+                <Detail label="Security deposit" value={v.securityDeposit != null ? money(v.securityDeposit) : null} />
+              </div>
+            )}
           </td>
         </tr>
       )}
@@ -230,6 +268,119 @@ function Detail({ label, value, sub }: { label: string; value?: string | null; s
     <div>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
       <div className="text-slate-700">{value || "—"}{sub ? <span className="ml-1 text-slate-400">· {sub}</span> : null}</div>
+    </div>
+  );
+}
+
+// Admin edit: vendor fields + security deposit + upload service-agreement / GST documents.
+function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: VendorMaster) => void; onCancel: () => void }) {
+  const [f, setF] = useState({
+    name: v.name ?? "", startingPoint: v.startingPoint ?? "", tier: v.tier,
+    dailyPrice: v.dailyPrice != null ? String(v.dailyPrice) : "",
+    securityDeposit: v.securityDeposit != null ? String(v.securityDeposit) : "",
+    supervisorName: v.supervisorName ?? "", supervisorContact: v.supervisorContact ?? "",
+    driverName: v.driverName ?? "", driverContact: v.driverContact ?? "",
+    packerNames: v.packerNames ?? "", vehicleNo: v.vehicleNo ?? "", systemTeamNo: v.systemTeamNo ?? "",
+    isIntercityVendor: v.isIntercityVendor,
+  });
+  const [saFile, setSaFile] = useState<File | null>(null);
+  const [gstFile, setGstFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k: string, val: string | boolean) => setF((p) => ({ ...p, [k]: val }));
+
+  async function upload(kind: "service_agreement" | "gst", file: File): Promise<string> {
+    const fd = new FormData();
+    fd.append("file", file); fd.append("vendorId", v.id); fd.append("kind", kind);
+    const r = await fetch("/api/vendors/upload", { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || "upload failed");
+    return j.url as string;
+  }
+
+  async function save() {
+    setSaving(true); setErr("");
+    try {
+      let sa = v.serviceAgreementUrl ?? null;
+      let gst = v.gstDocumentUrl ?? null;
+      if (saFile) sa = await upload("service_agreement", saFile);
+      if (gstFile) gst = await upload("gst", gstFile);
+      const patch = {
+        id: v.id, name: f.name.trim(), startingPoint: f.startingPoint.trim(), tier: f.tier,
+        isIntercityVendor: f.isIntercityVendor,
+        dailyPrice: f.dailyPrice === "" ? null : Number(f.dailyPrice),
+        securityDeposit: f.securityDeposit === "" ? null : Number(f.securityDeposit),
+        supervisorName: f.supervisorName.trim() || null, supervisorContact: f.supervisorContact.trim() || null,
+        driverName: f.driverName.trim() || null, driverContact: f.driverContact.trim() || null,
+        packerNames: f.packerNames.trim() || null, vehicleNo: f.vehicleNo.trim() || null, systemTeamNo: f.systemTeamNo.trim() || null,
+      };
+      const r = await fetch("/api/vendors", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+      if (!r.ok) throw new Error("Could not save changes");
+      onSaved({ ...v, ...patch, serviceAgreementUrl: sa, gstDocumentUrl: gst });
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const input = "w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm";
+  const field = (label: string, k: keyof typeof f, type = "text", placeholder = "") => (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-medium text-slate-500">{label}</span>
+      <input className={input} type={type} placeholder={placeholder} value={f[k] as string} onChange={(e) => set(k, e.target.value)} />
+    </label>
+  );
+  const docField = (label: string, current: string | null | undefined, file: File | null, setFile: (f: File | null) => void) => (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-medium text-slate-500">
+        {label}
+        {current && <a href={current} target="_blank" rel="noreferrer" className="ml-2 text-blue-600 hover:underline">current ↗</a>}
+      </span>
+      <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white" />
+      {file && <span className="mt-1 block text-[11px] text-emerald-600">{file.name} — will upload on save</span>}
+    </label>
+  );
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-3 text-sm font-semibold text-slate-700">Edit {v.name}</div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {field("Vendor name", "name")}
+        {field("Starting point", "startingPoint")}
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-slate-500">Tier</span>
+          <select className={input} value={f.tier} onChange={(e) => set("tier", e.target.value)}>
+            <option value="general">General</option>
+            <option value="non_general">Non-general</option>
+          </select>
+        </label>
+        {field("Daily price (₹)", "dailyPrice", "number")}
+        {field("Security deposit (₹)", "securityDeposit", "number", "e.g. 25000")}
+        {field("Supervisor name", "supervisorName")}
+        {field("Supervisor contact", "supervisorContact")}
+        {field("Driver name", "driverName")}
+        {field("Driver contact", "driverContact")}
+        {field("Packers", "packerNames")}
+        {field("Vehicle no", "vehicleNo")}
+        {field("System team", "systemTeamNo")}
+      </div>
+
+      <div className="mb-1 mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Documents</div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {docField("Service agreement", v.serviceAgreementUrl, saFile, setSaFile)}
+        {docField("GST document", v.gstDocumentUrl, gstFile, setGstFile)}
+      </div>
+
+      <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={f.isIntercityVendor} onChange={(e) => set("isIntercityVendor", e.target.checked)} /> Intercity vendor
+      </label>
+
+      {err && <div className="mt-2 text-xs text-red-600">{err}</div>}
+      <div className="mt-3 flex gap-2">
+        <button onClick={save} disabled={saving} className="rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button>
+        <button onClick={onCancel} disabled={saving} className="rounded-lg px-4 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">Cancel</button>
+      </div>
     </div>
   );
 }

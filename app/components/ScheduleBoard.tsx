@@ -6,6 +6,7 @@ import { money } from "@/lib/format";
 import { SessionUser } from "@/lib/auth";
 import AppShell from "./AppShell";
 import ScheduleCityView from "./ScheduleCityView";
+import MonitoringView from "./MonitoringView";
 import { Card } from "./ui";
 
 const cityName = (slug: string) => slug.replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
@@ -131,9 +132,12 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                 ⬇ Download Excel
               </a>
             )}
-            <button onClick={generate} disabled={busy || (isHistory && !data?.date)} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-              {busy ? "Generating all cities…" : "Generate / refresh all cities"}
-            </button>
+            {/* Today is monitoring-only — no generate. */}
+            {!isToday && (
+              <button onClick={generate} disabled={busy || (isHistory && !data?.date)} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+                {busy ? "Generating all cities…" : "Generate / refresh all cities"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -163,18 +167,20 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
               ))}
             </select>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-slate-500">Packing material ₹/pallet</label>
-            <input
-              type="number" min={0} value={packingDraft}
-              onChange={(e) => setPackingDraft(e.target.value)}
-              className="w-24 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
-            />
-            <button onClick={savePacking} disabled={!packingDirty || savingPacking} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-              {savingPacking ? "Saving…" : "Save"}
-            </button>
-            <span className="text-[11px] text-slate-400">applies on next generate</span>
-          </div>
+          {!isToday && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-slate-500">Packing material ₹/pallet</label>
+              <input
+                type="number" min={0} value={packingDraft}
+                onChange={(e) => setPackingDraft(e.target.value)}
+                className="w-24 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
+              />
+              <button onClick={savePacking} disabled={!packingDirty || savingPacking} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                {savingPacking ? "Saving…" : "Save"}
+              </button>
+              <span className="text-[11px] text-slate-400">applies on next generate</span>
+            </div>
+          )}
         </div>
 
         {/* Summary stat cards */}
@@ -215,14 +221,19 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
             <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">
               {isHistory
                 ? "Schedules accumulate here as the cron runs each morning (and whenever you generate one). Generate tomorrow's from the Tomorrow's schedule tab to get started."
-                : "The cron builds this automatically each morning at the cut-off. You can also generate it now — it pulls every city's orders for that day and allocates them across your vendor master."}
+                : isToday
+                  ? "Today's bookings appear here for monitoring once the schedule exists. It's built automatically each morning — generate the next day from the Tomorrow's schedule tab."
+                  : "The cron builds this automatically each morning at the cut-off. You can also generate it now — it pulls every city's orders for that day and allocates them across your vendor master."}
             </p>
-            {!isHistory && (
+            {!isHistory && !isToday && (
               <button onClick={generate} disabled={busy} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
                 {busy ? "Generating…" : "Generate now"}
               </button>
             )}
           </Card>
+        ) : isToday ? (
+          // Monitoring: one lifecycle tracker per booking (no editing / generating here).
+          <MonitoringView cities={shown} />
         ) : (
           <div className="space-y-6">
             {shown.map((c) => (

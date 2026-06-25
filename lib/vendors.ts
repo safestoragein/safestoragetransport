@@ -27,6 +27,10 @@ export interface VendorMaster {
   supervisorName?: string | null;
   supervisorContact?: string | null;
   packerNames?: string | null;
+  // compliance
+  securityDeposit?: number | null;
+  serviceAgreementUrl?: string | null;
+  gstDocumentUrl?: string | null;
   active: boolean;
   source: "excel" | "panel";
 }
@@ -92,6 +96,9 @@ function fromRow(r: any): VendorMaster {
     supervisorName: r.supervisor_name ?? null,
     supervisorContact: r.supervisor_contact ?? null,
     packerNames: r.packer_names ?? null,
+    securityDeposit: r.security_deposit != null ? Number(r.security_deposit) : null,
+    serviceAgreementUrl: r.service_agreement_url ?? null,
+    gstDocumentUrl: r.gst_document_url ?? null,
     active: r.active !== false,
     source: r.source === "panel" ? "panel" : "excel",
   };
@@ -164,10 +171,18 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
   if (usingSupabase) {
     const c = await supa();
     const row: any = {};
-    if ("isIntercityVendor" in patch) row.is_intercity_vendor = patch.isIntercityVendor;
-    if ("tier" in patch) row.tier = patch.tier;
-    if ("dailyPrice" in patch) row.daily_price = patch.dailyPrice;
-    if ("active" in patch) row.active = patch.active;
+    // map camelCase patch keys -> snake_case columns; only set what's present
+    const M: Record<string, string> = {
+      isIntercityVendor: "is_intercity_vendor", tier: "tier", dailyPrice: "daily_price",
+      pricingNote: "pricing_note", startingPoint: "starting_point", name: "name",
+      supervisorName: "supervisor_name", supervisorContact: "supervisor_contact",
+      driverName: "driver_name", driverContact: "driver_contact", packerNames: "packer_names",
+      vehicleNo: "vehicle_no", systemTeamNo: "system_team_no",
+      securityDeposit: "security_deposit", serviceAgreementUrl: "service_agreement_url",
+      gstDocumentUrl: "gst_document_url", active: "active",
+    };
+    for (const [k, col] of Object.entries(M)) if (k in patch) row[col] = (patch as any)[k];
+    if (Object.keys(row).length === 0) return;
     const { error } = await c.from(TABLE).update(row).eq("id", id);
     if (error) throw new Error(error.message);
     return;
