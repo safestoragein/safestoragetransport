@@ -111,9 +111,11 @@ export interface ScheduleVendor {
   vehicleNo?: string | null; vehicleType?: string | null; startingPoint?: string | null; depotLat?: number | null; depotLng?: number | null;
   orders: ScheduleOrder[]; pallets: number; actualPallets: number; revenue: number; resources: number; extraTrips: number; tripCount: number;
   vendorNotifiedAt?: string | null;
+  // pricing (what WE pay this vendor) + intercity flag
+  isIntercity?: boolean; tier?: string; dailyPrice?: number | null; perTransaction?: number | null; pricingNote?: string | null;
   plan?: VendorPlan; // server-computed day plan (real OSRM travel times)
 }
-export interface AvailableVendor { id: string; name: string; vehicleType: string; tier: string }
+export interface AvailableVendor { id: string; name: string; vehicleType: string; tier: string; isIntercity: boolean }
 export interface ScheduleData {
   runId: string; date: string; city: string; status: string; generatedAt: string;
   totals: { orders: number; vendors: number; cost: number; margin: number; resources: number; extraTrips: number };
@@ -138,8 +140,8 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
   const orderById = new Map((orders ?? []).map((o: any) => [o.id, o]));
 
   // active vendors in this city — for the reassignment dropdown
-  const { data: avRows } = await c.from("vendors").select("id, name, vehicle_type, tier, supervisor_name, supervisor_contact, driver_name, driver_contact, vehicle_no, starting_point, starting_lat, starting_lng").ilike("city", citySlug).eq("active", true);
-  const availableVendors: AvailableVendor[] = (avRows ?? []).map((v: any) => ({ id: v.id, name: v.name, vehicleType: v.vehicle_type, tier: v.tier }));
+  const { data: avRows } = await c.from("vendors").select("id, name, vehicle_type, tier, is_intercity_vendor, daily_price, per_transaction, pricing_note, supervisor_name, supervisor_contact, driver_name, driver_contact, vehicle_no, starting_point, starting_lat, starting_lng").ilike("city", citySlug).eq("active", true);
+  const availableVendors: AvailableVendor[] = (avRows ?? []).map((v: any) => ({ id: v.id, name: v.name, vehicleType: v.vehicle_type, tier: v.tier, isIntercity: !!v.is_intercity_vendor }));
   const vById = new Map((avRows ?? []).map((v: any) => [v.id, v]));
 
   // per-vendor add-ons (whole day): 3rd trip @ ₹1,500 + labour resources @ ₹800 — keyed by vendor name
@@ -172,6 +174,10 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
         supervisorName: v?.supervisor_name, supervisorContact: v?.supervisor_contact,
         driverName: v?.driver_name, driverContact: v?.driver_contact,
         vehicleNo: v?.vehicle_no, vehicleType: v?.vehicle_type, startingPoint: v?.starting_point, depotLat: v?.starting_lat, depotLng: v?.starting_lng,
+        isIntercity: !!v?.is_intercity_vendor, tier: v?.tier,
+        dailyPrice: v?.daily_price != null ? Number(v.daily_price) : null,
+        perTransaction: v?.per_transaction != null ? Number(v.per_transaction) : null,
+        pricingNote: v?.pricing_note ?? null,
         orders: [], pallets: 0, actualPallets: 0, revenue: 0, resources: resourcesByVendor.get(a.vendor_name) ?? 0, extraTrips: extraTripsByVendor.get(a.vendor_name) ?? 0, tripCount: 0,
         vendorNotifiedAt: a.vendor_id ? vendorNotified.get(a.vendor_id) ?? null : null,
       };
@@ -184,9 +190,10 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
 
   const resourceCost = REGION.resourceCost;
   const extraTripCost = REGION.extraTripCost;
+  const rank = (v: ScheduleVendor) => (v.isUnassigned ? 2 : v.isIntercity ? 1 : 0); // local vendors → intercity → unassigned
   const vendors = [...byVendor.values()]
     .map((v) => ({ ...v, pallets: Math.round(v.pallets * 10) / 10, actualPallets: Math.round(v.actualPallets * 10) / 10, tripCount: new Set(v.orders.map((o) => o.trip_no)).size }))
-    .sort((a, b) => (a.isUnassigned ? 1 : 0) - (b.isUnassigned ? 1 : 0)); // unassigned last
+    .sort((a, b) => rank(a) - rank(b));
   // Attach the realistic day plan (real road travel via OSRM) to each assigned vendor.
   await Promise.all(vendors.map(async (v) => { if (!v.isUnassigned) v.plan = await buildVendorPlan(v); }));
 

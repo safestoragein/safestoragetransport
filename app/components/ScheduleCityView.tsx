@@ -68,15 +68,32 @@ export default function ScheduleCityView({ initial }: { initial: ScheduleData })
     <div className="space-y-3">
       {sched.vendors.map((v) => {
         const plan = v.plan ?? null;
+        // What WE pay this vendor for the day: base (general = flat daily; non-general/intercity =
+        // per-transaction × orders) + add-ons (₹800/resource, ₹1,500/extra trip). Updates live as
+        // resources change (the panel reloads after each +/−).
+        const addOns = (v.resources || 0) * sched.resourceCost + (v.extraTrips || 0) * sched.extraTripCost;
+        const perTxn = v.tier === "non_general" || v.isIntercity;
+        const base = perTxn ? (v.perTransaction != null ? v.perTransaction * v.orders.length : null) : (v.dailyPrice ?? null);
+        const pay = base != null ? base + addOns : null;
         return (
         <Card key={v.vendorId ?? v.vendorName} className={`overflow-hidden ${v.isUnassigned ? "ring-1 ring-amber-300" : ""}`}>
           <div className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 ${v.isUnassigned ? "bg-amber-50" : "bg-slate-50"}`}>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-slate-800">{v.vendorName}</div>
               <div className="mt-0.5 text-xs text-slate-500">
-                {v.startingPoint ? `from ${v.startingPoint} · ` : ""}{!v.isUnassigned && `${v.tripCount} trip${v.tripCount > 1 ? "s" : ""} · `}{v.orders.length} stops · {v.actualPallets} pallets{v.actualPallets !== v.pallets ? ` (${v.pallets} assumed)` : ""} · {money(v.revenue)} transport
-                {v.resources > 0 && <span className="text-slate-400"> · {v.resources} resource{v.resources > 1 ? "s" : ""} (+{money(v.resources * sched.resourceCost)})</span>}
+                {v.startingPoint ? `from ${v.startingPoint} · ` : ""}{!v.isUnassigned && `${v.tripCount} trip${v.tripCount > 1 ? "s" : ""} · `}{v.orders.length} stops · {v.actualPallets} pallets{v.actualPallets !== v.pallets ? ` (${v.pallets} assumed)` : ""} · {money(v.revenue)} transport collected
               </div>
+              {!v.isUnassigned && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  <span className="rounded-md bg-slate-900 px-2 py-0.5 font-semibold text-white">We pay {pay != null ? money(pay) : "—"}{pay != null && !perTxn ? "/day" : ""}</span>
+                  <span className="text-slate-400">
+                    {base != null
+                      ? (perTxn ? `${money(v.perTransaction!)} × ${v.orders.length} order${v.orders.length > 1 ? "s" : ""}` : `${money(v.dailyPrice!)}/day`)
+                      : (v.pricingNote || "per-trip pricing TBD")}
+                    {addOns > 0 && ` + ${money(addOns)} add-ons (${v.resources ? `${v.resources}×₹${sched.resourceCost}` : ""}${v.resources && v.extraTrips ? ", " : ""}${v.extraTrips ? `${v.extraTrips}×₹${sched.extraTripCost}` : ""})`}
+                  </span>
+                </div>
+              )}
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
                 {v.supervisorName && <span>Supervisor: <b className="font-medium text-slate-700">{v.supervisorName}</b> {v.supervisorContact}</span>}
                 {v.driverName && <span>Driver: <b className="font-medium text-slate-700">{v.driverName}</b> {v.driverContact}</span>}
@@ -172,7 +189,8 @@ export default function ScheduleCityView({ initial }: { initial: ScheduleData })
                       className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
                     >
                       <option value="">— team to assign —</option>
-                      {sched.availableVendors.map((av) => (
+                      {/* Intercity orders → only intercity vendors; local orders → only local vendors. */}
+                      {sched.availableVendors.filter((av) => (o.is_intercity ? av.isIntercity : !av.isIntercity)).map((av) => (
                         <option key={av.id} value={av.id}>{av.name}</option>
                       ))}
                     </select>
