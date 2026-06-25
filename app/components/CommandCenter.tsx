@@ -35,10 +35,10 @@ export default function CommandCenter({
   ];
 
   return (
-    <AppShell active="admin" user={user}>
+    <AppShell active="dashboard" user={user}>
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg font-bold text-slate-900">Command Center</h1>
+          <h1 className="text-lg font-bold text-slate-900">Dashboard</h1>
           <p className="text-xs text-slate-500">All cities · {dateLabel}</p>
         </div>
         {dates.length > 0 && (

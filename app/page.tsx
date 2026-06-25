@@ -15,11 +15,11 @@ function fmtDate(d: string) {
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ src?: string; date?: string; view?: string }> }) {
   const sp = await searchParams;
-  const view = sp.view ?? "schedule"; // module default landing = Schedule
+  const view = sp.view ?? "dashboard"; // landing = Dashboard (everything at a glance)
   const user = await getSession();
 
-  // Command Center (multi-city overview) — explicit only
-  if (sp.src === "admin") {
+  // Dashboard — multi-city overview (formerly "Command center"). `src=admin` kept as an alias.
+  if (view === "dashboard" || sp.src === "admin") {
     try {
       const dates = await listAllDates();
       const date = sp.date ?? pickDefault(dates);
@@ -30,15 +30,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
     }
   }
 
-  // Module tab: Vendor panel (vendor master)
+  // Vendor panel (vendor master)
   if (view === "vendors") {
     const { vendors, source } = await listVendors();
     return <VendorPanel initial={vendors} source={source} user={user} />;
   }
 
-  // Module tab: Schedule (tomorrow) and Old schedules (history) share ONE view — only the data differs.
-  if (view === "schedule") return <ScheduleBoard mode="tomorrow" user={user} />;
-  return <ScheduleBoard mode="history" user={user} />; // view === "dashboard"
+  // Schedules — Today / Tomorrow / Old all share ONE board; only the data (date) differs.
+  if (view === "today") return <ScheduleBoard mode="today" user={user} />;
+  if (view === "history") return <ScheduleBoard mode="history" user={user} />;
+  return <ScheduleBoard mode="tomorrow" user={user} />; // view === "schedule"
 }
 
 function pickDefault(dates: { date: string; count: number }[]): string {

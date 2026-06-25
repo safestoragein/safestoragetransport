@@ -41,7 +41,8 @@ function agg(cities: ScheduleData[]) {
 
 // Shared all-cities schedule view. The Schedule tab uses it for TOMORROW; the Old-schedules tab
 // uses the SAME view with a date picker over every persisted date. Identical content either way.
-export default function ScheduleBoard({ mode, user }: { mode: "tomorrow" | "history"; user: SessionUser | null }) {
+export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorrow" | "history"; user: SessionUser | null }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
   const [data, setData] = useState<{ date: string; cities: ScheduleData[] } | null>(null);
   const [dates, setDates] = useState<{ date: string; runs: number; orders: number }[]>([]); // history only
   const [selDate, setSelDate] = useState<string | undefined>(undefined);
@@ -74,11 +75,13 @@ export default function ScheduleBoard({ mode, user }: { mode: "tomorrow" | "hist
         setDates(ds);
         if (ds.length) { setSelDate(ds[0].date); await load(ds[0].date); }
         else { setData({ date: "", cities: [] }); setLoading(false); }
+      } else if (mode === "today") {
+        await load(todayStr);
       } else {
         await load(undefined); // tomorrow (server default)
       }
     })();
-  }, [mode, load]);
+  }, [mode, load, todayStr]);
 
   async function generate() {
     setBusy(true);
@@ -101,14 +104,22 @@ export default function ScheduleBoard({ mode, user }: { mode: "tomorrow" | "hist
   const t = agg(shown);
   const packingDirty = packing !== null && packingDraft !== String(packing);
   const isHistory = mode === "history";
+  const isToday = mode === "today";
+  const activeKey = isHistory ? "history" : isToday ? "today" : "schedule";
+  const title = isHistory ? "Old schedules" : isToday ? "Today's schedule" : "Tomorrow's schedule";
+  const subtitle = isHistory
+    ? "every persisted schedule"
+    : isToday
+      ? "what every team is doing today — assignments, day plans & timings"
+      : "auto-generated at the 6 AM cut-off, or generate now";
 
   return (
-    <AppShell active={isHistory ? "history" : "schedule"} user={user}>
+    <AppShell active={activeKey} user={user}>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-lg font-bold text-slate-900">{isHistory ? "Old schedules" : "Tomorrow's schedule"}</h1>
+            <h1 className="text-lg font-bold text-slate-900">{title}</h1>
             <p className="text-xs text-slate-500">
-              {data?.date ? fmtDate(data.date) : "…"} · all cities · {isHistory ? "every persisted schedule" : "auto-generated at the 6 AM cut-off, or generate now"}
+              {data?.date ? fmtDate(data.date) : "…"} · all cities · {subtitle}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -199,12 +210,12 @@ export default function ScheduleBoard({ mode, user }: { mode: "tomorrow" | "hist
         ) : allCities.length === 0 ? (
           <Card className="p-8 text-center">
             <div className="text-sm font-semibold text-slate-700">
-              {isHistory ? "No past schedules yet" : `No schedule for ${data?.date ? fmtDate(data.date) : "tomorrow"} yet`}
+              {isHistory ? "No past schedules yet" : `No schedule for ${data?.date ? fmtDate(data.date) : (isToday ? "today" : "tomorrow")} yet`}
             </div>
             <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">
               {isHistory
-                ? "Schedules accumulate here as the cron runs each morning (and whenever you generate one). Generate tomorrow's from the Schedule tab to get started."
-                : "The cron builds this automatically each morning at the cut-off. You can also generate it now — it pulls every city's orders for tomorrow and allocates them across your vendor master."}
+                ? "Schedules accumulate here as the cron runs each morning (and whenever you generate one). Generate tomorrow's from the Tomorrow's schedule tab to get started."
+                : "The cron builds this automatically each morning at the cut-off. You can also generate it now — it pulls every city's orders for that day and allocates them across your vendor master."}
             </p>
             {!isHistory && (
               <button onClick={generate} disabled={busy} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
