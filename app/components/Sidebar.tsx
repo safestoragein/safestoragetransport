@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { SessionUser } from "@/lib/auth";
 
-export type NavKey = "dashboard" | "today" | "schedule" | "history" | "vendors";
+export type NavKey = "dashboard" | "today" | "schedule" | "history" | "vendors" | "rules";
 
 // Items inside the "Pickup & Retrieval" module group (expand/collapse in the rail).
 const ITEMS: { key: NavKey; label: string; href: string; icon: string }[] = [
@@ -12,6 +12,7 @@ const ITEMS: { key: NavKey; label: string; href: string; icon: string }[] = [
   { key: "schedule", label: "Tomorrow's schedule", href: "/?view=schedule", icon: "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" },
   { key: "history", label: "Old schedules", href: "/?view=history", icon: "M3 3v5h5M3.05 13A9 9 0 1 0 6 5.3L3 8m9-1v5l4 2" },
   { key: "vendors", label: "Vendor panel", href: "/?view=vendors", icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm14 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },
+  { key: "rules", label: "Scheduling rules", href: "/?view=rules", icon: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2zM9 7h7M9 11h7" },
 ];
 
 export default function Sidebar({ active, user }: { active: NavKey; user: SessionUser | null }) {

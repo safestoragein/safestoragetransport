@@ -1,6 +1,7 @@
 import CommandCenter from "./components/CommandCenter";
 import ScheduleBoard from "./components/ScheduleBoard";
 import VendorPanel from "./components/VendorPanel";
+import SchedulingRules from "./components/SchedulingRules";
 import { listAllDates, loadAllCitiesSummary } from "@/lib/safestorage-api";
 import { listVendors } from "@/lib/vendors";
 import { getSession } from "@/lib/session";
@@ -35,6 +36,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
     const { vendors, source } = await listVendors();
     return <VendorPanel initial={vendors} source={source} user={user} />;
   }
+
+  // Read-only scheduling rules
+  if (view === "rules") return <SchedulingRules user={user} />;
 
   // Schedules — Today / Tomorrow / Old all share ONE board; only the data (date) differs.
   if (view === "today") return <ScheduleBoard mode="today" user={user} />;

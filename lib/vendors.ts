@@ -34,6 +34,7 @@ export interface VendorMaster {
   // extras
   notes?: string | null;
   priorityGroup?: string | null; // 'A' | 'B' | 'C'
+  billingCycle?: string | null; // 'daily' | 'weekly' | 'monthly'
   supervisors?: { name: string; phone: string }[] | null; // up to 10
   active: boolean;
   source: "excel" | "panel";
@@ -105,6 +106,7 @@ function fromRow(r: any): VendorMaster {
     gstDocumentUrl: r.gst_document_url ?? null,
     notes: r.notes ?? null,
     priorityGroup: r.priority_group ?? null,
+    billingCycle: r.billing_cycle ?? null,
     supervisors: Array.isArray(r.supervisors) ? r.supervisors : null,
     active: r.active !== false,
     source: r.source === "panel" ? "panel" : "excel",
@@ -132,6 +134,7 @@ export interface NewVendorInput {
   securityDeposit?: number | null;
   notes?: string | null;
   priorityGroup?: string | null;
+  billingCycle?: string | null;
   supervisors?: { name: string; phone: string }[] | null;
 }
 
@@ -174,7 +177,7 @@ export async function addVendor(input: NewVendorInput): Promise<VendorMaster> {
       vehicle_no: blank(input.vehicleNo), vehicle_name: blank(input.vehicleName),
       system_team_no: blank(input.systemTeamNo), remarks: blank(input.remarks),
       security_deposit: input.securityDeposit ?? null,
-      notes: blank(input.notes), priority_group: blank(input.priorityGroup), supervisors: sups.length ? sups : null,
+      notes: blank(input.notes), priority_group: blank(input.priorityGroup), billing_cycle: blank(input.billingCycle), supervisors: sups.length ? sups : null,
       source: "panel",
     };
     const { data, error } = await c.from(TABLE).insert(row).select().single();
@@ -197,7 +200,7 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
       vehicleNo: "vehicle_no", systemTeamNo: "system_team_no",
       securityDeposit: "security_deposit", serviceAgreementUrl: "service_agreement_url",
       gstDocumentUrl: "gst_document_url", active: "active",
-      notes: "notes", priorityGroup: "priority_group",
+      notes: "notes", priorityGroup: "priority_group", billingCycle: "billing_cycle",
     };
     for (const [k, col] of Object.entries(M)) if (k in patch) row[col] = (patch as any)[k];
     if ("supervisors" in patch) {

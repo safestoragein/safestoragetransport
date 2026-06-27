@@ -167,6 +167,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                 <th className="px-3 py-2 font-medium">Priority</th>
                 {showAll && header("Starting point", "startingPoint")}
                 {header("Daily price", "dailyPrice")}
+                {showAll && <th className="px-3 py-2 font-medium">Billing</th>}
                 {showAll && <th className="px-3 py-2 font-medium">Supervisor</th>}
                 {showAll && <th className="px-3 py-2 font-medium">Notes</th>}
                 <th className="px-3 py-2 font-medium">Active</th>
@@ -183,6 +184,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                   onToggleIntercity={() => patchVendor(v, { isIntercityVendor: !v.isIntercityVendor })}
                   onToggleActive={() => patchVendor(v, { active: !(v.active !== false) })}
                   onSetPriority={(g) => patchVendor(v, { priorityGroup: g })}
+                  onSetBilling={(c) => patchVendor(v, { billingCycle: c })}
                   onDetails={() => toggle(v.id, "details")} onCompliance={() => toggle(v.id, "compliance")}
                   onEdit={() => toggle(v.id, "edit")} onCancelEdit={() => setExp(null)} onSaved={onSaved} onDelete={() => onDelete(v)}
                 />
@@ -210,9 +212,9 @@ function DocLink({ label, url }: { label: string; url?: string | null }) {
   );
 }
 
-function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActive, onSetPriority, onDetails, onCompliance, onEdit, onCancelEdit, onSaved, onDelete }: {
+function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActive, onSetPriority, onSetBilling, onDetails, onCompliance, onEdit, onCancelEdit, onSaved, onDelete }: {
   v: VendorMaster; showAll: boolean; mode: "details" | "compliance" | "edit" | null; busy: boolean; canEdit: boolean;
-  onToggleIntercity: () => void; onToggleActive: () => void; onSetPriority: (g: string | null) => void;
+  onToggleIntercity: () => void; onToggleActive: () => void; onSetPriority: (g: string | null) => void; onSetBilling: (c: string | null) => void;
   onDetails: () => void; onCompliance: () => void; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void; onDelete: () => void;
 }) {
   const open = mode !== null;
@@ -236,6 +238,13 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActiv
         </td>
         {showAll && <td className="px-3 py-2.5 text-slate-500">{v.startingPoint || "—"}</td>}
         <td className="px-3 py-2.5 text-slate-700">{v.dailyPrice != null ? `${money(v.dailyPrice)}/day` : v.pricingNote || "—"}</td>
+        {showAll && (
+          <td className="px-3 py-2.5">
+            <select value={v.billingCycle ?? ""} disabled={busy} onChange={(e) => onSetBilling(e.target.value || null)} className="rounded-md border-0 bg-slate-50 px-1.5 py-0.5 text-xs font-medium text-slate-600">
+              <option value="">—</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
+            </select>
+          </td>
+        )}
         {showAll && <td className="px-3 py-2.5 text-slate-500">{sup0 ? <>{sup0.name}{moreSup > 0 ? <span className="ml-1 text-[10px] text-blue-600">+{moreSup}</span> : null}{sup0.phone ? <span className="block text-xs text-slate-400">{sup0.phone}</span> : null}</> : "—"}</td>}
         {showAll && <td className="max-w-[140px] truncate px-3 py-2.5 text-slate-500" title={v.notes || ""}>{v.notes || "—"}</td>}
         <td className="px-3 py-2.5">
@@ -259,7 +268,7 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActiv
       </tr>
       {open && (
         <tr className="border-t border-slate-100 bg-slate-50">
-          <td colSpan={showAll ? 12 : 7} className="px-3 py-3">
+          <td colSpan={showAll ? 13 : 7} className="px-3 py-3">
             {mode === "edit" ? (
               <EditForm v={v} onSaved={onSaved} onCancel={onCancelEdit} />
             ) : mode === "compliance" ? (
@@ -329,7 +338,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
     securityDeposit: v.securityDeposit != null ? String(v.securityDeposit) : "",
     driverName: v.driverName ?? "", driverContact: v.driverContact ?? "",
     packerNames: v.packerNames ?? "", vehicleNo: v.vehicleNo ?? "", systemTeamNo: v.systemTeamNo ?? "",
-    notes: v.notes ?? "", priorityGroup: v.priorityGroup ?? "", isIntercityVendor: v.isIntercityVendor,
+    notes: v.notes ?? "", priorityGroup: v.priorityGroup ?? "", billingCycle: v.billingCycle ?? "", isIntercityVendor: v.isIntercityVendor,
   });
   const [sups, setSups] = useState<Sup[]>(v.supervisors && v.supervisors.length ? v.supervisors : (v.supervisorName ? [{ name: v.supervisorName, phone: v.supervisorContact || "" }] : [{ name: "", phone: "" }]));
   const [saFile, setSaFile] = useState<File | null>(null);
@@ -347,7 +356,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
       const cleanSups = sups.filter((s) => s.name.trim() || s.phone.trim()).map((s) => ({ name: s.name.trim(), phone: s.phone.trim() }));
       const patch = {
         id: v.id, name: f.name.trim(), startingPoint: f.startingPoint.trim(), tier: f.tier,
-        isIntercityVendor: f.isIntercityVendor, notes: f.notes.trim() || null, priorityGroup: f.priorityGroup || null,
+        isIntercityVendor: f.isIntercityVendor, notes: f.notes.trim() || null, priorityGroup: f.priorityGroup || null, billingCycle: f.billingCycle || null,
         dailyPrice: f.dailyPrice === "" ? null : Number(f.dailyPrice),
         securityDeposit: f.securityDeposit === "" ? null : Number(f.securityDeposit),
         driverName: f.driverName.trim() || null, driverContact: f.driverContact.trim() || null,
@@ -386,6 +395,9 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
         </label>
         <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Priority group</span>
           <select className={input} value={f.priorityGroup} onChange={(e) => set("priorityGroup", e.target.value)}><option value="">— none —</option><option value="A">A (preferred)</option><option value="B">B</option><option value="C">C</option></select>
+        </label>
+        <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Billing cycle</span>
+          <select className={input} value={f.billingCycle} onChange={(e) => set("billingCycle", e.target.value)}><option value="">— none —</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
         </label>
         {field("Daily price (₹)", "dailyPrice", "number")}
         {field("Security deposit (₹)", "securityDeposit", "number", "e.g. 25000")}
@@ -434,7 +446,7 @@ async function uploadDoc(vendorId: string, kind: "service_agreement" | "gst", fi
 const EMPTY = {
   name: "", vehicleType: "14ft", tier: "general", startingPoint: "", dailyPrice: "", pricingNote: "", securityDeposit: "",
   driverName: "", driverContact: "", packerNames: "", vehicleNo: "", vehicleName: "", systemTeamNo: "", remarks: "",
-  notes: "", priorityGroup: "", isIntercityVendor: false,
+  notes: "", priorityGroup: "", billingCycle: "", isIntercityVendor: false,
 };
 
 function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdded: (v: VendorMaster[]) => void }) {
@@ -505,6 +517,9 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
         </label>
         <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Priority group</span>
           <select className={input} value={f.priorityGroup} onChange={(e) => set("priorityGroup", e.target.value)}><option value="">— none —</option><option value="A">A (preferred)</option><option value="B">B</option><option value="C">C</option></select>
+        </label>
+        <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Billing cycle</span>
+          <select className={input} value={f.billingCycle} onChange={(e) => set("billingCycle", e.target.value)}><option value="">— none —</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
         </label>
         {field("Starting point (locality)", "startingPoint", "text", "e.g. Akshaya Nagar")}
         {field("Daily price (₹)", "dailyPrice", "number", "e.g. 7500")}

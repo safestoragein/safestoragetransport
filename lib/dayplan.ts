@@ -88,7 +88,11 @@ export async function buildVendorPlan(v: any): Promise<VendorPlan> {
   const whName = v.orders[0]?.warehouse_name ? ` (${String(v.orders[0].warehouse_name).split("·")[0].trim()})` : "";
 
   if (retrCount) {
-    steps.push({ kind: "wh-eve", label: `Collect ${retrCount} retrieval load${retrCount > 1 ? "s" : ""} from warehouse${whName} — evening before`, travel: 0, km: 0, work: 0, arrive: MORNING, depart: MORNING });
+    // evening-before: vehicle goes to the warehouse and brings the retrieval goods to the vendor's
+    // start. Count that warehouse → start leg in the day's total km.
+    const eveKm = km(whPt, depot) ?? 0;
+    totalKm += eveKm;
+    steps.push({ kind: "wh-eve", label: `Collect ${retrCount} retrieval load${retrCount > 1 ? "s" : ""} from warehouse${whName} → ${v.startingPoint || "start"} — evening before`, travel: 0, km: eveKm, work: 0, arrive: MORNING, depart: MORNING });
   }
   steps.push({ kind: "start", label: `Start from ${v.startingPoint || "depot"}${retrCount ? " (retrievals already loaded)" : ""}`, travel: 0, km: 0, work: 0, arrive: clock, depart: clock });
   for (const o of seq) {

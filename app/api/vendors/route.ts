@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
     securityDeposit: body.securityDeposit != null && body.securityDeposit !== "" ? Number(body.securityDeposit) : null,
     notes: body.notes || null,
     priorityGroup: body.priorityGroup || null,
+    billingCycle: body.billingCycle || null,
     supervisors: Array.isArray(body.supervisors) ? body.supervisors : null,
   };
   const created = [];
