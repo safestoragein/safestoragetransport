@@ -20,6 +20,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
   const [vendors, setVendors] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showAll, setShowAll] = useState(false); // reveal the secondary columns
   const [exp, setExp] = useState<{ id: string; mode: "details" | "compliance" | "edit" } | null>(null);
   const toggle = (id: string, mode: "details" | "compliance" | "edit") =>
     setExp((e) => (e && e.id === id && e.mode === mode ? null : { id, mode }));
@@ -149,6 +150,9 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
           <option value="All">All cities ({vendors.length})</option>
           {cities.map((c) => <option key={c} value={c}>{c} ({vendors.filter((v) => v.city === c).length})</option>)}
         </select>
+        <button onClick={() => setShowAll((s) => !s)} className="ml-auto rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">
+          {showAll ? "− Fewer columns" : "+ More columns"}
+        </button>
       </div>
 
       <Card className="overflow-hidden">
@@ -158,22 +162,22 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
               <tr className="bg-slate-50 text-left text-xs text-slate-500">
                 {header("City", "city")}
                 {header("Vendor", "name")}
-                {header("Vehicle", "vehicleType")}
+                {showAll && header("Vehicle", "vehicleType")}
                 {header("Tier", "tier")}
                 <th className="px-3 py-2 font-medium">Priority</th>
-                {header("Starting point", "startingPoint")}
+                {showAll && header("Starting point", "startingPoint")}
                 {header("Daily price", "dailyPrice")}
-                <th className="px-3 py-2 font-medium">Supervisor</th>
-                <th className="px-3 py-2 font-medium">Notes</th>
+                {showAll && <th className="px-3 py-2 font-medium">Supervisor</th>}
+                {showAll && <th className="px-3 py-2 font-medium">Notes</th>}
                 <th className="px-3 py-2 font-medium">Active</th>
-                {header("Intercity", "isIntercityVendor")}
+                {showAll && header("Intercity", "isIntercityVendor")}
                 <th className="px-3 py-2 font-medium"></th>
               </tr>
             </thead>
             <tbody>
               {sorted.map((v) => (
                 <Row
-                  key={v.id} v={v}
+                  key={v.id} v={v} showAll={showAll}
                   mode={exp?.id === v.id ? exp.mode : null}
                   busy={busy === v.id} canEdit={canEdit}
                   onToggleIntercity={() => patchVendor(v, { isIntercityVendor: !v.isIntercityVendor })}
@@ -206,8 +210,8 @@ function DocLink({ label, url }: { label: string; url?: string | null }) {
   );
 }
 
-function Row({ v, mode, busy, canEdit, onToggleIntercity, onToggleActive, onSetPriority, onDetails, onCompliance, onEdit, onCancelEdit, onSaved, onDelete }: {
-  v: VendorMaster; mode: "details" | "compliance" | "edit" | null; busy: boolean; canEdit: boolean;
+function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActive, onSetPriority, onDetails, onCompliance, onEdit, onCancelEdit, onSaved, onDelete }: {
+  v: VendorMaster; showAll: boolean; mode: "details" | "compliance" | "edit" | null; busy: boolean; canEdit: boolean;
   onToggleIntercity: () => void; onToggleActive: () => void; onSetPriority: (g: string | null) => void;
   onDetails: () => void; onCompliance: () => void; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void; onDelete: () => void;
 }) {
@@ -223,27 +227,29 @@ function Row({ v, mode, busy, canEdit, onToggleIntercity, onToggleActive, onSetP
           <span className="mr-1 text-slate-400">{open ? "▾" : "▸"}</span>{v.name}
           {v.source === "panel" && <span className="ml-1.5 rounded bg-blue-50 px-1 text-[10px] text-blue-600">added</span>}
         </td>
-        <td className="px-3 py-2.5 text-slate-600">{VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType}</td>
+        {showAll && <td className="px-3 py-2.5 text-slate-600">{VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType}</td>}
         <td className="px-3 py-2.5"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${TIER_BADGE[v.tier] ?? TIER_BADGE.general}`}>{TIER_LABEL[v.tier] ?? v.tier}</span></td>
         <td className="px-3 py-2.5">
           <select value={v.priorityGroup ?? ""} disabled={busy} onChange={(e) => onSetPriority(e.target.value || null)} className={`rounded-md border-0 px-1.5 py-0.5 text-xs font-semibold ${PRIORITY_BADGE[v.priorityGroup ?? ""] ?? "bg-slate-50 text-slate-400"}`}>
             <option value="">—</option><option value="A">A</option><option value="B">B</option><option value="C">C</option>
           </select>
         </td>
-        <td className="px-3 py-2.5 text-slate-500">{v.startingPoint || "—"}</td>
+        {showAll && <td className="px-3 py-2.5 text-slate-500">{v.startingPoint || "—"}</td>}
         <td className="px-3 py-2.5 text-slate-700">{v.dailyPrice != null ? `${money(v.dailyPrice)}/day` : v.pricingNote || "—"}</td>
-        <td className="px-3 py-2.5 text-slate-500">{sup0 ? <>{sup0.name}{moreSup > 0 ? <span className="ml-1 text-[10px] text-blue-600">+{moreSup}</span> : null}{sup0.phone ? <span className="block text-xs text-slate-400">{sup0.phone}</span> : null}</> : "—"}</td>
-        <td className="max-w-[140px] truncate px-3 py-2.5 text-slate-500" title={v.notes || ""}>{v.notes || "—"}</td>
+        {showAll && <td className="px-3 py-2.5 text-slate-500">{sup0 ? <>{sup0.name}{moreSup > 0 ? <span className="ml-1 text-[10px] text-blue-600">+{moreSup}</span> : null}{sup0.phone ? <span className="block text-xs text-slate-400">{sup0.phone}</span> : null}</> : "—"}</td>}
+        {showAll && <td className="max-w-[140px] truncate px-3 py-2.5 text-slate-500" title={v.notes || ""}>{v.notes || "—"}</td>}
         <td className="px-3 py-2.5">
           <button disabled={busy} onClick={onToggleActive} className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${isActive ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-red-50 text-red-600 ring-red-200"}`}>
             {busy ? "…" : isActive ? "Active" : "Inactive"}
           </button>
         </td>
-        <td className="px-3 py-2.5">
-          <button disabled={busy} onClick={onToggleIntercity} className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${v.isIntercityVendor ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-50 text-slate-500 ring-slate-200"}`}>
-            {busy ? "…" : v.isIntercityVendor ? "Yes" : "No"}
-          </button>
-        </td>
+        {showAll && (
+          <td className="px-3 py-2.5">
+            <button disabled={busy} onClick={onToggleIntercity} className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${v.isIntercityVendor ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-50 text-slate-500 ring-slate-200"}`}>
+              {busy ? "…" : v.isIntercityVendor ? "Yes" : "No"}
+            </button>
+          </td>
+        )}
         <td className="whitespace-nowrap px-3 py-2.5 text-right">
           <button onClick={onCompliance} className={`mr-3 text-xs font-medium hover:underline ${mode === "compliance" ? "text-indigo-600" : "text-slate-600 hover:text-slate-900"}`}>Compliance</button>
           {canEdit && <button onClick={onEdit} className={`mr-3 text-xs font-medium hover:underline ${mode === "edit" ? "text-indigo-600" : "text-slate-600 hover:text-slate-900"}`}>Edit</button>}
@@ -253,7 +259,7 @@ function Row({ v, mode, busy, canEdit, onToggleIntercity, onToggleActive, onSetP
       </tr>
       {open && (
         <tr className="border-t border-slate-100 bg-slate-50">
-          <td colSpan={12} className="px-3 py-3">
+          <td colSpan={showAll ? 12 : 7} className="px-3 py-3">
             {mode === "edit" ? (
               <EditForm v={v} onSaved={onSaved} onCancel={onCancelEdit} />
             ) : mode === "compliance" ? (
