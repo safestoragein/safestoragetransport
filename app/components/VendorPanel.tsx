@@ -203,8 +203,8 @@ function DocLink({ label, url }: { label: string; url?: string | null }) {
     <div>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
       {url ? (
-        <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+        <a href={url} target="_blank" rel="noreferrer" title="View document" className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4"><path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8z" /><circle cx="12" cy="12" r="3" /></svg>
           View document
         </a>
       ) : <div className="text-sm text-slate-400">Not uploaded</div>}
@@ -378,7 +378,15 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
   );
   const docField = (label: string, current: string | null | undefined, file: File | null, setFile: (f: File | null) => void) => (
     <label className="block">
-      <span className="mb-1 block text-[11px] font-medium text-slate-500">{label}{current && <a href={current} target="_blank" rel="noreferrer" className="ml-2 text-blue-600 hover:underline">current ↗</a>}</span>
+      <span className="mb-1 flex items-center gap-2 text-[11px] font-medium text-slate-500">
+        {label}
+        {current && (
+          <a href={current} target="_blank" rel="noreferrer" title="View document" className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-blue-600 ring-1 ring-blue-200 hover:bg-blue-100">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5"><path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8z" /><circle cx="12" cy="12" r="3" /></svg>
+            View document
+          </a>
+        )}
+      </span>
       <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white" />
       {file && <span className="mt-1 block text-[11px] text-emerald-600">{file.name} — will upload on save</span>}
     </label>
