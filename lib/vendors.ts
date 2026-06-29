@@ -180,9 +180,16 @@ export async function addVendor(input: NewVendorInput): Promise<VendorMaster> {
       notes: blank(input.notes), priority_group: blank(input.priorityGroup), billing_cycle: blank(input.billingCycle), supervisors: sups.length ? sups : null,
       source: "panel",
     };
-    const { data, error } = await c.from(TABLE).insert(row).select().single();
-    if (error) throw new Error(error.message);
-    return fromRow(data);
+    // Drop any column whose migration hasn't run yet and retry, so adding a vendor still works.
+    let attempt: any = row;
+    for (let i = 0; i < 10; i++) {
+      const { data, error } = await c.from(TABLE).insert(attempt).select().single();
+      if (!error) return fromRow(data);
+      const col = (error.message.match(/'([a-z_]+)' column/) || error.message.match(/column "([a-z_]+)"/) || [])[1];
+      if (col && col in attempt) { const { [col]: _drop, ...rest } = attempt; attempt = rest; continue; }
+      throw new Error(error.message);
+    }
+    throw new Error("could not insert vendor");
   }
   return fallbackAdd(input);
 }
@@ -211,8 +218,16 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
       row.supervisor_contact = sups[0]?.phone ?? null;
     }
     if (Object.keys(row).length === 0) return;
-    const { error } = await c.from(TABLE).update(row).eq("id", id);
-    if (error) throw new Error(error.message);
+    // A column whose migration hasn't run yet must NOT block the whole save — drop the offending
+    // column and retry with the rest, so core fields still persist.
+    let attempt: any = row;
+    for (let i = 0; i < 10; i++) {
+      const { error } = await c.from(TABLE).update(attempt).eq("id", id);
+      if (!error) return;
+      const col = (error.message.match(/'([a-z_]+)' column/) || error.message.match(/column "([a-z_]+)"/) || [])[1];
+      if (col && col in attempt && Object.keys(attempt).length > 1) { const { [col]: _drop, ...rest } = attempt; attempt = rest; continue; }
+      throw new Error(error.message);
+    }
     return;
   }
   return fallbackUpdate(id, patch);

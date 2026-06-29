@@ -55,8 +55,12 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   if (!body?.id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const { id, ...patch } = body;
-  await updateVendor(id, patch);
-  return NextResponse.json({ ok: true });
+  try {
+    await updateVendor(id, patch);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
+  }
 }
 
 export async function DELETE(req: NextRequest) {
