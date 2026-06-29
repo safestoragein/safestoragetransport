@@ -64,6 +64,13 @@ export default function ScheduleCityView({ initial, tab = "all" }: { initial: Sc
     setPending(null);
   }
 
+  async function setProfit(orderUuid: string, val: string) {
+    setPending(`profit:${orderUuid}`);
+    await fetch("/api/schedule/assignment", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, orderUuid, action: "profit", profit: val }) });
+    await reload();
+    setPending(null);
+  }
+
   // Filter what shows per tab. Intercity + shifting orders live in the "to assign" bucket; the
   // regular Schedule tab hides them, and the Intercity/Shifting tabs show only those.
   const isShift = (o: any) => !!o.is_shifting;
@@ -184,6 +191,19 @@ export default function ScheduleCityView({ initial, tab = "all" }: { initial: Sc
                         <option key={av.id} value={av.id}>{av.name}</option>
                       ))}
                     </select>
+
+                    {/* intercity profit is recorded manually (negotiated per trip) */}
+                    {o.is_intercity && (
+                      <span className="flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+                        Profit ₹
+                        <input
+                          type="number" defaultValue={o.intercity_profit ?? ""} placeholder="enter"
+                          disabled={pending === `profit:${o.id}`}
+                          onBlur={(e) => { if (e.target.value !== String(o.intercity_profit ?? "")) setProfit(o.id, e.target.value); }}
+                          className="w-20 rounded border border-emerald-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-800"
+                        />
+                      </span>
+                    )}
 
                     {!v.isUnassigned && (
                       <button

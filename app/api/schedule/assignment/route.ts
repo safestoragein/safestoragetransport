@@ -29,6 +29,14 @@ export async function PATCH(req: NextRequest) {
     if (!b.orderUuid) return NextResponse.json({ ok: false, error: "orderUuid required" }, { status: 400 });
     const { data: existing } = await c.from("schedule_assignments").select("*").eq("run_id", b.runId).eq("order_id", b.orderUuid).maybeSingle();
 
+    // manual intercity profit on an order
+    if (b.action === "profit") {
+      const p = b.profit === "" || b.profit == null ? null : Number(b.profit);
+      if (existing) { const { error } = await c.from("schedule_assignments").update({ intercity_profit: p }).eq("id", existing.id); if (error) throw new Error(error.message); }
+      else { const { error } = await c.from("schedule_assignments").insert({ run_id: b.runId, order_id: b.orderUuid, vendor_id: null, vendor_name: null, trip_no: 0, stop_seq: 0, intercity_profit: p }); if (error) throw new Error(error.message); }
+      return NextResponse.json({ ok: true, profit: p });
+    }
+
     // reassign (default)
     const vendorId = isUuid(b.vendorId) ? b.vendorId : null;
     const vendorName = b.vendorName ?? null;

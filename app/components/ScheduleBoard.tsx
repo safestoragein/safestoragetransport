@@ -50,6 +50,21 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [cityFilter, setCityFilter] = useState("All");
+  const [pnl, setPnl] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [pnlBusy, setPnlBusy] = useState(false);
+
+  async function loadWeeklyPnl() {
+    const base = selDate || data?.date;
+    if (!base) return;
+    setPnlBusy(true);
+    const d = new Date(base + "T00:00:00Z");
+    const dow = (d.getUTCDay() + 6) % 7; // 0 = Monday
+    const mon = new Date(d); mon.setUTCDate(d.getUTCDate() - dow);
+    const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6);
+    const from = mon.toISOString().slice(0, 10), to = sun.toISOString().slice(0, 10);
+    const r = await fetch(`/api/pnl?from=${from}&to=${to}`).then((x) => x.json()).catch(() => null);
+    setPnl(r); setPnlBusy(false);
+  }
 
   // editable packing-material cost per pallet
   const [packing, setPacking] = useState<number | null>(null);
@@ -164,6 +179,9 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                   <option key={d.date} value={d.date}>{fmtShort(d.date)} · {d.orders} orders</option>
                 ))}
               </select>
+              <button onClick={loadWeeklyPnl} disabled={pnlBusy || (!selDate && !data?.date)} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+                {pnlBusy ? "Calculating…" : "📊 Weekly P&L"}
+              </button>
             </div>
           )}
           <div className="flex items-center gap-2">
@@ -190,6 +208,53 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
             </div>
           )}
         </div>
+
+        {/* Weekly P&L result (Old schedules) */}
+        {isHistory && pnl && (
+          <Card className="mb-5 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-bold text-slate-800">Weekly P&amp;L · {pnl.ok ? `${fmtShort(pnl.from)} – ${fmtShort(pnl.to)}` : ""}</div>
+              <button onClick={() => setPnl(null)} className="text-xs text-slate-400 hover:text-slate-600">✕ close</button>
+            </div>
+            {!pnl.ok ? (
+              <div className="text-sm text-red-600">{pnl.error || "Could not calculate"}</div>
+            ) : (
+              <>
+                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: "Schedule margin", value: money(pnl.totals.regularMargin), neg: pnl.totals.regularMargin < 0 },
+                    { label: "Intercity profit", value: money(pnl.totals.intercityProfit) },
+                    { label: "Total P&L", value: money(pnl.totals.total), big: true, neg: pnl.totals.total < 0 },
+                    { label: "Orders · days", value: `${pnl.totals.orders} · ${pnl.totals.days}d` },
+                  ].map((s) => (
+                    <div key={s.label} className={`rounded-lg p-3 ${s.big ? "bg-slate-900 text-white" : "bg-slate-50"}`}>
+                      <div className={`text-[11px] font-medium uppercase tracking-wide ${s.big ? "text-slate-300" : "text-slate-400"}`}>{s.label}</div>
+                      <div className={`mt-0.5 text-lg font-bold ${s.big ? "text-white" : s.neg ? "text-red-600" : "text-slate-900"}`}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-xs text-slate-500"><th className="py-1 pr-3 font-medium">Date</th><th className="py-1 pr-3 font-medium">Orders</th><th className="py-1 pr-3 font-medium">Schedule margin</th><th className="py-1 pr-3 font-medium">Intercity profit</th><th className="py-1 pr-3 font-medium">Day total</th></tr></thead>
+                    <tbody>
+                      {pnl.byDate.length === 0 && <tr><td colSpan={5} className="py-3 text-center text-xs text-slate-400">No schedules in this week.</td></tr>}
+                      {pnl.byDate.map((d: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                        <tr key={d.date} className="border-t border-slate-100">
+                          <td className="py-1.5 pr-3 text-slate-700">{fmtShort(d.date)}</td>
+                          <td className="py-1.5 pr-3 text-slate-600">{d.orders}</td>
+                          <td className={`py-1.5 pr-3 ${d.margin < 0 ? "text-red-600" : "text-slate-700"}`}>{money(d.margin)}</td>
+                          <td className="py-1.5 pr-3 text-emerald-700">{money(d.intercityProfit)}</td>
+                          <td className="py-1.5 pr-3 font-medium text-slate-900">{money(d.margin + d.intercityProfit)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-400">Total P&amp;L = schedule margin (revenue − vendor cost) + manually-recorded intercity profit, for the latest run of each day.</p>
+              </>
+            )}
+          </Card>
+        )}
 
         {/* Schedule / Intercity / Shifting sub-tabs (tomorrow only) */}
         {tabbed && (
