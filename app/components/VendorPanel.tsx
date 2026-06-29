@@ -21,8 +21,8 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
   const [busy, setBusy] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showAll, setShowAll] = useState(false); // reveal the secondary columns
-  const [exp, setExp] = useState<{ id: string; mode: "details" | "compliance" | "edit" } | null>(null);
-  const toggle = (id: string, mode: "details" | "compliance" | "edit") =>
+  const [exp, setExp] = useState<{ id: string; mode: "details" | "edit" } | null>(null);
+  const toggle = (id: string, mode: "details" | "edit") =>
     setExp((e) => (e && e.id === id && e.mode === mode ? null : { id, mode }));
   const canEdit = user?.role === "admin";
   const onSaved = (u: VendorMaster) => { setVendors((arr) => arr.map((x) => (x.id === u.id ? u : x))); setExp(null); };
@@ -185,7 +185,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                   onToggleActive={() => patchVendor(v, { active: !(v.active !== false) })}
                   onSetPriority={(g) => patchVendor(v, { priorityGroup: g })}
                   onSetBilling={(c) => patchVendor(v, { billingCycle: c })}
-                  onDetails={() => toggle(v.id, "details")} onCompliance={() => toggle(v.id, "compliance")}
+                  onDetails={() => toggle(v.id, "details")}
                   onEdit={() => toggle(v.id, "edit")} onCancelEdit={() => setExp(null)} onSaved={onSaved} onDelete={() => onDelete(v)}
                 />
               ))}
@@ -193,7 +193,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
           </table>
         </div>
       </Card>
-      <p className="mt-3 text-xs text-slate-400">Toggle <b>Active</b> to include/exclude a vendor from scheduling · set a <b>Priority</b> group (A preferred) · Details / Compliance / Edit per row. Inactive vendors are skipped on the next generate.</p>
+      <p className="mt-3 text-xs text-slate-400">Toggle <b>Active</b> to include/exclude a vendor from scheduling · set a <b>Priority</b> group (A preferred) · <b>Details</b> shows everything (team, documents, deposit, notes); <b>Edit</b> to change them. Inactive vendors are skipped on the next generate.</p>
     </AppShell>
   );
 }
@@ -212,10 +212,10 @@ function DocLink({ label, url }: { label: string; url?: string | null }) {
   );
 }
 
-function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActive, onSetPriority, onSetBilling, onDetails, onCompliance, onEdit, onCancelEdit, onSaved, onDelete }: {
-  v: VendorMaster; showAll: boolean; mode: "details" | "compliance" | "edit" | null; busy: boolean; canEdit: boolean;
+function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActive, onSetPriority, onSetBilling, onDetails, onEdit, onCancelEdit, onSaved, onDelete }: {
+  v: VendorMaster; showAll: boolean; mode: "details" | "edit" | null; busy: boolean; canEdit: boolean;
   onToggleIntercity: () => void; onToggleActive: () => void; onSetPriority: (g: string | null) => void; onSetBilling: (c: string | null) => void;
-  onDetails: () => void; onCompliance: () => void; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void; onDelete: () => void;
+  onDetails: () => void; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void; onDelete: () => void;
 }) {
   const open = mode !== null;
   const isActive = v.active !== false;
@@ -260,7 +260,6 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActiv
           </td>
         )}
         <td className="whitespace-nowrap px-3 py-2.5 text-right">
-          <button onClick={onCompliance} className={`mr-3 text-xs font-medium hover:underline ${mode === "compliance" ? "text-indigo-600" : "text-slate-600 hover:text-slate-900"}`}>Compliance</button>
           {canEdit && <button onClick={onEdit} className={`mr-3 text-xs font-medium hover:underline ${mode === "edit" ? "text-indigo-600" : "text-slate-600 hover:text-slate-900"}`}>Edit</button>}
           <button onClick={onDetails} className="mr-3 text-xs text-blue-600 hover:underline">{mode === "details" ? "Hide" : "Details"}</button>
           {canEdit && <button disabled={busy} onClick={onDelete} className="text-xs font-medium text-red-500 hover:text-red-700 hover:underline">Delete</button>}
@@ -271,14 +270,8 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActiv
           <td colSpan={showAll ? 13 : 7} className="px-3 py-3">
             {mode === "edit" ? (
               <EditForm v={v} onSaved={onSaved} onCancel={onCancelEdit} />
-            ) : mode === "compliance" ? (
-              <div className="grid gap-x-8 gap-y-3 text-xs sm:grid-cols-3">
-                <Detail label="Security deposit" value={v.securityDeposit != null ? money(v.securityDeposit) : null} />
-                <DocLink label="Service agreement" url={v.serviceAgreementUrl} />
-                <DocLink label="GST document" url={v.gstDocumentUrl} />
-              </div>
             ) : (
-              <div className="grid gap-x-8 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-x-8 gap-y-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
                 <div className="sm:col-span-2 lg:col-span-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Supervisors</div>
                   <div className="text-slate-700">{(v.supervisors && v.supervisors.length ? v.supervisors : (sup0 ? [sup0] : [])).map((s, i) => <span key={i} className="mr-3 inline-block">{s.name}{s.phone ? <span className="text-slate-400"> · {s.phone}</span> : null}</span>) || "—"}</div>
@@ -287,7 +280,15 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActiv
                 <Detail label="Packers" value={v.packerNames} />
                 <Detail label="Vehicle no" value={v.vehicleNo} />
                 <Detail label="System team" value={v.systemTeamNo} />
+                <Detail label="Starting point" value={v.startingPoint} />
+                <Detail label="Tier" value={TIER_LABEL[v.tier] ?? v.tier} />
+                <Detail label="Priority group" value={v.priorityGroup || null} />
+                <Detail label="Billing cycle" value={v.billingCycle ? v.billingCycle[0].toUpperCase() + v.billingCycle.slice(1) : null} />
+                <Detail label="Daily price" value={v.dailyPrice != null ? `${money(v.dailyPrice)}/day` : v.pricingNote || null} />
                 <Detail label="Pallet capacity" value={`${v.palletCapacity} pallets`} />
+                <Detail label="Security deposit" value={v.securityDeposit != null ? money(v.securityDeposit) : null} />
+                <DocLink label="Service agreement" url={v.serviceAgreementUrl} />
+                <DocLink label="GST document" url={v.gstDocumentUrl} />
                 {v.notes && <div className="sm:col-span-2 lg:col-span-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Notes</div><div className="text-slate-700">{v.notes}</div></div>}
               </div>
             )}
