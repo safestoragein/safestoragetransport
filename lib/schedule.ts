@@ -98,6 +98,52 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
   return { runId: run.id, orders: result.kpis.totalBookings, vendors: result.kpis.vendorsActive, usedMaster };
 }
 
+// One order-snapshot row from a live booking (shared by generate + post-cutoff sync).
+function orderRowOf(b: Booking, date: string, citySlug: string) {
+  return {
+    schedule_date: date, city: citySlug, order_id: b.orderId!, customer_unique_id: b.refNo,
+    customer_name: b.customerName, contact: b.contact ?? null, order_type: b.category ?? b.type,
+    is_intercity: !!b.isIntercity, is_shifting: !!b.isShifting, pallets: b.pallets, stated_pallets: b.statedPallets ?? null,
+    lift: b.lift ?? null, transport_charge: b.transportCharge ?? null, packing_charge: b.packingCharge ?? null,
+    locality: b.location.label ?? null, lat: b.location.lat, lng: b.location.lng,
+    warehouse_name: b.warehouse.label ?? null, warehouse_lat: b.warehouse.lat ?? null, warehouse_lng: b.warehouse.lng ?? null,
+    time_slot: b.timeSlot ?? null, required_time: b.requiredTimeText ?? null, team_notes: b.teamNotes ?? null, order_status: b.orderStatus ?? null,
+  };
+}
+
+// Pull any orders that appeared/changed in the live feed AFTER the 6 AM run into that run's
+// "team to assign" bucket — WITHOUT re-running allocation (existing assignments are preserved).
+// Refreshes the order snapshot (so reschedules show the new slot) and adds net-new orders as
+// null-vendor rows for manual assignment.
+export async function syncNewOrders(citySlug: string, date: string): Promise<{ added: number; error?: string }> {
+  const c = db();
+  const { data: runs } = await c.from("schedule_runs").select("id").eq("schedule_date", date).eq("city", citySlug).order("generated_at", { ascending: false }).limit(1);
+  const run = runs?.[0];
+  if (!run) return { added: 0, error: `no schedule run for ${citySlug} on ${date} — generate it first` };
+
+  const snap = await loadLive(citySlug, date);
+  const orderRows = snap.bookings.map((b) => orderRowOf(b, date, citySlug));
+  if (orderRows.length) {
+    const { error } = await c.from("orders").upsert(orderRows, { onConflict: "order_id" });
+    if (error && /(stated_pallets|lift|warehouse_lat|warehouse_lng|is_shifting)/.test(error.message || "")) {
+      const stripped = orderRows.map(({ stated_pallets, lift, warehouse_lat, warehouse_lng, is_shifting, ...rest }) => rest);
+      await c.from("orders").upsert(stripped, { onConflict: "order_id" });
+    }
+  }
+  const { data: orders } = await c.from("orders").select("id, order_id").in("order_id", orderRows.map((o) => o.order_id));
+  const uuidByOrderId = new Map((orders ?? []).map((o: any) => [o.order_id, o.id]));
+  const { data: assigns } = await c.from("schedule_assignments").select("order_id").eq("run_id", run.id);
+  const existing = new Set((assigns ?? []).map((a: any) => a.order_id));
+
+  const newRows: any[] = [];
+  for (const b of snap.bookings) {
+    const uuid = uuidByOrderId.get(b.orderId!);
+    if (uuid && !existing.has(uuid)) newRows.push({ run_id: run.id, vendor_id: null, vendor_name: null, order_id: uuid, trip_no: 0, stop_seq: 0 });
+  }
+  if (newRows.length) await c.from("schedule_assignments").insert(newRows);
+  return { added: newRows.length };
+}
+
 export interface ScheduleOrder {
   id: string; // orders.id (UUID) — used to reassign / set resources
   order_id: string; customer_unique_id: string; customer_name: string; contact: string | null;

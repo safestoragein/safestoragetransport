@@ -10,6 +10,7 @@ import MonitoringView from "./MonitoringView";
 import { Card } from "./ui";
 
 const cityName = (slug: string) => slug.replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
+const EVENT_COLOR: Record<string, string> = { created: "bg-emerald-600", rescheduled: "bg-amber-600", cancelled: "bg-red-600", updated: "bg-blue-600" };
 
 function fmtDate(d: string) {
   return new Date(d + "T00:00:00Z").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
@@ -52,6 +53,28 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
   const [cityFilter, setCityFilter] = useState("All");
   const [pnl, setPnl] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [pnlBusy, setPnlBusy] = useState(false);
+  // post-cutoff changes (from the booking webhook)
+  const [changes, setChanges] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [showChanges, setShowChanges] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  async function refreshChanges(date?: string) {
+    if (!date) return;
+    const r = await fetch(`/api/schedule/changes?date=${date}`).then((x) => x.json()).catch(() => ({ changes: [] }));
+    setChanges(r.changes ?? []);
+  }
+  async function syncNewBookings() {
+    if (!data?.date) return;
+    setSyncing(true);
+    await fetch("/api/schedule/changes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync", date: data.date }) });
+    await load(mode === "history" ? selDate : mode === "today" ? todayStr : undefined);
+    await refreshChanges(data.date);
+    setSyncing(false);
+  }
+  async function dismissChange(id: string) {
+    await fetch("/api/schedule/changes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "handle", id }) });
+    setChanges((cs) => cs.filter((c) => c.id !== id));
+  }
 
   async function loadWeeklyPnl() {
     const base = selDate || data?.date;
@@ -98,6 +121,12 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
       }
     })();
   }, [mode, load, todayStr]);
+
+  // post-cutoff changes for today's / tomorrow's date (not for the history view)
+  useEffect(() => {
+    if (mode === "history" || !data?.date) return;
+    fetch(`/api/schedule/changes?date=${data.date}`).then((x) => x.json()).then((r) => setChanges(r.changes ?? [])).catch(() => {});
+  }, [mode, data?.date]);
 
   async function generate() {
     setBusy(true);
@@ -163,6 +192,34 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
             )}
           </div>
         </div>
+
+        {/* Post-cutoff changes from the booking webhook (today / tomorrow) */}
+        {mode !== "history" && changes.length > 0 && (
+          <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm font-semibold text-amber-800">⚠ {changes.length} change{changes.length > 1 ? "s" : ""} since the 6 AM cut-off</span>
+              <button onClick={() => setShowChanges((s) => !s)} className="text-xs font-medium text-amber-700 underline">{showChanges ? "Hide" : "Review"}</button>
+              <button onClick={syncNewBookings} disabled={syncing} className="ml-auto rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50">{syncing ? "Pulling…" : "⤓ Pull new orders into schedule"}</button>
+            </div>
+            {showChanges && (
+              <div className="mt-3 space-y-1.5">
+                {changes.map((ch) => (
+                  <div key={ch.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-white px-3 py-2 text-xs ring-1 ring-amber-100">
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white ${EVENT_COLOR[ch.event] ?? "bg-slate-500"}`}>{ch.event}</span>
+                    <b className="text-slate-800">{ch.customer_unique_id ?? ch.order_id}</b>
+                    {ch.city && <span className="text-slate-500">{cityName(ch.city)}</span>}
+                    {ch.order_type && <span className="text-slate-400">{ch.order_type}</span>}
+                    {ch.time_slot && <span className="text-slate-400">slot {ch.time_slot}</span>}
+                    {ch.order_status && <span className="text-slate-400">· {ch.order_status}</span>}
+                    <span className="ml-auto text-[10px] text-slate-400">{ch.received_at ? new Date(ch.received_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                    <button onClick={() => dismissChange(ch.id)} className="text-[11px] font-medium text-slate-500 hover:text-slate-800">dismiss</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-amber-700">New orders are pulled into the “team to assign” bucket below — assign a vendor there. Reschedules/cancellations are flagged to update or remove manually.</p>
+          </div>
+        )}
 
         {/* Controls: (history) date picker + city filter + packing cost */}
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">
