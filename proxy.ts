@@ -8,8 +8,8 @@ import { COOKIE_NAME, verifySession } from "@/lib/auth";
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Public: the login page and the auth endpoints.
-  if (pathname === "/login" || pathname.startsWith("/api/auth/")) return NextResponse.next();
+  // Public: the login page, the auth endpoints, and the booking webhook (secured by its own secret).
+  if (pathname === "/login" || pathname.startsWith("/api/auth/") || pathname.startsWith("/api/webhooks/")) return NextResponse.next();
 
   // Vercel Cron hits GET /api/schedule/generate with no session — allow it via its platform header.
   if (pathname.startsWith("/api/schedule/generate") && request.headers.get("x-vercel-cron")) return NextResponse.next();
