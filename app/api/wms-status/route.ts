@@ -13,7 +13,7 @@ export async function GET() {
     const res = await fetch(`${API_BASE}/transport_controller_Dev0/get_work_order_list_api_new`, { next: { revalidate: 60 } });
     const j: any = await res.json();
     const arr: any[] = j?.data || (Array.isArray(j) ? j : []);
-    const map: Record<string, { wms: string | null; wmsCode: number | null; status: string | null; transport: number | null }> = {};
+    const map: Record<string, { wms: string | null; wmsCode: number | null; status: string | null; transport: number | null; booked: string | null }> = {};
     for (const o of arr) {
       const id = String(o.order_id ?? "");
       if (!id) continue;
@@ -22,6 +22,7 @@ export async function GET() {
         wmsCode: o.wms_track_status != null ? Number(o.wms_track_status) : null,
         status: o.order_status ?? null,
         transport: o.transport_status != null ? Number(o.transport_status) : null,
+        booked: o.order_created_at ?? null, // when the customer booked the order
       };
     }
     return NextResponse.json({ ok: true, map, count: Object.keys(map).length });

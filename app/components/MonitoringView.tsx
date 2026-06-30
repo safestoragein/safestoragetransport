@@ -6,7 +6,7 @@ import Lifecycle, { LifeStep } from "./Lifecycle";
 
 const cityName = (slug: string) => slug.replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
 
-type Live = { wms: string | null; wmsCode: number | null; status: string | null; transport: number | null };
+type Live = { wms: string | null; wmsCode: number | null; status: string | null; transport: number | null; booked?: string | null };
 type LiveMap = Record<string, Live>;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,6 +23,15 @@ const droppedWh = (o: any, m: LiveMap) => /INBOUND|RECEIV|GRN|INWARD/.test(wmsOf
 
 const FRIENDLY: Record<string, string> = { GATE_PASS: "out of warehouse", RETRIEVAL_COMPLETD: "delivered", READY_TO_OUTBOUND: "ready at WH", READY_FOR_PICKLIST: "picking at WH" };
 const friendly = (o: any, m: LiveMap) => { const n = wmsOf(o, m); return n ? (FRIENDLY[n] ?? n.toLowerCase().replace(/_/g, " ")) : null; };
+
+// When the customer booked this order (order_created_at from the live feed, "2026-01-04 09:31:29")
+// → a short "4 Jan 2026" the team can read. Falls back to undefined if missing/unparseable.
+const bookedOn = (o: any, m: LiveMap): string | undefined => {
+  const raw = liveOf(o, m)?.booked;
+  if (!raw) return undefined;
+  const d = new Date(String(raw).replace(" ", "T"));
+  return isNaN(d.getTime()) ? undefined : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+};
 
 function ordered(orders: any[], plan: any) {
   return [...orders].sort((a, b) =>
@@ -48,9 +57,9 @@ function vendorChain(v: any, m: LiveMap): LifeStep[] {
       sub: allGot ? (retr.length > 1 ? "all picked from WH" : "picked from WH") : `${got}/${retr.length} picked`,
       top: { ref: `${retr.length} retrieval${retr.length > 1 ? "s" : ""}`, name: "from warehouse" },
     });
-    for (const o of retr) steps.push({ label: "Deliver", sub: friendly(o, m) ?? undefined, kind: "retrieval", done: delivered(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
+    for (const o of retr) steps.push({ label: "Deliver", sub: friendly(o, m) ?? undefined, kind: "retrieval", done: delivered(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact, booked: bookedOn(o, m) } });
   }
-  for (const o of pick) steps.push({ label: "Pick up", sub: friendly(o, m) ?? undefined, kind: "pickup", done: pickedUp(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
+  for (const o of pick) steps.push({ label: "Pick up", sub: friendly(o, m) ?? undefined, kind: "pickup", done: pickedUp(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact, booked: bookedOn(o, m) } });
   if (pick.length) {
     const dropped = pick.filter((o) => droppedWh(o, m)).length;
     const allDropped = dropped === pick.length;

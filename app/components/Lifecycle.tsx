@@ -2,7 +2,7 @@
 
 import { Fragment } from "react";
 
-export interface StepTop { ref?: string; name?: string; phone?: string }
+export interface StepTop { ref?: string; name?: string; phone?: string; booked?: string }
 export interface LifeStep { label: string; done: boolean; at?: string | null; sub?: string; top?: StepTop; kind?: "pickup" | "retrieval" }
 
 // Type tag shown as the head of each lane — matches the app's legend (pickup = blue, retrieval = green)
@@ -46,11 +46,12 @@ export default function Lifecycle({ steps }: { steps: LifeStep[] }) {
                     </span>
                   )}
                 </div>
-                {/* ABOVE the circle: order no / name / number (or warehouse + load) */}
-                <div className="mb-1 flex h-12 flex-col items-center justify-end leading-tight">
+                {/* ABOVE the circle: order no / name / number / booking date (or warehouse + load) */}
+                <div className="mb-1 flex h-16 flex-col items-center justify-end leading-tight">
                   {s.top?.ref && <div className={`text-xs font-bold ${active ? "text-slate-900" : "text-slate-800"}`}>{s.top.ref}</div>}
                   {s.top?.name && <div className="max-w-[7.5rem] truncate text-[11px] text-slate-600">{s.top.name}</div>}
                   {s.top?.phone && <div className="text-[11px] text-slate-400">{s.top.phone}</div>}
+                  {s.top?.booked && <div className="text-[10px] text-slate-400">booked {s.top.booked}</div>}
                 </div>
                 {/* The node: green tick (done) · filled amber (current) · grey numbered (upcoming) */}
                 {done ? (
@@ -72,7 +73,7 @@ export default function Lifecycle({ steps }: { steps: LifeStep[] }) {
                 {s.at && <span className="text-[11px] text-slate-400">{s.at}</span>}
               </div>
               {/* Connector — filled green once the step on its left is done, so the row reads like a progress bar */}
-              {i < n - 1 && <div className={`h-1 w-10 shrink-0 rounded ${done ? "bg-emerald-400" : "bg-slate-200"}`} style={{ marginTop: "114px" }} />}
+              {i < n - 1 && <div className={`h-1 w-10 shrink-0 rounded ${done ? "bg-emerald-400" : "bg-slate-200"}`} style={{ marginTop: "130px" }} />}
             </Fragment>
           );
         })}
