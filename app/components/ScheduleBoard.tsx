@@ -122,9 +122,9 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     })();
   }, [mode, load, todayStr]);
 
-  // post-cutoff changes for today's / tomorrow's date (not for the history view)
+  // post-cutoff changes for the Tomorrow planning view only (not history, not today's monitoring view)
   useEffect(() => {
-    if (mode === "history" || !data?.date) return;
+    if (mode !== "tomorrow" || !data?.date) return;
     fetch(`/api/schedule/changes?date=${data.date}`).then((x) => x.json()).then((r) => setChanges(r.changes ?? [])).catch(() => {});
   }, [mode, data?.date]);
 
@@ -194,8 +194,9 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
           </div>
         </div>
 
-        {/* Post-cutoff changes from the booking webhook (today / tomorrow) */}
-        {mode !== "history" && changes.length > 0 && (
+        {/* Post-cutoff changes from the booking webhook — Tomorrow's planning view only.
+            Today is monitoring-only: the day was locked at the cut-off, so we don't surface changes here. */}
+        {!isToday && !isHistory && changes.length > 0 && (
           <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3">
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm font-semibold text-amber-800">⚠ {changes.length} change{changes.length > 1 ? "s" : ""} since the 6 AM cut-off</span>

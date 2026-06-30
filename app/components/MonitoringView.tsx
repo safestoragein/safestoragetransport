@@ -91,15 +91,40 @@ export default function MonitoringView({ cities }: { cities: ScheduleData[] }) {
                 const retr = v.orders.filter((o: any) => !isPickup(o)).length;
                 const pick = v.orders.filter((o: any) => isPickup(o)).length;
                 const vendorContact = v.driverContact || v.supervisorContact || null;
+                const steps = vendorChain(v, live);
+                const doneCount = steps.filter((s) => s.done).length;
+                const activeIdx = steps.findIndex((s) => !s.done);
+                const allDone = activeIdx === -1;
+                const next = allDone ? null : steps[activeIdx];
+                const pct = steps.length ? Math.round((doneCount / steps.length) * 100) : 0;
                 return (
-                  <div key={v.vendorId ?? v.vendorName} className="rounded-xl border border-slate-200 border-l-4 border-l-emerald-500 bg-white p-4">
+                  <div key={v.vendorId ?? v.vendorName} className={`rounded-xl border border-slate-200 border-l-4 bg-white p-4 ${allDone ? "border-l-emerald-500" : "border-l-amber-400"}`}>
                     <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span className="text-sm font-bold text-slate-900">{v.vendorName}</span>
                       {vendorContact && <span className="text-xs text-slate-400">{vendorContact}</span>}
                       {v.isIntercity && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 ring-1 ring-violet-200">intercity</span>}
                       <span className="text-xs text-slate-500">{retr ? `${retr} retrieval${retr > 1 ? "s" : ""}` : ""}{retr && pick ? " · " : ""}{pick ? `${pick} pickup${pick > 1 ? "s" : ""}` : ""}</span>
+                      {/* Where this team is right now — reads before you scan the steps */}
+                      {allDone ? (
+                        <span className="ml-auto flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3"><path d="m5 13 4 4L19 7" /></svg>
+                          All stops done
+                        </span>
+                      ) : (
+                        <span className="ml-auto flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+                          <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" /></span>
+                          Next: <b className="font-semibold text-amber-900">{next?.label}{next?.top?.ref ? ` · ${next.top.ref}` : ""}</b>
+                        </span>
+                      )}
                     </div>
-                    <Lifecycle steps={vendorChain(v, live)} />
+                    {/* Progress bar: how far through the run this team is */}
+                    <div className="mb-3 flex items-center gap-2.5">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                        <div className={`h-full rounded-full ${allDone ? "bg-emerald-500" : "bg-amber-400"}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="shrink-0 text-[11px] font-medium text-slate-500">{doneCount}/{steps.length} stops</span>
+                    </div>
+                    <Lifecycle steps={steps} />
                   </div>
                 );
               })}
