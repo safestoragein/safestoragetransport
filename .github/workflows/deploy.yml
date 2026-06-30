@@ -37,7 +37,9 @@ jobs:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          protocol: ftps
+          # Plain FTP: this host's FTPS sessions drop mid-transfer ("FIN packet"), and the
+          # per-file TLS handshakes are slow. Plain FTP is much faster for many small files.
+          protocol: ftp
           port: 21
           timeout: 120000
           # cPanel main-account FTP lands in /home/<user>, so the app dir is this relative path.
