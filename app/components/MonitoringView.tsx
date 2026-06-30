@@ -38,16 +38,25 @@ function vendorChain(v: any, m: LiveMap): LifeStep[] {
   const steps: LifeStep[] = [];
 
   if (retr.length) {
+    // The team collects every retrieval from the warehouse in one go, then delivers them one by one.
+    // "Collect" is done only when all retrievals have actually left the warehouse (GATE_PASS) — the
+    // sub-label shows that progress live (e.g. "1/2 picked" → "all picked from WH").
+    const got = retr.filter((o) => collected(o, m)).length;
+    const allGot = got === retr.length;
     steps.push({
-      label: "Collect", sub: "warehouse", kind: "retrieval", done: retr.every((o) => collected(o, m)),
+      label: "Collect", kind: "retrieval", done: allGot,
+      sub: allGot ? (retr.length > 1 ? "all picked from WH" : "picked from WH") : `${got}/${retr.length} picked`,
       top: { ref: `${retr.length} retrieval${retr.length > 1 ? "s" : ""}`, name: "from warehouse" },
     });
     for (const o of retr) steps.push({ label: "Deliver", sub: friendly(o, m) ?? undefined, kind: "retrieval", done: delivered(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
   }
   for (const o of pick) steps.push({ label: "Pick up", sub: friendly(o, m) ?? undefined, kind: "pickup", done: pickedUp(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
   if (pick.length) {
+    const dropped = pick.filter((o) => droppedWh(o, m)).length;
+    const allDropped = dropped === pick.length;
     steps.push({
-      label: "Drop", sub: "warehouse", kind: "pickup", done: pick.every((o) => droppedWh(o, m)),
+      label: "Drop", kind: "pickup", done: allDropped,
+      sub: allDropped ? (pick.length > 1 ? "all dropped at WH" : "dropped at WH") : `${dropped}/${pick.length} dropped`,
       top: { ref: `${pick.length} pickup${pick.length > 1 ? "s" : ""}`, name: "to warehouse" },
     });
   }
