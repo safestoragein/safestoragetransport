@@ -39,15 +39,15 @@ function vendorChain(v: any, m: LiveMap): LifeStep[] {
 
   if (retr.length) {
     steps.push({
-      label: "Collect", sub: "warehouse", done: retr.every((o) => collected(o, m)),
+      label: "Collect", sub: "warehouse", kind: "retrieval", done: retr.every((o) => collected(o, m)),
       top: { ref: `${retr.length} retrieval${retr.length > 1 ? "s" : ""}`, name: "from warehouse" },
     });
-    for (const o of retr) steps.push({ label: "Deliver", sub: friendly(o, m) ?? undefined, done: delivered(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
+    for (const o of retr) steps.push({ label: "Deliver", sub: friendly(o, m) ?? undefined, kind: "retrieval", done: delivered(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
   }
-  for (const o of pick) steps.push({ label: "Pick up", sub: friendly(o, m) ?? undefined, done: pickedUp(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
+  for (const o of pick) steps.push({ label: "Pick up", sub: friendly(o, m) ?? undefined, kind: "pickup", done: pickedUp(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact } });
   if (pick.length) {
     steps.push({
-      label: "Drop", sub: "warehouse", done: pick.every((o) => droppedWh(o, m)),
+      label: "Drop", sub: "warehouse", kind: "pickup", done: pick.every((o) => droppedWh(o, m)),
       top: { ref: `${pick.length} pickup${pick.length > 1 ? "s" : ""}`, name: "to warehouse" },
     });
   }

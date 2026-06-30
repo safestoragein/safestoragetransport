@@ -3,7 +3,14 @@
 import { Fragment } from "react";
 
 export interface StepTop { ref?: string; name?: string; phone?: string }
-export interface LifeStep { label: string; done: boolean; at?: string | null; sub?: string; top?: StepTop }
+export interface LifeStep { label: string; done: boolean; at?: string | null; sub?: string; top?: StepTop; kind?: "pickup" | "retrieval" }
+
+// Type tag shown as the head of each lane — matches the app's legend (pickup = blue, retrieval = green)
+// so you can tell at a glance whether a stop is a customer pickup or a retrieval/delivery.
+const KIND: Record<string, { label: string; cls: string }> = {
+  pickup: { label: "Pickup", cls: "bg-blue-50 text-blue-700 ring-blue-200" },
+  retrieval: { label: "Retrieval", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+};
 
 // Vendor-wise activity chain. Each node shows WHO/WHAT above the circle (order no, customer name,
 // number — or warehouse + load) and the ACTION below. The first not-done node is the CURRENT step
@@ -23,6 +30,14 @@ export default function Lifecycle({ steps }: { steps: LifeStep[] }) {
           return (
             <Fragment key={s.label + i}>
               <div className="flex w-32 flex-col items-center px-1 text-center">
+                {/* Lane type tag — pickup (blue) vs retrieval (green), matching the legend */}
+                <div className="mb-1 flex h-5 items-center">
+                  {s.kind && KIND[s.kind] && (
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${KIND[s.kind].cls}`}>
+                      {KIND[s.kind].label}
+                    </span>
+                  )}
+                </div>
                 {/* "Next up" tag — fixed-height slot so every column lines up */}
                 <div className="mb-1 flex h-4 items-end">
                   {active && (
@@ -57,7 +72,7 @@ export default function Lifecycle({ steps }: { steps: LifeStep[] }) {
                 {s.at && <span className="text-[11px] text-slate-400">{s.at}</span>}
               </div>
               {/* Connector — filled green once the step on its left is done, so the row reads like a progress bar */}
-              {i < n - 1 && <div className={`h-1 w-10 shrink-0 rounded ${done ? "bg-emerald-400" : "bg-slate-200"}`} style={{ marginTop: "90px" }} />}
+              {i < n - 1 && <div className={`h-1 w-10 shrink-0 rounded ${done ? "bg-emerald-400" : "bg-slate-200"}`} style={{ marginTop: "114px" }} />}
             </Fragment>
           );
         })}
