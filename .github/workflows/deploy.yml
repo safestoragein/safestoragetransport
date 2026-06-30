@@ -56,3 +56,18 @@ jobs:
             **/.next/cache/**
             **/*.map
             **/*.nft.json
+            tmp/**
+
+      # Upload the restart stamp LAST, in its own pass, so Passenger only restarts
+      # after every app file is in place (avoids restarting onto a half-uploaded build).
+      - name: Trigger Passenger restart
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          local-dir: ./tmp/
+          server-dir: public_html/safestorage-transport/tmp/
+          state-name: .ftp-deploy-tmp-state.json
