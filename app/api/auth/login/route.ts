@@ -1,18 +1,57 @@
-// POST /api/auth/login  { email, password } → authenticate against the existing SafeStorage
-// backend (transport_controller_Dev0/admin_login) and set the session cookie. Public (the proxy
-// lets /api/auth/* through). No Supabase — the legacy backend is the source of truth for logins.
+// POST /api/auth/login  { email, password } → set the session cookie. Public (the proxy lets
+// /api/auth/* through).
+//   1) First check the MySQL `sst_transport_users` table (source of truth for role-based access:
+//      role 'admin' = full edit, anything else = read-only — enforced in proxy.ts).
+//   2) If the email isn't a transport user, fall back to the legacy SafeStorage admin_login.
 import { NextRequest, NextResponse } from "next/server";
-import { COOKIE_NAME, SESSION_MAX_AGE, signSession, SessionUser } from "@/lib/auth";
+import { COOKIE_NAME, SESSION_MAX_AGE, signSession, SessionUser, verifyPassword } from "@/lib/auth";
+import { db, hasDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 const API_BASE = process.env.SAFESTORAGE_API_BASE || "https://safestorage.in/back";
+
+function withSession(session: SessionUser) {
+  const res = NextResponse.json({ ok: true, user: session });
+  res.cookies.set(COOKIE_NAME, signSession(session), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_MAX_AGE,
+  });
+  return res;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function POST(req: NextRequest) {
   const { email, password } = await req.json().catch(() => ({}));
   if (!email || !password) {
     return NextResponse.json({ ok: false, error: "Email and password are required" }, { status: 400 });
+  }
+
+  // 1) MySQL transport users (scrypt-hashed passwords, per-user role).
+  if (hasDb) {
+    try {
+      const { data } = await db().from("transport_users").select("*").ilike("email", String(email).trim()).maybeSingle();
+      if (data) {
+        const active = data.active !== false && data.active !== 0;
+        if (active && verifyPassword(String(password), String(data.password_hash || ""))) {
+          const session: SessionUser = {
+            id: String(data.id),
+            email: String(data.email),
+            name: String(data.name || email),
+            role: String(data.role || "staff"),
+          };
+          try { await db().from("transport_users").update({ last_login_at: new Date() }).eq("id", data.id); } catch {}
+          return withSession(session);
+        }
+        // Email is a known transport user but wrong password / inactive — reject here.
+        return NextResponse.json({ ok: false, error: "Invalid email or password" }, { status: 401 });
+      }
+    } catch {
+      // DB unreachable — fall through to the legacy login below.
+    }
   }
 
   // Verify the credentials with the existing SafeStorage admin login endpoint.
@@ -45,14 +84,6 @@ export async function POST(req: NextRequest) {
     role: String(u.role ?? u.user_role ?? "admin"),
   };
 
-  const res = NextResponse.json({ ok: true, user: session });
-  res.cookies.set(COOKIE_NAME, signSession(session), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_MAX_AGE,
-  });
-  return res;
+  return withSession(session);
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

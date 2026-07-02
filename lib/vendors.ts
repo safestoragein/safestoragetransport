@@ -99,7 +99,8 @@ function fromRow(r: any): VendorMaster {
     notes: r.notes ?? null,
     priorityGroup: r.priority_group ?? null,
     billingCycle: r.billing_cycle ?? null,
-    supervisors: Array.isArray(r.supervisors) ? r.supervisors : null,
+    // JSON column: MySQL returns a parsed array, MariaDB returns a JSON string — handle both.
+    supervisors: parseSupervisors(r.supervisors),
     active: r.active !== false,
     source: r.source === "panel" ? "panel" : "excel",
   };
@@ -131,6 +132,16 @@ export interface NewVendorInput {
 }
 
 const blank = (s?: string | null) => (s && s.trim() ? s.trim() : null);
+
+// Vendor `supervisors` is a JSON column. mysql2 auto-parses it on MySQL 8 (array),
+// but on MariaDB the JSON type is text so it comes back as a string — parse it here.
+function parseSupervisors(v: any): { name: string; phone: string }[] | null {
+  if (Array.isArray(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p : null; } catch { return null; }
+  }
+  return null;
+}
 
 // ───────────────────────── public API ─────────────────────────
 export async function listVendors(): Promise<{ vendors: VendorMaster[]; source: "supabase" | "seed" }> {

@@ -15,7 +15,16 @@ export function proxy(request: NextRequest) {
   if (pathname.startsWith("/api/schedule/generate") && request.headers.get("x-vercel-cron")) return NextResponse.next();
 
   const user = verifySession(request.cookies.get(COOKIE_NAME)?.value);
-  if (user) return NextResponse.next();
+  if (user) {
+    // Read-only enforcement: only admins may change data. Non-admins (role !== 'admin')
+    // can view everything (GET) but any write to an API route is rejected. Public API
+    // routes (/api/auth/*, /api/webhooks/*) already returned above.
+    const isWrite = !["GET", "HEAD", "OPTIONS"].includes(request.method);
+    if (isWrite && pathname.startsWith("/api/") && user.role !== "admin") {
+      return NextResponse.json({ ok: false, error: "Read-only account — admin access required to make changes." }, { status: 403 });
+    }
+    return NextResponse.next();
+  }
 
   // Not authenticated.
   if (pathname.startsWith("/api/")) {
