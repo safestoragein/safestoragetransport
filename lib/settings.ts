@@ -1,5 +1,5 @@
 // Editable settings, stored in safestorage.settings (key/value). Falls back to the static
-// REGION defaults when Supabase isn't configured so the app still works offline.
+// REGION defaults when the database isn't configured so the app still works offline.
 import { db, hasDb } from "./db";
 import { REGION } from "./config";
 
@@ -17,6 +17,7 @@ export async function getPackingPerPallet(): Promise<number> {
 }
 
 export async function setPackingPerPallet(value: number): Promise<void> {
-  const { error } = await db().from("settings").upsert({ key: PACKING_KEY, value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+  // updated_at is maintained by the column's ON UPDATE CURRENT_TIMESTAMP.
+  const { error } = await db().from("settings").upsert({ key: PACKING_KEY, value }, { onConflict: "key" });
   if (error) throw new Error(error.message);
 }

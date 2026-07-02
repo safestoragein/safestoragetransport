@@ -6,13 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "create-user": "node scripts/create-transport-user.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.108.2",
     "@types/leaflet": "^1.9.21",
     "@vercel/blob": "^2.4.1",
     "leaflet": "^1.9.4",
+    "mysql2": "^3.22.5",
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",

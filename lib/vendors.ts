@@ -1,9 +1,10 @@
-// Vendor master. Primary source = Supabase table `safestorage.vendors` (when SUPABASE_URL +
-// SUPABASE_SERVICE_ROLE_KEY are set). Until then it falls back to the bundled Excel seed +
-// a Vercel Blob overlay so the panel still works.
+// Vendor master. Primary source = MySQL table `safestorage.vendors` (when the MYSQL_* env is
+// set). Until then it falls back to the bundled Excel seed + a Vercel Blob overlay so the panel
+// still works.
 
 import seed from "./data/vendor-master.json";
 import { put, list } from "@vercel/blob";
+import { db, hasDb } from "./db";
 
 export type VehicleClass = "14ft" | "10ft" | "others";
 
@@ -43,25 +44,17 @@ export interface VendorMaster {
 const CAP: Record<VehicleClass, number> = { "14ft": 7, "10ft": 4, others: 7 };
 const EFF: Record<VehicleClass, number> = { "14ft": 7.5, "10ft": 4.2, others: 7.5 };
 
-const SUPA_URL = process.env.SUPABASE_URL;
-const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-export const usingSupabase = Boolean(SUPA_URL && SUPA_KEY);
+export const usingSupabase = hasDb; // "using the DB" — name kept for compatibility
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Safe diagnostic (no secrets) to debug the Supabase connection.
+// Safe diagnostic (no secrets) to debug the MySQL connection.
 export async function diagnose() {
-  const hasUrl = Boolean(SUPA_URL);
-  const hasKey = Boolean(SUPA_KEY);
-  const urlOk = SUPA_URL ? /^https:\/\/[a-z0-9]+\.supabase\.co/.test(SUPA_URL) : false;
-  const projectRef = SUPA_URL ? (SUPA_URL.match(/https:\/\/([a-z0-9]+)\.supabase\.co/)?.[1] ?? null) : null;
-  const keyType = !SUPA_KEY ? "none"
-    : SUPA_KEY.startsWith("sb_secret_") ? "secret"
-    : SUPA_KEY.startsWith("sb_publishable_") ? "publishable"
-    : SUPA_KEY.startsWith("eyJ") ? "legacy-jwt"
-    : "unknown";
+  const host = process.env.MYSQL_HOST ?? null;
+  const database = process.env.MYSQL_DATABASE ?? null;
+  const viaUrl = Boolean(process.env.MYSQL_URL);
   let error: string | null = null;
   let rows = 0;
-  if (hasUrl && hasKey) {
+  if (hasDb) {
     try {
       const c = await supa();
       const { data, error: e } = await c.from(TABLE).select("id").limit(1);
@@ -71,14 +64,13 @@ export async function diagnose() {
       error = (e as Error).message;
     }
   }
-  return { usingSupabase, hasUrl, urlLooksValid: urlOk, projectRef, hasKey, keyType, testRows: rows, error };
+  return { usingDb: hasDb, driver: "mysql", viaUrl, host, database, testRows: rows, error };
 }
 
-// Reads/writes the `safestorage.vendors` table directly (the schema is exposed to the API).
+// Reads/writes the `safestorage.vendors` table via the shared MySQL client.
 const TABLE = "vendors";
 async function supa() {
-  const { createClient } = await import("@supabase/supabase-js");
-  return createClient(SUPA_URL!, SUPA_KEY!, { db: { schema: "safestorage" }, auth: { persistSession: false } });
+  return db();
 }
 
 function fromRow(r: any): VendorMaster {
@@ -151,7 +143,7 @@ export async function listVendors(): Promise<{ vendors: VendorMaster[]; source: 
       if (error) throw new Error(error.message);
       return { vendors: (data ?? []).map(fromRow), source: "supabase" };
     } catch (e) {
-      console.error("[vendors] Supabase read failed (is the 'safestorage' schema exposed?):", (e as Error).message);
+      console.error("[vendors] MySQL read failed (is the 'safestoragetransport' schema reachable?):", (e as Error).message);
       return { vendors: await fallbackList(), source: "seed" };
     }
   }

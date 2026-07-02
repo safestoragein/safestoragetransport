@@ -1,8 +1,8 @@
 // Create (or update) a Transport-module login.
 //   node scripts/create-transport-user.mjs <email> <password> "<Full Name>" [role]
-// Reads SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY from .env.local. Passwords are scrypt-hashed with
-// the SAME scheme as lib/auth.ts so the app can verify them.
-import { createClient } from "@supabase/supabase-js";
+// Reads MYSQL_* from .env.local (or the real env). Passwords are scrypt-hashed with the SAME
+// scheme as lib/auth.ts so the app can verify them.
+import mysql from "mysql2/promise";
 import { scryptSync, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 
@@ -21,9 +21,9 @@ if (!email || !password || !name) {
   process.exit(1);
 }
 
-const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error("Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (check .env.local).");
+const { MYSQL_URL, MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE, MYSQL_SSL } = process.env;
+if (!MYSQL_URL && !(MYSQL_HOST && MYSQL_USER && MYSQL_DATABASE)) {
+  console.error("Missing MySQL config: set MYSQL_URL or MYSQL_HOST/MYSQL_USER/MYSQL_DATABASE (check .env.local).");
   process.exit(1);
 }
 
@@ -32,16 +32,32 @@ const hashPassword = (pw) => {
   return `${salt.toString("hex")}:${scryptSync(pw, salt, 64).toString("hex")}`;
 };
 
-const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  db: { schema: "safestorage" },
-  auth: { persistSession: false },
-});
+const conn = MYSQL_URL
+  ? await mysql.createConnection(MYSQL_URL)
+  : await mysql.createConnection({
+      host: MYSQL_HOST,
+      port: MYSQL_PORT ? Number(MYSQL_PORT) : 3306,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+      database: MYSQL_DATABASE,
+      ssl: MYSQL_SSL === "true" ? { rejectUnauthorized: true } : MYSQL_SSL === "insecure" ? { rejectUnauthorized: false } : undefined,
+    });
 
-const { data, error } = await db
-  .from("transport_users")
-  .upsert({ email, name, role, active: true, password_hash: hashPassword(password) }, { onConflict: "email" })
-  .select("id, email, name, role, active")
-  .single();
-
-if (error) { console.error("Failed:", error.message); process.exit(1); }
-console.log("✅ Transport user ready:", data);
+try {
+  await conn.execute(
+    `INSERT INTO transport_users (email, name, role, active, password_hash)
+     VALUES (?, ?, ?, 1, ?)
+     ON DUPLICATE KEY UPDATE name = VALUES(name), role = VALUES(role), active = 1, password_hash = VALUES(password_hash)`,
+    [email, name, role, hashPassword(password)],
+  );
+  const [rows] = await conn.execute(
+    "SELECT id, email, name, role, active FROM transport_users WHERE email = ?",
+    [email],
+  );
+  console.log("✅ Transport user ready:", rows[0]);
+} catch (e) {
+  console.error("Failed:", e.message);
+  process.exitCode = 1;
+} finally {
+  await conn.end();
+}

@@ -7,7 +7,7 @@ export const COOKIE_NAME = "ss_transport_session";
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days (seconds)
 
 function secret(): string {
-  return process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "dev-insecure-secret";
+  return process.env.SESSION_SECRET || process.env.MYSQL_PASSWORD || "dev-insecure-secret";
 }
 
 // ── Passwords (scrypt) ───────────────────────────────────────────────────────────────────────
