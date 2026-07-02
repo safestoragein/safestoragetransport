@@ -42,9 +42,10 @@ jobs:
           protocol: ftp
           port: 21
           timeout: 120000
-          # cPanel main-account FTP lands in /home/<user>, so the app dir is this relative path.
-          # If deploy fails with "directory not found", adjust this to match your FTP root.
-          server-dir: public_html/safestorage-transport/
+          # The FTP account (developer@safestorage.in) is rooted at /home/safestor/public_html,
+          # so the app dir is relative to that. (Using public_html/... here would nest into
+          # /home/safestor/public_html/public_html/... and the running app would never see it.)
+          server-dir: safestorage-transport/
           local-dir: ./
           # node_modules stays on the server (CloudLinux symlink); never upload it.
           # .next/cache is build-only and huge — skip it.
@@ -69,5 +70,5 @@ jobs:
           protocol: ftp
           port: 21
           local-dir: ./tmp/
-          server-dir: public_html/safestorage-transport/tmp/
+          server-dir: safestorage-transport/tmp/
           state-name: .ftp-deploy-tmp-state.json
