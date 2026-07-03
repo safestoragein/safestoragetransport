@@ -141,9 +141,18 @@ function spreadStacked(stops: any[]): { lat: number; lng: number }[] {
   return pos;
 }
 
+// Straight-line km between two points (fallback when OSRM legs aren't available).
+function havKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371, dLat = ((b.lat - a.lat) * Math.PI) / 180, dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const la1 = (a.lat * Math.PI) / 180, la2 = (b.lat * Math.PI) / 180;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
 function RouteMapMini({ v }: { v: any }) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
+  const [legsKm, setLegsKm] = useState<number[]>([]); // road km per leg: [start→#1, #1→#2, …]
 
   const depot = v.depotLat != null && v.depotLng != null ? { lat: Number(v.depotLat), lng: Number(v.depotLng), label: v.startingPoint || "Depot" } : null;
   const whSrc = v.orders.find((o: any) => o.warehouse_lat && o.warehouse_lng);
@@ -185,6 +194,7 @@ function RouteMapMini({ v }: { v: any }) {
 
       // draw the ACTUAL road route (OSRM geometry); fall back to a straight dashed line.
       let drew = false;
+      let osrmLegs: number[] | null = null;
       if (wps.length > 1) {
         try {
           const coordStr = wps.map((p) => `${p.lng},${p.lat}`).join(";");
@@ -196,10 +206,15 @@ function RouteMapMini({ v }: { v: any }) {
           if (!cancelled && j?.code === "Ok" && j.routes?.[0]?.geometry?.coordinates) {
             const line = j.routes[0].geometry.coordinates.map((c: number[]) => [c[1], c[0]] as [number, number]);
             L.polyline(line, { color: "#4f46e5", weight: 5, opacity: 0.85 }).addTo(map);
+            // real road km per leg (waypoints: depot → stops → wh)
+            const legs = (j.routes[0].legs || []).map((l: any) => (l.distance || 0) / 1000);
+            if (legs.length) osrmLegs = legs;
             drew = true;
           }
         } catch { /* fall back below */ }
       }
+      // legs shown to the user: OSRM road km if we got them, else straight-line km.
+      if (!cancelled) setLegsKm(osrmLegs ?? wps.slice(1).map((p, i) => havKm(wps[i], p)));
       if (!cancelled && !drew && wps.length > 1) {
         L.polyline(wps.map((p) => [p.lat, p.lng] as [number, number]), { color: "#94a3b8", weight: 3, opacity: 0.7, dashArray: "6 6" }).addTo(map);
       }
@@ -243,6 +258,7 @@ function RouteMapMini({ v }: { v: any }) {
                 <span className="font-semibold text-slate-800">{o.customer_unique_id}</span> <span className="text-slate-600">{o.customer_name}</span>
                 <span className="ml-1 text-slate-400">{o.order_type === "pickup" ? "pickup" : "retrieval"}</span>
                 <div className="text-[11px] text-slate-400">{o.locality || ""}{t != null ? ` · ~${fmtClock(t)}` : ""}{late ? <span className="ml-1 font-medium text-red-500">LATE</span> : null}</div>
+                {legsKm[i] != null && <div className="text-[11px] font-medium text-indigo-500">↳ {legsKm[i].toFixed(1)} km from {i === 0 ? "start" : `stop ${i}`}</div>}
               </span>
             </li>
           );
