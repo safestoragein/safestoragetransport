@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE_NAME, SESSION_MAX_AGE, signSession, SessionUser, verifyPassword } from "@/lib/auth";
 import { db, hasDb } from "@/lib/db";
+import { pool } from "@/lib/mysql";
 
 export const dynamic = "force-dynamic";
 
@@ -28,15 +29,16 @@ function withSession(session: SessionUser) {
 // Temporary diagnostic (no secrets): GET /api/auth/login → is the DB reachable?
 // Remove once login is confirmed working.
 export async function GET() {
-  const out: any = { hasDb, mysqlHostSet: Boolean(process.env.MYSQL_HOST), mysqlDbSet: Boolean(process.env.MYSQL_DATABASE) };
+  const out: any = { hasDb, mysqlDbEnv: process.env.MYSQL_DATABASE || null, tablePrefix: process.env.MYSQL_TABLE_PREFIX ?? "sst_" };
   if (hasDb) {
     try {
-      const { data, error } = await db().from("transport_users").select("id").limit(1);
-      out.dbOk = !error;
-      out.userRows = Array.isArray(data) ? data.length : 0;
-      if (error) { out.code = error.code; out.msg = error.message; }
+      const [[meta]]: any = await pool().query("SELECT DATABASE() AS db, CURRENT_USER() AS usr");
+      out.connectedDb = meta?.db;
+      out.connectedUser = meta?.usr;
+      const [rows]: any = await pool().query("SELECT id, email, role, active, LENGTH(password_hash) AS hlen FROM sst_transport_users ORDER BY email");
+      out.users = rows;
     } catch (e: any) {
-      out.dbOk = false; out.code = e?.code; out.msg = e?.message;
+      out.dbErr = e?.code || e?.message;
     }
   }
   return NextResponse.json(out);
