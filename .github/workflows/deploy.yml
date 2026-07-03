@@ -58,6 +58,8 @@ jobs:
             **/*.map
             **/*.nft.json
             tmp/**
+            .env
+            .env.*
 
       # Upload the restart stamp LAST, in its own pass, so Passenger only restarts
       # after every app file is in place (avoids restarting onto a half-uploaded build).
