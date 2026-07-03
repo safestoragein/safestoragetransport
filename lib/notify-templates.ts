@@ -16,10 +16,8 @@ const fmtMin = (min: number) => {
   return m ? `${hh}:${String(m).padStart(2, "0")} ${ap}` : `${hh} ${ap}`;
 };
 
-export function typeWord(orderType?: string | null, audience: "customer" | "vendor" = "customer"): string {
-  const t = String(orderType || "").toLowerCase();
-  if (/retriev/.test(t)) return audience === "customer" ? "delivery" : "retrieval";
-  return "pickup";
+export function typeWord(orderType?: string | null): string {
+  return /retriev/.test(String(orderType || "").toLowerCase()) ? "retrieval" : "pickup";
 }
 
 export function fmtDate(d?: string | null): string {
@@ -52,7 +50,7 @@ export interface OrderLike {
 // ── Customer: NEVER contains vendor details ──────────────────────────────────
 export function customerMessage(o: OrderLike, date?: string | null) {
   const win = requestedWindow(o.required_time);
-  const kind = typeWord(o.order_type, "customer");
+  const kind = typeWord(o.order_type);
   const dateStr = fmtDate(date ?? o.schedule_date);
   const name = o.customer_name || "Customer";
   if (win) return { template: TEMPLATES.customerSlot, bodyValues: [name, kind, dateStr, win] };
@@ -69,7 +67,7 @@ export function vendorMessage(vendorName: string, orders: OrderLike[], date?: st
     if (win) { anyFixed = true; timing = `${win} (fixed)`; }
     else if (o.time_slot) timing = `slot ${o.time_slot}`;
     else timing = "flexible";
-    const kind = typeWord(o.order_type, "vendor");
+    const kind = typeWord(o.order_type);
     return `${i + 1}. ${o.customer_name || "Customer"}, ${o.contact || "-"} — ${o.locality || "-"} — ${kind} — ${timing}`;
   });
   const list = lines.join("\n");
