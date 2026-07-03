@@ -29,6 +29,11 @@ const {
 
 export const mysqlConfigured = Boolean(MYSQL_URL || (MYSQL_HOST && MYSQL_USER && MYSQL_DATABASE));
 
+// All transport tables share this prefix so they never collide with the other
+// systems living in the same (shared) database. Override with MYSQL_TABLE_PREFIX
+// if needed — but it must match the prefix used in mysql/schema.sql.
+export const TABLE_PREFIX = process.env.MYSQL_TABLE_PREFIX ?? "sst_";
+
 // Tables whose primary key is a Supabase-style UUID `id`. For these, the builder
 // generates the id on insert (matching gen_random_uuid()) so `.select()` after an
 // insert can return the row without relying on AUTO_INCREMENT.
@@ -93,6 +98,13 @@ export function pool(): mysql.Pool {
           ssl: MYSQL_SSL === "true" ? { rejectUnauthorized: true } : MYSQL_SSL === "insecure" ? { rejectUnauthorized: false } : undefined,
           ...baseOptions(),
         });
+    // Default InnoDB isolation is REPEATABLE READ, under which a long-lived pooled
+    // connection can keep serving a stale snapshot (it won't see rows committed by
+    // other connections after its read-view was taken). Force READ COMMITTED on every
+    // new connection so each query always sees the latest committed data.
+    _pool.on("connection", (conn) => {
+      conn.query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED");
+    });
   }
   return _pool;
 }
@@ -129,6 +141,9 @@ class QueryBuilder<T = any> implements PromiseLike<QueryResult<T>> {
   private singleMode: "none" | "single" | "maybe" = "none";
 
   constructor(private table: string) {}
+
+  // Physical table name (prefixed). `table` stays the logical name for UUID_TABLES lookups.
+  private get phys(): string { return TABLE_PREFIX + this.table; }
 
   // ── selection / mutations ────────────────────────────────────────────────
   select(cols = "*"): this {
@@ -234,7 +249,7 @@ class QueryBuilder<T = any> implements PromiseLike<QueryResult<T>> {
 
       if (this.op === "select") {
         const w = this.where();
-        let sql = `SELECT ${this.projection()} FROM ${idq(this.table)}${w.sql}`;
+        let sql = `SELECT ${this.projection()} FROM ${idq(this.phys)}${w.sql}`;
         if (this.orders.length) sql += " ORDER BY " + this.orders.join(", ");
         if (this._limit != null) sql += ` LIMIT ${Number(this._limit)}`;
         else if (this.singleMode !== "none") sql += " LIMIT 2"; // let shape() detect >1
@@ -248,7 +263,7 @@ class QueryBuilder<T = any> implements PromiseLike<QueryResult<T>> {
         const cols = Object.keys(rows[0]);
         const placeholders = rows.map(() => `(${cols.map(() => "?").join(", ")})`).join(", ");
         const params = rows.flatMap((r) => cols.map((c) => enc(r[c])));
-        let sql = `INSERT INTO ${idq(this.table)} (${cols.map(idq).join(", ")}) VALUES ${placeholders}`;
+        let sql = `INSERT INTO ${idq(this.phys)} (${cols.map(idq).join(", ")}) VALUES ${placeholders}`;
         if (this.op === "upsert") {
           // Update every column except the conflict keys and the generated id.
           const skip = new Set([...this.conflict, "id"]);
@@ -262,7 +277,7 @@ class QueryBuilder<T = any> implements PromiseLike<QueryResult<T>> {
           const ids = rows.map((r) => r.id).filter((v) => v != null);
           if (UUID_TABLES.has(this.table) && ids.length) {
             const [back] = await p.query(
-              `SELECT * FROM ${idq(this.table)} WHERE ${idq("id")} IN (${ids.map(() => "?").join(", ")})`,
+              `SELECT * FROM ${idq(this.phys)} WHERE ${idq("id")} IN (${ids.map(() => "?").join(", ")})`,
               ids,
             );
             return this.shape(back as Record<string, any>[]);
@@ -277,10 +292,10 @@ class QueryBuilder<T = any> implements PromiseLike<QueryResult<T>> {
         const cols = Object.keys(set);
         if (!cols.length) return { data: null, error: null };
         const w = this.where();
-        const sql = `UPDATE ${idq(this.table)} SET ${cols.map((c) => `${idq(c)} = ?`).join(", ")}${w.sql}`;
+        const sql = `UPDATE ${idq(this.phys)} SET ${cols.map((c) => `${idq(c)} = ?`).join(", ")}${w.sql}`;
         await p.query(sql, [...cols.map((c) => enc(set[c])), ...w.params]);
         if (this.returning) {
-          const [rows] = await p.query(`SELECT * FROM ${idq(this.table)}${w.sql}`, w.params);
+          const [rows] = await p.query(`SELECT * FROM ${idq(this.phys)}${w.sql}`, w.params);
           return this.shape(rows as Record<string, any>[]);
         }
         return { data: null, error: null };
@@ -288,7 +303,7 @@ class QueryBuilder<T = any> implements PromiseLike<QueryResult<T>> {
 
       if (this.op === "delete") {
         const w = this.where();
-        await p.query(`DELETE FROM ${idq(this.table)}${w.sql}`, w.params);
+        await p.query(`DELETE FROM ${idq(this.phys)}${w.sql}`, w.params);
         return { data: null, error: null };
       }
 
