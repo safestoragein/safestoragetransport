@@ -37,6 +37,13 @@ export async function GET() {
       out.connectedUser = meta?.usr;
       const [rows]: any = await pool().query("SELECT id, email, role, active, LENGTH(password_hash) AS hlen FROM sst_transport_users ORDER BY email");
       out.users = rows;
+      // Replicate the EXACT login lookup via the shim, for both accounts.
+      for (const em of ["admin@safestorage.in", "user@safestorage.in"]) {
+        const { data, error } = await db().from("transport_users").select("*").ilike("email", em).maybeSingle();
+        out[`probe_${em.split("@")[0]}`] = error ? { error: error.message } :
+          data ? { found: true, id: data.id, hlen: String(data.password_hash || "").length, activeType: typeof data.active }
+               : { found: false };
+      }
     } catch (e: any) {
       out.dbErr = e?.code || e?.message;
     }
