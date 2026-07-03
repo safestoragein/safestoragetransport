@@ -268,6 +268,34 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
   };
 }
 
+// Drop orders from a run that are no longer in the live feed (cancelled, or rescheduled to another
+// day). Removes their assignment rows so they disappear from the schedule. SAFE: if the live feed
+// is empty/unreachable it removes nothing (so an API blip can't wipe the schedule).
+export async function removeStaleFromRun(citySlug: string, date: string): Promise<{ removed: number }> {
+  const c = db();
+  const { data: runs } = await c.from("schedule_runs").select("id").eq("schedule_date", date).eq("city", citySlug).order("generated_at", { ascending: false }).limit(1);
+  const run = runs?.[0];
+  if (!run) return { removed: 0 };
+
+  let live: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  try { live = await loadLiveRaw(citySlug, date); } catch { return { removed: 0 }; }
+  if (!live.length) return { removed: 0 }; // guard against a feed glitch wiping everything
+  const liveIds = new Set(live.map((o: any) => String(o.order_id))); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  const { data: assigns } = await c.from("schedule_assignments").select("order_id").eq("run_id", run.id);
+  const orderUuids = [...new Set((assigns ?? []).map((a: any) => a.order_id))]; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!orderUuids.length) return { removed: 0 };
+  const { data: orders } = await c.from("orders").select("id, order_id").in("id", orderUuids);
+  const stale = (orders ?? []).filter((o: any) => !liveIds.has(String(o.order_id))).map((o: any) => o.id); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  let removed = 0;
+  for (const uuid of stale) {
+    const { error } = await c.from("schedule_assignments").delete().eq("run_id", run.id).eq("order_id", uuid);
+    if (!error) removed++;
+  }
+  return { removed };
+}
+
 // Compare the LIVE booking feed against the persisted run(s) for a date and report what changed
 // since the schedule was generated (the 6 AM cut-off) — new bookings, cancelled/moved-out orders,
 // and reschedules (time-slot changes). Powers the red "new changes" banner + pull action.

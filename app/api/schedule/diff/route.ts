@@ -3,7 +3,7 @@
 //   POST /api/schedule/diff { date }          -> pull new orders + refresh reschedules into each run
 import { NextRequest, NextResponse } from "next/server";
 import { hasDb } from "@/lib/db";
-import { diffSchedule, syncNewOrders } from "@/lib/schedule";
+import { diffSchedule, syncNewOrders, removeStaleFromRun } from "@/lib/schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -27,14 +27,15 @@ export async function POST(req: NextRequest) {
     // Only the cities that actually changed need a resync (adds new orders to the "to assign"
     // bucket + refreshes reschedules; existing manual assignments are preserved).
     const d = await diffSchedule(b.date);
-    let added = 0;
+    let added = 0, removed = 0;
     const results = [];
     for (const c of d.cities) {
-      const r = await syncNewOrders(c.city, b.date);
-      added += r.added;
-      results.push({ city: c.city, ...r });
+      const rem = await removeStaleFromRun(c.city, b.date); // drop cancelled / moved-out orders
+      const r = await syncNewOrders(c.city, b.date);        // pull new + refresh reschedules
+      added += r.added; removed += rem.removed;
+      results.push({ city: c.city, added: r.added, removed: rem.removed });
     }
-    return NextResponse.json({ ok: true, added, results });
+    return NextResponse.json({ ok: true, added, removed, results });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }
