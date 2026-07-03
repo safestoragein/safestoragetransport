@@ -227,6 +227,12 @@ export async function loadLiveRaw(citySlug: string, date: string): Promise<any[]
   );
 }
 
+// The whole work-order feed (all cities/dates) — used to tell "feed is down" (empty) from
+// "this city genuinely has no orders left" when deciding whether to drop cancelled orders.
+export async function allLiveOrders(): Promise<any[]> {
+  return getJson("transport_controller_Dev0/get_work_order_list_api_new");
+}
+
 // Retrievals have NO pallet count in the work-order feed (total_pallet is null for 100% of
 // them). The team derives it from the customer's stored goods. We fetch that goods list here
 // and return the total item quantity so the export can show an item count + a pallet ESTIMATE.

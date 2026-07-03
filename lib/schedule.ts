@@ -3,7 +3,7 @@
 // loads the schedule back from those tables.
 
 import { db, isUuid } from "./db";
-import { loadLive, loadLiveRaw } from "./safestorage-api";
+import { loadLive, loadLiveRaw, allLiveOrders } from "./safestorage-api";
 import { masterVendorsForCity } from "./vendor-source";
 import { optimize } from "./optimizer";
 import { computePnL } from "./economics";
@@ -277,10 +277,16 @@ export async function removeStaleFromRun(citySlug: string, date: string): Promis
   const run = runs?.[0];
   if (!run) return { removed: 0 };
 
-  let live: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
-  try { live = await loadLiveRaw(citySlug, date); } catch { return { removed: 0 }; }
-  if (!live.length) return { removed: 0 }; // guard against a feed glitch wiping everything
-  const liveIds = new Set(live.map((o: any) => String(o.order_id))); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Guard on the WHOLE feed: if the entire feed is empty/unreachable the API is likely down, so
+  // remove nothing. If the feed has orders but THIS city+date has none, those orders were genuinely
+  // cancelled/moved and should be dropped.
+  let all: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  try { all = await allLiveOrders(); } catch { return { removed: 0 }; }
+  if (!all.length) return { removed: 0 };
+  const liveIds = new Set(
+    all.filter((o: any) => (o.customer_local_city || "").toLowerCase().trim() === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date) // eslint-disable-line @typescript-eslint/no-explicit-any
+       .map((o: any) => String(o.order_id)), // eslint-disable-line @typescript-eslint/no-explicit-any
+  );
 
   const { data: assigns } = await c.from("schedule_assignments").select("order_id").eq("run_id", run.id);
   const orderUuids = [...new Set((assigns ?? []).map((a: any) => a.order_id))]; // eslint-disable-line @typescript-eslint/no-explicit-any
