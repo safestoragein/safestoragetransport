@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { interaktConfigured, sendTemplate } from "@/lib/interakt";
-import { customerMessage, vendorOrderMessage } from "@/lib/notify-templates";
+import { customerMessage, vendorMessage } from "@/lib/notify-templates";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, sentAt: new Date().toISOString() });
     }
 
-    // ── Vendor: one message per assigned order (customer contact + timing) ────
+    // ── Vendor: ONE clubbed message with all assigned stops (in planned order) ─
     if (b.kind === "vendor") {
       if (!b.vendorId) return NextResponse.json({ ok: false, error: "vendorId required" }, { status: 400 });
       const { data: vendor } = await c.from("vendors").select("*").eq("id", b.vendorId).maybeSingle();
@@ -45,21 +45,21 @@ export async function POST(req: NextRequest) {
       if (!phone) return NextResponse.json({ ok: false, error: "no supervisor/driver phone on this vendor" }, { status: 422 });
       const vendorName = vendor.supervisor_name || vendor.name || "Partner";
 
-      const { data: assigns } = await c.from("schedule_assignments").select("order_id").eq("run_id", b.runId).eq("vendor_id", b.vendorId);
-      const orderIds = [...new Set((assigns ?? []).map((a: any) => a.order_id))];
+      // Order the stops by the planned sequence (trip, then stop).
+      const { data: assigns } = await c.from("schedule_assignments").select("order_id, trip_no, stop_seq").eq("run_id", b.runId).eq("vendor_id", b.vendorId);
+      const seq = [...(assigns ?? [])].sort((a: any, z: any) => (a.trip_no - z.trip_no) || (a.stop_seq - z.stop_seq));
+      const orderIds = [...new Set(seq.map((a: any) => a.order_id))];
       if (!orderIds.length) return NextResponse.json({ ok: false, error: "no orders assigned to this vendor in this run" }, { status: 422 });
       const { data: orders } = await c.from("orders").select("*").in("id", orderIds);
+      const byId = new Map((orders ?? []).map((o: any) => [o.id, o]));
+      const ordered = orderIds.map((id) => byId.get(id)).filter(Boolean) as any[];
 
-      let sent = 0; const errors: string[] = [];
-      for (const o of (orders ?? []) as any[]) {
-        const msg = vendorOrderMessage(vendorName, o, date);
-        const r = await sendTemplate({ phone, template: msg.template, bodyValues: msg.bodyValues });
-        if (r.ok) sent++; else errors.push(`${o.order_id}: ${r.error}`);
-      }
-      if (sent === 0) return NextResponse.json({ ok: false, error: `WhatsApp send failed: ${errors[0] ?? "unknown"}` }, { status: 502 });
+      const msg = vendorMessage(vendorName, ordered, date);
+      const r = await sendTemplate({ phone, template: msg.template, bodyValues: msg.bodyValues });
+      if (!r.ok) return NextResponse.json({ ok: false, error: `WhatsApp send failed: ${r.error}` }, { status: 502 });
 
-      await c.from("notifications").insert({ run_id: b.runId, vendor_id: b.vendorId, kind: "vendor", channel: "whatsapp", status: errors.length ? "partial" : "sent", detail: `sent ${sent}/${(orders ?? []).length}${errors.length ? "; " + errors.join(" | ") : ""}`.slice(0, 250) });
-      return NextResponse.json({ ok: true, sent, total: (orders ?? []).length, errors, sentAt: new Date().toISOString() });
+      await c.from("notifications").insert({ run_id: b.runId, vendor_id: b.vendorId, kind: "vendor", channel: "whatsapp", status: "sent", detail: `interakt:${msg.template} (${ordered.length} stops)` });
+      return NextResponse.json({ ok: true, stops: ordered.length, sentAt: new Date().toISOString() });
     }
 
     return NextResponse.json({ ok: false, error: "unknown kind" }, { status: 400 });

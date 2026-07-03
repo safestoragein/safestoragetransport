@@ -1,14 +1,13 @@
 // Builds the WhatsApp template payloads for customer/vendor notifications.
-// Template NAMES are configurable via env so they can match whatever you register in Interakt.
-// The order of bodyValues below is the {{1}}, {{2}}, … order your Interakt template must use.
+// Template names are fixed (register these exact names in Interakt). All message content
+// comes from the booking data — the only config needed is INTERAKT_API_KEY.
+// The bodyValues order below is the {{1}}, {{2}}, … order your Interakt templates must use.
 
 export const TEMPLATES = {
-  // Customer, a specific time was requested → give a 1-hour arrival window.
-  customerSlot: process.env.INTERAKT_TPL_CUSTOMER_SLOT || "ss_customer_slot",
-  // Customer, no specific time → "partner will be in touch shortly".
-  customerShortly: process.env.INTERAKT_TPL_CUSTOMER_SHORTLY || "ss_customer_shortly",
-  // Vendor, one message per assigned order (includes the customer's contact + timing).
-  vendorOrder: process.env.INTERAKT_TPL_VENDOR_ORDER || "ss_vendor_order",
+  customerSlot: "ss_customer_slot",           // customer asked for a specific time
+  customerShortly: "ss_customer_shortly",     // no specific time
+  vendorFixed: "ss_vendor_fixed",             // at least one stop has a fixed customer time
+  vendorRecommended: "ss_vendor_recommended", // no fixed times → our recommended order
 };
 
 const fmtMin = (min: number) => {
@@ -17,14 +16,12 @@ const fmtMin = (min: number) => {
   return m ? `${hh}:${String(m).padStart(2, "0")} ${ap}` : `${hh} ${ap}`;
 };
 
-// "pickup" | "full_retrieval" | "partial_retrieval" → words for each audience.
 export function typeWord(orderType?: string | null, audience: "customer" | "vendor" = "customer"): string {
   const t = String(orderType || "").toLowerCase();
   if (/retriev/.test(t)) return audience === "customer" ? "delivery" : "retrieval";
   return "pickup";
 }
 
-// Friendly date, e.g. "Sat, 5 Jul 2026".
 export function fmtDate(d?: string | null): string {
   if (!d) return "the scheduled day";
   const dt = new Date(String(d).slice(0, 10) + "T00:00:00");
@@ -32,51 +29,50 @@ export function fmtDate(d?: string | null): string {
   return dt.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
-// A customer explicitly asked for a time → derive a 1-hour window ("9–10 AM").
-// Returns null when there's no explicit request (drives the "in touch shortly" template).
-export function requestedWindow(requiredTime?: string | null, timeSlot?: string | null): string | null {
+// Explicit customer time request (parsed from the booking notes) → a 1-hour window. null otherwise.
+export function requestedWindow(requiredTime?: string | null): string | null {
   const src = (requiredTime && requiredTime.trim()) || "";
-  if (!src) return null; // only an EXPLICIT customer request (from notes) counts as "specific"
+  if (!src) return null;
   const m = src.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-  if (!m) return src; // e.g. "morning slot" — pass the text through
+  if (!m) return src; // e.g. "morning slot" → pass through
   let h = parseInt(m[1], 10);
   const min = m[2] ? parseInt(m[2], 10) : 0;
   const ap = (m[3] || "").toLowerCase();
   if (ap === "pm" && h < 12) h += 12;
   if (ap === "am" && h === 12) h = 0;
-  // No am/pm and hour <= 7 → assume PM for typical evening asks; otherwise keep as-is (best effort).
   const start = h * 60 + min;
   return `${fmtMin(start)}–${fmtMin(start + 60)}`;
-  void timeSlot;
 }
 
 export interface OrderLike {
   order_type?: string | null; customer_name?: string | null; contact?: string | null;
-  locality?: string | null; pallets?: number | string | null; stated_pallets?: number | string | null;
-  time_slot?: string | null; required_time?: string | null; schedule_date?: string | null;
+  locality?: string | null; time_slot?: string | null; required_time?: string | null; schedule_date?: string | null;
 }
 
-// ── Customer message: NEVER contains vendor details ──────────────────────────
+// ── Customer: NEVER contains vendor details ──────────────────────────────────
 export function customerMessage(o: OrderLike, date?: string | null) {
-  const win = requestedWindow(o.required_time, o.time_slot);
+  const win = requestedWindow(o.required_time);
   const kind = typeWord(o.order_type, "customer");
   const dateStr = fmtDate(date ?? o.schedule_date);
   const name = o.customer_name || "Customer";
-  if (win) {
-    return { template: TEMPLATES.customerSlot, bodyValues: [name, kind, dateStr, win] };
-  }
+  if (win) return { template: TEMPLATES.customerSlot, bodyValues: [name, kind, dateStr, win] };
   return { template: TEMPLATES.customerShortly, bodyValues: [name, kind, dateStr] };
 }
 
-// ── Vendor message (per order): includes the customer's contact + firm timing ─
-export function vendorOrderMessage(vendorName: string, o: OrderLike, date?: string | null) {
-  const win = requestedWindow(o.required_time, o.time_slot);
-  const kind = typeWord(o.order_type, "vendor");
-  const dateStr = fmtDate(date ?? o.schedule_date);
-  const pallets = o.stated_pallets ?? o.pallets ?? "-";
-  const timing = win ? `${win} — please reach in this slot` : "flexible (as per your day plan)";
-  return {
-    template: TEMPLATES.vendorOrder,
-    bodyValues: [vendorName || "Partner", kind, dateStr, o.customer_name || "Customer", o.contact || "-", o.locality || "-", pallets, timing],
-  };
+// ── Vendor: ONE clubbed message with all stops (customer contact + timing, no pallets) ──
+// `orders` must be pre-sorted into the recommended sequence (by trip/stop).
+export function vendorMessage(vendorName: string, orders: OrderLike[], date?: string | null) {
+  let anyFixed = false;
+  const lines = orders.map((o, i) => {
+    const win = requestedWindow(o.required_time);
+    let timing: string;
+    if (win) { anyFixed = true; timing = `${win} (fixed)`; }
+    else if (o.time_slot) timing = `slot ${o.time_slot}`;
+    else timing = "flexible";
+    const kind = typeWord(o.order_type, "vendor");
+    return `${i + 1}. ${o.customer_name || "Customer"}, ${o.contact || "-"} — ${o.locality || "-"} — ${kind} — ${timing}`;
+  });
+  const list = lines.join("\n");
+  const template = anyFixed ? TEMPLATES.vendorFixed : TEMPLATES.vendorRecommended;
+  return { template, bodyValues: [vendorName || "Partner", fmtDate(date), list] };
 }

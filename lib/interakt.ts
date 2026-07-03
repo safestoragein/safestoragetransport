@@ -36,8 +36,9 @@ export async function sendTemplate(opts: { phone?: string | null; template: stri
     template: {
       name: opts.template,
       languageCode: opts.languageCode || LANG,
-      // Meta rejects newlines/tabs in variables — flatten whitespace defensively.
-      bodyValues: opts.bodyValues.map((v) => String(v ?? "").replace(/\s+/g, " ").trim()),
+      // Keep newlines (the vendor list is multi-line) but drop tabs / runs of spaces,
+      // which Meta does reject in variables.
+      bodyValues: opts.bodyValues.map((v) => String(v ?? "").replace(/\t/g, " ").replace(/ {2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim()),
     },
   });
 
