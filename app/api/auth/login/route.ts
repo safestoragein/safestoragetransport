@@ -24,6 +24,24 @@ function withSession(session: SessionUser) {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// Temporary diagnostic (no secrets): GET /api/auth/login → is the DB reachable?
+// Remove once login is confirmed working.
+export async function GET() {
+  const out: any = { hasDb, mysqlHostSet: Boolean(process.env.MYSQL_HOST), mysqlDbSet: Boolean(process.env.MYSQL_DATABASE) };
+  if (hasDb) {
+    try {
+      const { data, error } = await db().from("transport_users").select("id").limit(1);
+      out.dbOk = !error;
+      out.userRows = Array.isArray(data) ? data.length : 0;
+      if (error) { out.code = error.code; out.msg = error.message; }
+    } catch (e: any) {
+      out.dbOk = false; out.code = e?.code; out.msg = e?.message;
+    }
+  }
+  return NextResponse.json(out);
+}
+
 export async function POST(req: NextRequest) {
   const { email, password } = await req.json().catch(() => ({}));
   if (!email || !password) {
