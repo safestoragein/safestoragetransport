@@ -19,6 +19,7 @@ import { geocodeAddress, CITY_WAREHOUSE, CITY_CENTER } from "./geocode";
 import { VEHICLE_CAPACITY, bufferedPickupPallets, requiredVehicleFor } from "./config";
 import { parseRequiredTime } from "./timeslot";
 import { flag } from "./format";
+import { geocodeCached } from "./geocode-remote";
 
 const API_BASE = process.env.SAFESTORAGE_API_BASE || "https://safestorage.in/back";
 
@@ -134,8 +135,10 @@ export async function loadLive(citySlug: string, date: string): Promise<DaySnaps
   );
 
   let precise = 0;
-  const bookings: Booking[] = dayOrders.map((o, i) => {
-    const g = geocodeAddress(o.order_address || "", citySlug);
+  const bookings: Booking[] = [];
+  for (let i = 0; i < dayOrders.length; i++) {
+    const o = dayOrders[i];
+    const g = await geocodeCached(o.order_address || "", citySlug); // real geocode, cached in MySQL
     if (g.precise) precise++;
     const isPickup = !/retriev/i.test(o.order_type || "");
     const statedRaw = parseFloat(o.total_pallet);
@@ -144,7 +147,7 @@ export async function loadLive(citySlug: string, date: string): Promise<DaySnaps
     // stated count. Retrievals are exact from the warehouse (no buffer). Missing count -> ~3.5 avg
     // so zero-pallet orders don't pile onto one team without limit.
     const palletsScheduled = stated == null ? 3.5 : isPickup ? bufferedPickupPallets(stated) : stated;
-    return {
+    bookings.push({
       id: `${o.customer_unique_id || "ORD"}-${o.order_id || i}`,
       refNo: o.customer_unique_id || `ORD-${i}`,
       date,
@@ -173,8 +176,8 @@ export async function loadLive(citySlug: string, date: string): Promise<DaySnaps
       teamNotes: (o.customer_notes || "").trim() || undefined,
       ...timeFromNotes(o.customer_notes),
       currentVendorId: null, // live orders carry only a generic supervisor; no reliable manual team
-    };
-  });
+    });
+  }
 
   const vendors = deriveTeams(vehicles, citySlug, wh);
   const intercity = dayOrders

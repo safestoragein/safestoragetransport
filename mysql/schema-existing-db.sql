@@ -199,6 +199,18 @@ CREATE TABLE IF NOT EXISTS sst_notifications (
   KEY idx_sst_notifications_run (run_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ───────────────────────────── sst_geocode_cache ───────────────────────────
+-- Cache of geocoded order addresses (OSM Nominatim). Each address is looked up once.
+CREATE TABLE IF NOT EXISTS sst_geocode_cache (
+  q          VARCHAR(255) NOT NULL,   -- normalized "address|city"
+  lat        DOUBLE       NULL,       -- null = no result (a cached miss)
+  lng        DOUBLE       NULL,
+  precise    TINYINT(1)   NOT NULL DEFAULT 0,
+  provider   VARCHAR(24)  NULL,
+  created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (q)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ───────────────────────────── sst_vendor_documents ────────────────────────
 -- Vendor compliance files (service agreement / GST) stored as blobs in MySQL.
 -- One row per (vendor, kind); the vendor's *_url column points at the serving route.
