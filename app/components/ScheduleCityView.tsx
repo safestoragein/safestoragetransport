@@ -52,7 +52,13 @@ export default function ScheduleCityView({ initial, tab = "all" }: { initial: Sc
   async function notify(kind: "vendor" | "customer", ids: { vendorId?: string | null; orderId?: string }) {
     const key = `${kind}:${ids.vendorId ?? ids.orderId}`;
     setPending(key);
-    await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, kind, ...ids }) });
+    try {
+      const r = await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, kind, ...ids }) }).then((x) => x.json());
+      if (!r?.ok) alert(r?.error || "Notification failed");
+      else if (r.errors?.length) alert(`Sent ${r.sent}/${r.total}. Some failed:\n${r.errors.join("\n")}`);
+    } catch {
+      alert("Network error while sending the notification.");
+    }
     await reload();
     setPending(null);
   }
@@ -144,13 +150,22 @@ export default function ScheduleCityView({ initial, tab = "all" }: { initial: Sc
                 >
                   {openPlan === (v.vendorId ?? v.vendorName) ? "Hide details" : "Details"}
                 </button>
-                <button
-                  disabled={pending === `vendor:${v.vendorId}` || !v.vendorId}
-                  onClick={() => notify("vendor", { vendorId: v.vendorId })}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium ${v.vendorNotifiedAt ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-slate-900 text-white hover:bg-slate-700"}`}
-                >
-                  {pending === `vendor:${v.vendorId}` ? "…" : v.vendorNotifiedAt ? "Vendor notified ✓" : "Notify vendor"}
-                </button>
+                {v.vendorNotifiedAt ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">Vendor notified ✓</span>
+                    <button disabled={pending === `vendor:${v.vendorId}` || !v.vendorId} onClick={() => notify("vendor", { vendorId: v.vendorId })} title="Resend WhatsApp to vendor" className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50">
+                      {pending === `vendor:${v.vendorId}` ? "…" : "Resend"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    disabled={pending === `vendor:${v.vendorId}` || !v.vendorId}
+                    onClick={() => notify("vendor", { vendorId: v.vendorId })}
+                    className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {pending === `vendor:${v.vendorId}` ? "…" : "Notify vendor"}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -215,13 +230,22 @@ export default function ScheduleCityView({ initial, tab = "all" }: { initial: Sc
                     )}
 
                     {!v.isUnassigned && (
-                      <button
-                        disabled={pending === `customer:${o.order_id}`}
-                        onClick={() => notify("customer", { orderId: o.order_id })}
-                        className={`ml-auto shrink-0 rounded px-2 py-1 text-[11px] font-medium ${o.customerNotifiedAt ? "bg-emerald-100 text-emerald-700" : "bg-white text-blue-600 ring-1 ring-slate-200 hover:bg-slate-50"}`}
-                      >
-                        {pending === `customer:${o.order_id}` ? "…" : o.customerNotifiedAt ? "Customer notified ✓" : "Notify customer"}
-                      </button>
+                      o.customerNotifiedAt ? (
+                        <span className="ml-auto flex shrink-0 items-center gap-1">
+                          <span className="rounded bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-700">Customer notified ✓</span>
+                          <button disabled={pending === `customer:${o.id}`} onClick={() => notify("customer", { orderId: o.id })} title="Resend WhatsApp to customer" className="rounded px-2 py-1 text-[11px] font-medium text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50">
+                            {pending === `customer:${o.id}` ? "…" : "Resend"}
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          disabled={pending === `customer:${o.id}`}
+                          onClick={() => notify("customer", { orderId: o.id })}
+                          className="ml-auto shrink-0 rounded bg-white px-2 py-1 text-[11px] font-medium text-blue-600 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          {pending === `customer:${o.id}` ? "…" : "Notify customer"}
+                        </button>
+                      )
                     )}
                   </div>
                 </div>
