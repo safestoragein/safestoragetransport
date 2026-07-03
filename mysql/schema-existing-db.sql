@@ -1,41 +1,36 @@
 -- ============================================================================
--- SafeStorage Transport — MySQL tables for an EXISTING database
+-- SafeStorage Transport — tables for the EXISTING `safestor_india` database
 -- ----------------------------------------------------------------------------
--- This variant does NOT create or switch a database/schema. Run it against your
--- already-existing database — select it first, e.g.:
+-- All transport tables use the `sst_` prefix so they never collide with the
+-- other systems already living in `safestor_india`. The app code expects this
+-- prefix by default (lib/mysql.ts → TABLE_PREFIX = "sst_").
 --
---   mysql -h <host> -u <user> -p <your_existing_db> < mysql/schema-existing-db.sql
+-- HOW TO RUN (cPanel → phpMyAdmin):
+--   1. Select the `safestor_india` database on the left.
+--   2. Open the "SQL" tab, paste this whole file, click "Go".
 --
--- (or open your DB in Workbench/phpMyAdmin and run this there).
---
--- It creates all tables + UUID/updated_at triggers and seeds the vendor master
--- and admin login. Safe to re-run: tables use IF NOT EXISTS, triggers are
--- dropped-then-recreated, seeds are idempotent.
---
--- Point the app at this database with MYSQL_DATABASE=<your_existing_db>.
+-- No CREATE DATABASE / USE here — it targets whichever DB you have selected.
+-- Safe to re-run: tables use IF NOT EXISTS, triggers are dropped-then-created,
+-- seeds are idempotent. Written for MySQL 8 / MariaDB 10.6 (single-statement
+-- triggers, so no DELIMITER is needed in phpMyAdmin).
 -- ============================================================================
 
--- ─────────────────────────────── vendors ───────────────────────────────────
-CREATE TABLE IF NOT EXISTS vendors (
+-- ─────────────────────────────── sst_vendors ───────────────────────────────
+CREATE TABLE IF NOT EXISTS sst_vendors (
   id                  CHAR(36)      NOT NULL,
-
   city                VARCHAR(120)  NOT NULL,
   name                VARCHAR(191)  NOT NULL,
   vehicle_type        VARCHAR(16)   NOT NULL,
   pallet_capacity     DECIMAL(4,1)  NOT NULL,
   effective_capacity  DECIMAL(4,1)  NOT NULL,
-
   tier                VARCHAR(16)   NOT NULL DEFAULT 'general',
   daily_price         DECIMAL(10,2) NULL,
   pricing_note        VARCHAR(255)  NULL,
   per_transaction     DECIMAL(10,2) NULL,
-
   starting_point      VARCHAR(191)  NULL,
   starting_lat        DOUBLE        NULL,
   starting_lng        DOUBLE        NULL,
-
   is_intercity_vendor TINYINT(1)    NOT NULL DEFAULT 0,
-
   system_team_id      VARCHAR(64)   NULL,
   system_team_no      VARCHAR(120)  NULL,
   vehicle_no          VARCHAR(64)   NULL,
@@ -46,41 +41,37 @@ CREATE TABLE IF NOT EXISTS vendors (
   supervisor_contact  VARCHAR(40)   NULL,
   packer_names        VARCHAR(255)  NULL,
   team_working_status VARCHAR(64)   NULL,
-
   security_deposit      DECIMAL(12,2) NULL,
   service_agreement_url TEXT          NULL,
   gst_document_url      TEXT          NULL,
-
   notes               TEXT          NULL,
   priority_group      VARCHAR(4)    NULL,
   supervisors         JSON          NULL,
   billing_cycle       VARCHAR(16)   NULL,
-
   remarks             VARCHAR(255)  NULL,
   active              TINYINT(1)    NOT NULL DEFAULT 1,
   source              VARCHAR(16)   NOT NULL DEFAULT 'panel',
   created_at          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
   PRIMARY KEY (id),
-  UNIQUE KEY uq_vendors_city_name_vt (city, name, vehicle_type),
-  KEY idx_vendors_city (city),
-  KEY idx_vendors_tier (tier),
-  KEY idx_vendors_intercity (is_intercity_vendor),
-  CONSTRAINT chk_vendors_vehicle_type CHECK (vehicle_type IN ('10ft','14ft','others')),
-  CONSTRAINT chk_vendors_tier         CHECK (tier IN ('general','non_general'))
+  UNIQUE KEY uq_sst_vendors_city_name_vt (city, name, vehicle_type),
+  KEY idx_sst_vendors_city (city),
+  KEY idx_sst_vendors_tier (tier),
+  KEY idx_sst_vendors_intercity (is_intercity_vendor)
+  -- vehicle_type ('10ft','14ft','others') and tier ('general','non_general') are
+  -- validated in the app; CHECK constraints omitted (phpMyAdmin parser rejects them).
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─────────────────────────────── settings ──────────────────────────────────
-CREATE TABLE IF NOT EXISTS settings (
+-- ─────────────────────────────── sst_settings ──────────────────────────────
+CREATE TABLE IF NOT EXISTS sst_settings (
   `key`      VARCHAR(120)  NOT NULL,
   value      DECIMAL(14,4) NOT NULL,
   updated_at TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─────────────────────────── transport_users ───────────────────────────────
-CREATE TABLE IF NOT EXISTS transport_users (
+-- ─────────────────────────── sst_transport_users ───────────────────────────
+CREATE TABLE IF NOT EXISTS sst_transport_users (
   id            CHAR(36)     NOT NULL,
   email         VARCHAR(191) NOT NULL,
   password_hash TEXT         NOT NULL,
@@ -90,11 +81,11 @@ CREATE TABLE IF NOT EXISTS transport_users (
   created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_login_at TIMESTAMP    NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_transport_users_email (email)
+  UNIQUE KEY uq_sst_transport_users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ──────────────────────────────── orders ───────────────────────────────────
-CREATE TABLE IF NOT EXISTS orders (
+-- ──────────────────────────────── sst_orders ───────────────────────────────
+CREATE TABLE IF NOT EXISTS sst_orders (
   id                 CHAR(36)      NOT NULL,
   schedule_date      DATE          NULL,
   city               VARCHAR(120)  NULL,
@@ -123,12 +114,12 @@ CREATE TABLE IF NOT EXISTS orders (
   created_at         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_orders_order_id (order_id),
-  KEY idx_orders_date_city (schedule_date, city)
+  UNIQUE KEY uq_sst_orders_order_id (order_id),
+  KEY idx_sst_orders_date_city (schedule_date, city)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ───────────────────────────── schedule_runs ───────────────────────────────
-CREATE TABLE IF NOT EXISTS schedule_runs (
+-- ───────────────────────────── sst_schedule_runs ───────────────────────────
+CREATE TABLE IF NOT EXISTS sst_schedule_runs (
   id            CHAR(36)      NOT NULL,
   schedule_date DATE          NULL,
   city          VARCHAR(120)  NULL,
@@ -140,11 +131,11 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
   total_margin  DECIMAL(14,2) NULL,
   generated_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  KEY idx_runs_date_city (schedule_date, city)
+  KEY idx_sst_runs_date_city (schedule_date, city)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ────────────────────────── schedule_assignments ───────────────────────────
-CREATE TABLE IF NOT EXISTS schedule_assignments (
+-- ────────────────────────── sst_schedule_assignments ───────────────────────
+CREATE TABLE IF NOT EXISTS sst_schedule_assignments (
   id               CHAR(36)      NOT NULL,
   run_id           CHAR(36)      NOT NULL,
   vendor_id        CHAR(36)      NULL,
@@ -156,24 +147,24 @@ CREATE TABLE IF NOT EXISTS schedule_assignments (
   intercity_profit DECIMAL(12,2) NULL,
   created_at       TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  KEY idx_assign_run (run_id),
-  KEY idx_assign_order (order_id),
-  CONSTRAINT fk_assign_run   FOREIGN KEY (run_id)   REFERENCES schedule_runs (id) ON DELETE CASCADE,
-  CONSTRAINT fk_assign_order FOREIGN KEY (order_id) REFERENCES orders (id)        ON DELETE CASCADE
+  KEY idx_sst_assign_run (run_id),
+  KEY idx_sst_assign_order (order_id),
+  CONSTRAINT fk_sst_assign_run   FOREIGN KEY (run_id)   REFERENCES sst_schedule_runs (id) ON DELETE CASCADE,
+  CONSTRAINT fk_sst_assign_order FOREIGN KEY (order_id) REFERENCES sst_orders (id)        ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ────────────────────────── schedule_vendor_addons ─────────────────────────
-CREATE TABLE IF NOT EXISTS schedule_vendor_addons (
+-- ────────────────────────── sst_schedule_vendor_addons ─────────────────────
+CREATE TABLE IF NOT EXISTS sst_schedule_vendor_addons (
   run_id      CHAR(36)     NOT NULL,
   vendor_key  VARCHAR(191) NOT NULL,
   extra_trips INT          NOT NULL DEFAULT 0,
   resources   INT          NOT NULL DEFAULT 0,
   PRIMARY KEY (run_id, vendor_key),
-  CONSTRAINT fk_addons_run FOREIGN KEY (run_id) REFERENCES schedule_runs (id) ON DELETE CASCADE
+  CONSTRAINT fk_sst_addons_run FOREIGN KEY (run_id) REFERENCES sst_schedule_runs (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ───────────────────────────── schedule_changes ────────────────────────────
-CREATE TABLE IF NOT EXISTS schedule_changes (
+-- ───────────────────────────── sst_schedule_changes ────────────────────────
+CREATE TABLE IF NOT EXISTS sst_schedule_changes (
   id                 CHAR(36)     NOT NULL,
   order_id           VARCHAR(120) NULL,
   customer_unique_id VARCHAR(120) NULL,
@@ -189,11 +180,11 @@ CREATE TABLE IF NOT EXISTS schedule_changes (
   handled            TINYINT(1)   NOT NULL DEFAULT 0,
   received_at        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  KEY idx_changes_open (service_date, handled)
+  KEY idx_sst_changes_open (service_date, handled)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ───────────────────────────── notifications ───────────────────────────────
-CREATE TABLE IF NOT EXISTS notifications (
+-- ───────────────────────────── sst_notifications ───────────────────────────
+CREATE TABLE IF NOT EXISTS sst_notifications (
   id         CHAR(36)     NOT NULL,
   run_id     CHAR(36)     NULL,
   vendor_id  VARCHAR(120) NULL,
@@ -204,36 +195,53 @@ CREATE TABLE IF NOT EXISTS notifications (
   detail     TEXT         NULL,
   sent_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  KEY idx_notifications_run (run_id)
+  KEY idx_sst_notifications_run (run_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─────────────────── UUID defaults (gen_random_uuid equivalent) ─────────────
--- Drop-then-create so the file is safe to re-run.
-DROP TRIGGER IF EXISTS bi_vendors;
-DROP TRIGGER IF EXISTS bi_transport_users;
-DROP TRIGGER IF EXISTS bi_orders;
-DROP TRIGGER IF EXISTS bi_schedule_runs;
-DROP TRIGGER IF EXISTS bi_schedule_assignments;
-DROP TRIGGER IF EXISTS bi_schedule_changes;
-DROP TRIGGER IF EXISTS bi_notifications;
+-- ───────────────────────────── sst_vendor_documents ────────────────────────
+-- Vendor compliance files (service agreement / GST) stored as blobs in MySQL.
+-- One row per (vendor, kind); the vendor's *_url column points at the serving route.
+CREATE TABLE IF NOT EXISTS sst_vendor_documents (
+  id           CHAR(36)     NOT NULL,
+  vendor_id    CHAR(36)     NOT NULL,
+  kind         VARCHAR(32)  NOT NULL,           -- 'service_agreement' | 'gst'
+  filename     VARCHAR(255) NULL,
+  content_type VARCHAR(120) NULL,
+  byte_size    INT          NULL,
+  data         LONGBLOB     NOT NULL,
+  created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_sst_vendor_documents_vk (vendor_id, kind),
+  KEY idx_sst_vendor_documents_vendor (vendor_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-DELIMITER $$
-CREATE TRIGGER bi_vendors              BEFORE INSERT ON vendors              FOR EACH ROW BEGIN IF NEW.id IS NULL OR NEW.id = '' THEN SET NEW.id = UUID(); END IF; END$$
-CREATE TRIGGER bi_transport_users      BEFORE INSERT ON transport_users      FOR EACH ROW BEGIN IF NEW.id IS NULL OR NEW.id = '' THEN SET NEW.id = UUID(); END IF; END$$
-CREATE TRIGGER bi_orders               BEFORE INSERT ON orders               FOR EACH ROW BEGIN IF NEW.id IS NULL OR NEW.id = '' THEN SET NEW.id = UUID(); END IF; END$$
-CREATE TRIGGER bi_schedule_runs        BEFORE INSERT ON schedule_runs        FOR EACH ROW BEGIN IF NEW.id IS NULL OR NEW.id = '' THEN SET NEW.id = UUID(); END IF; END$$
-CREATE TRIGGER bi_schedule_assignments BEFORE INSERT ON schedule_assignments FOR EACH ROW BEGIN IF NEW.id IS NULL OR NEW.id = '' THEN SET NEW.id = UUID(); END IF; END$$
-CREATE TRIGGER bi_schedule_changes     BEFORE INSERT ON schedule_changes     FOR EACH ROW BEGIN IF NEW.id IS NULL OR NEW.id = '' THEN SET NEW.id = UUID(); END IF; END$$
-CREATE TRIGGER bi_notifications        BEFORE INSERT ON notifications        FOR EACH ROW BEGIN IF NEW.id IS NULL OR NEW.id = '' THEN SET NEW.id = UUID(); END IF; END$$
-DELIMITER ;
+-- ─────────────── UUID id defaults (single-statement triggers) ───────────────
+DROP TRIGGER IF EXISTS bi_sst_vendors;
+DROP TRIGGER IF EXISTS bi_sst_vendor_documents;
+DROP TRIGGER IF EXISTS bi_sst_transport_users;
+DROP TRIGGER IF EXISTS bi_sst_orders;
+DROP TRIGGER IF EXISTS bi_sst_schedule_runs;
+DROP TRIGGER IF EXISTS bi_sst_schedule_assignments;
+DROP TRIGGER IF EXISTS bi_sst_schedule_changes;
+DROP TRIGGER IF EXISTS bi_sst_notifications;
+
+CREATE TRIGGER bi_sst_vendors              BEFORE INSERT ON sst_vendors              FOR EACH ROW SET NEW.id = IF(NEW.id IS NULL OR NEW.id = '', UUID(), NEW.id);
+CREATE TRIGGER bi_sst_vendor_documents     BEFORE INSERT ON sst_vendor_documents     FOR EACH ROW SET NEW.id = IF(NEW.id IS NULL OR NEW.id = '', UUID(), NEW.id);
+CREATE TRIGGER bi_sst_transport_users      BEFORE INSERT ON sst_transport_users      FOR EACH ROW SET NEW.id = IF(NEW.id IS NULL OR NEW.id = '', UUID(), NEW.id);
+CREATE TRIGGER bi_sst_orders               BEFORE INSERT ON sst_orders               FOR EACH ROW SET NEW.id = IF(NEW.id IS NULL OR NEW.id = '', UUID(), NEW.id);
+CREATE TRIGGER bi_sst_schedule_runs        BEFORE INSERT ON sst_schedule_runs        FOR EACH ROW SET NEW.id = IF(NEW.id IS NULL OR NEW.id = '', UUID(), NEW.id);
+CREATE TRIGGER bi_sst_schedule_assignments BEFORE INSERT ON sst_schedule_assignments FOR EACH ROW SET NEW.id = IF(NEW.id IS NULL OR NEW.id = '', UUID(), NEW.id);
+CREATE TRIGGER bi_sst_schedule_changes     BEFORE INSERT ON sst_schedule_changes     FOR EACH ROW SET NEW.id = IF(NEW.id IS NULL OR NEW.id = '', UUID(), NEW.id);
+CREATE TRIGGER bi_sst_notifications        BEFORE INSERT ON sst_notifications        FOR EACH ROW SET NEW.id = IF(NEW.id IS NULL OR NEW.id = '', UUID(), NEW.id);
 
 -- ============================================================================
 -- SEED DATA (idempotent)
 -- ============================================================================
 
-INSERT IGNORE INTO settings (`key`, value) VALUES ('packing_per_pallet', 2000);
+INSERT IGNORE INTO sst_settings (`key`, value) VALUES ('packing_per_pallet', 2000);
 
-INSERT IGNORE INTO vendors
+INSERT IGNORE INTO sst_vendors
   (city, name, vehicle_type, pallet_capacity, effective_capacity, tier,
    starting_point, starting_lat, starting_lng, daily_price, pricing_note, per_transaction, is_intercity_vendor,
    system_team_id, system_team_no, vehicle_no, vehicle_name, driver_name, driver_contact,
@@ -260,7 +268,7 @@ VALUES
   ('Bangalore','VMS Packers Team 3','others',7,7.5,'non_general','Akshaya Nagar',12.897,77.633,NULL,'6 transactions / ₹20,000',3333,0,'158','VMS Packers Team','KA51AJ4776','VMS vehicle','Naveen vms','7676379728','Asif vms','9910484037',NULL,'Free','excel'),
   ('Bangalore','Daksh Cargo Packers','others',7,7.5,'non_general','Kasavanahalli',12.9,77.68,NULL,'6 transactions / ₹15,000',2500,0,'183','Daksh packer Lakshman','Daksh','Daksh cargo packers','Daksh cargo packers','1233211231','Pappu Daksh cargo','9041634891','Sumir proja','Free','excel');
 
-INSERT INTO vendors
+INSERT INTO sst_vendors
   (city, name, vehicle_type, pallet_capacity, effective_capacity,
    tier, pricing_note, starting_point, starting_lat, starting_lng,
    is_intercity_vendor, supervisor_name, supervisor_contact, remarks, active, source)
@@ -283,7 +291,7 @@ ON DUPLICATE KEY UPDATE
   active              = 1;
 
 -- admin login — scrypt hash of "SafeStorage@2026" (change after first login)
-INSERT INTO transport_users (email, name, role, active, password_hash)
+INSERT INTO sst_transport_users (email, name, role, active, password_hash)
 VALUES (
   'admin@safestorage.in', 'Admin', 'admin', 1,
   'cea2d2c10c73a88903309db2743756e7:19ad43af6c25d05d25955f4420daded18f27bf312aaa6de38da8e6af68578442e0cb6efeb89de608968461b688da6331b086a1d614e588161480deec0e4bc4c6'
@@ -293,5 +301,3 @@ ON DUPLICATE KEY UPDATE
   name          = VALUES(name),
   role          = VALUES(role),
   active        = 1;
-
--- Done. Set MYSQL_DATABASE to this database's name in the app env.

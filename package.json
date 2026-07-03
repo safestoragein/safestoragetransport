@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "create-user": "node scripts/create-transport-user.mjs",
-    "migrate-vendors": "node scripts/migrate-vendors-from-supabase.mjs"
+    "migrate-vendors": "node scripts/migrate-vendors-from-supabase.mjs",
+    "migrate-vendor-docs": "node scripts/migrate-vendor-docs.mjs"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.21",

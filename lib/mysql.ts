@@ -39,6 +39,7 @@ export const TABLE_PREFIX = process.env.MYSQL_TABLE_PREFIX ?? "sst_";
 // insert can return the row without relying on AUTO_INCREMENT.
 const UUID_TABLES = new Set([
   "vendors",
+  "vendor_documents",
   "transport_users",
   "orders",
   "schedule_runs",
