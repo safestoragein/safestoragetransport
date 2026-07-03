@@ -58,6 +58,9 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
   const [changes, setChanges] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [showChanges, setShowChanges] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // Comparison-based diff (live feed vs the persisted run) — new / rescheduled / removed since the run.
+  const [diff, setDiff] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [pulling, setPulling] = useState(false);
 
   async function refreshChanges(date?: string) {
     if (!date) return;
@@ -129,6 +132,27 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     fetch(`/api/schedule/changes?date=${data.date}`).then((x) => x.json()).then((r) => setChanges(r.changes ?? [])).catch(() => {});
   }, [mode, data?.date]);
 
+  // Poll the live feed vs the persisted run to catch bookings added/removed/rescheduled AFTER the
+  // 6 AM run — Tomorrow's planning view only. Re-checks on load and every 60s.
+  useEffect(() => {
+    if (mode !== "tomorrow" || !data?.date) return;
+    let stop = false;
+    const check = () => fetch(`/api/schedule/diff?date=${data.date}`).then((x) => x.json()).then((r) => { if (!stop) setDiff(r?.ok ? r : null); }).catch(() => {});
+    check();
+    const id = setInterval(check, 60_000);
+    return () => { stop = true; clearInterval(id); };
+  }, [mode, data?.date]);
+
+  async function pullChanges() {
+    if (!data?.date) return;
+    setPulling(true);
+    await fetch("/api/schedule/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: data.date }) }).catch(() => {});
+    await load(undefined); // reload tomorrow
+    const r = await fetch(`/api/schedule/diff?date=${data.date}`).then((x) => x.json()).catch(() => null);
+    setDiff(r?.ok ? r : null);
+    setPulling(false);
+  }
+
   async function generate() {
     setBusy(true);
     const genDate = data?.date ?? (mode === "today" ? todayStr : undefined);
@@ -194,6 +218,37 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
             )}
           </div>
         </div>
+
+        {/* Live-feed diff vs the persisted run — highlights bookings added / rescheduled / removed
+            AFTER the 6 AM run. Polls every 60s. Tomorrow's planning view only. */}
+        {!isToday && !isHistory && diff && diff.total > 0 && (() => {
+          const nNew = diff.cities.reduce((s: number, c: any) => s + c.newOrders.length, 0);
+          const nRes = diff.cities.reduce((s: number, c: any) => s + c.rescheduled.length, 0);
+          const nRem = diff.cities.reduce((s: number, c: any) => s + c.removed.length, 0);
+          return (
+            <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-red-700">
+                  🔴 {diff.total} booking change{diff.total > 1 ? "s" : ""} since the 6 AM run
+                  {" — "}{nNew > 0 && `${nNew} new`}{nNew > 0 && (nRes || nRem) ? " · " : ""}{nRes > 0 && `${nRes} rescheduled`}{nRes > 0 && nRem ? " · " : ""}{nRem > 0 && `${nRem} removed`}
+                </span>
+                <button onClick={pullChanges} disabled={pulling} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">
+                  {pulling ? "Pulling…" : "Pull changes"}
+                </button>
+              </div>
+              <div className="mt-1.5 space-y-0.5 text-xs text-red-600">
+                {diff.cities.map((c: any) => (
+                  <div key={c.city}>
+                    <b className="capitalize">{c.city}</b>:
+                    {c.newOrders.length > 0 && <span> new [{c.newOrders.join(", ")}]</span>}
+                    {c.rescheduled.length > 0 && <span> rescheduled [{c.rescheduled.join(", ")}]</span>}
+                    {c.removed.length > 0 && <span> removed [{c.removed.join(", ")}]</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Post-cutoff changes from the booking webhook — Tomorrow's planning view only.
             Today is monitoring-only: the day was locked at the cut-off, so we don't surface changes here. */}

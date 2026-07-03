@@ -3,7 +3,7 @@
 // loads the schedule back from those tables.
 
 import { db, isUuid } from "./db";
-import { loadLive } from "./safestorage-api";
+import { loadLive, loadLiveRaw } from "./safestorage-api";
 import { masterVendorsForCity } from "./vendor-source";
 import { optimize } from "./optimizer";
 import { computePnL } from "./economics";
@@ -266,6 +266,45 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
     availableVendors,
     vendors,
   };
+}
+
+// Compare the LIVE booking feed against the persisted run(s) for a date and report what changed
+// since the schedule was generated (the 6 AM cut-off) — new bookings, cancelled/moved-out orders,
+// and reschedules (time-slot changes). Powers the red "new changes" banner + pull action.
+export interface ScheduleDiff {
+  date: string;
+  cities: { city: string; newOrders: string[]; removed: string[]; rescheduled: string[] }[];
+  total: number;
+}
+export async function diffSchedule(date: string): Promise<ScheduleDiff> {
+  const c = db();
+  const { data: runs } = await c.from("schedule_runs").select("id, city, generated_at").eq("schedule_date", date);
+  const latest = new Map<string, any>();
+  for (const r of (runs ?? []) as any[]) { const cur = latest.get(r.city); if (!cur || r.generated_at > cur.generated_at) latest.set(r.city, r); }
+
+  const cities: ScheduleDiff["cities"] = [];
+  let total = 0;
+  for (const [city, run] of latest) {
+    const { data: assigns } = await c.from("schedule_assignments").select("order_id").eq("run_id", run.id);
+    const uuids = [...new Set((assigns ?? []).map((a: any) => a.order_id))];
+    const persisted: any[] = uuids.length ? ((await c.from("orders").select("order_id, customer_unique_id, time_slot").in("id", uuids)).data ?? []) : [];
+    const persById = new Map<string, any>(persisted.map((o: any) => [String(o.order_id), o]));
+
+    let live: any[] = [];
+    try { live = await loadLiveRaw(city, date); } catch { live = []; }
+    const liveById = new Map(live.map((o: any) => [String(o.order_id), o]));
+
+    const newOrders: string[] = [], removed: string[] = [], rescheduled: string[] = [];
+    for (const [id, lo] of liveById) if (!persById.has(id)) newOrders.push(String(lo.customer_unique_id || id));
+    for (const [id, po] of persById) if (!liveById.has(id)) removed.push(String(po.customer_unique_id || id));
+    for (const [id, lo] of liveById) {
+      const po = persById.get(id);
+      if (po && String(lo.order_timeslot || "").trim() !== String(po.time_slot || "").trim()) rescheduled.push(String(lo.customer_unique_id || id));
+    }
+    const n = newOrders.length + removed.length + rescheduled.length;
+    if (n > 0) { cities.push({ city, newOrders, removed, rescheduled }); total += n; }
+  }
+  return { date, cities, total };
 }
 
 // Distinct dates that have persisted schedule runs (newest first) — for the Old-schedules picker.
