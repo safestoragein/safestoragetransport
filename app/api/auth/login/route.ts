@@ -24,6 +24,30 @@ function withSession(session: SessionUser) {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// Temporary diagnostic (no secrets): GET /api/auth/login → DB env + connectivity.
+export async function GET() {
+  const out: any = {
+    hasDb,
+    env: {
+      MYSQL_HOST: Boolean(process.env.MYSQL_HOST),
+      MYSQL_USER: Boolean(process.env.MYSQL_USER),
+      MYSQL_PASSWORD: Boolean(process.env.MYSQL_PASSWORD),
+      MYSQL_DATABASE: process.env.MYSQL_DATABASE || null,
+      MYSQL_URL: Boolean(process.env.MYSQL_URL),
+      SESSION_SECRET: Boolean(process.env.SESSION_SECRET),
+    },
+  };
+  if (hasDb) {
+    try {
+      const { error } = await db().from("transport_users").select("id").limit(1);
+      out.dbOk = !error;
+      if (error) { out.code = (error as any).code; out.msg = error.message; }
+    } catch (e: any) { out.dbOk = false; out.code = e?.code; out.msg = e?.message; }
+  }
+  return NextResponse.json(out);
+}
+
 export async function POST(req: NextRequest) {
   const { email, password } = await req.json().catch(() => ({}));
   if (!email || !password) {
