@@ -272,11 +272,15 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
 export async function loadScheduleDates(): Promise<{ date: string; runs: number; orders: number }[]> {
   const c = db();
   const { data } = await c.from("schedule_runs").select("schedule_date, total_orders");
+  // "Old schedules" = past days only (today lives in Today's tab, tomorrow in Tomorrow's).
+  const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); // IST date
   const by = new Map<string, { runs: number; orders: number }>();
   (data ?? []).forEach((r: any) => {
-    const cur = by.get(r.schedule_date) ?? { runs: 0, orders: 0 };
+    const d = String(r.schedule_date).slice(0, 10);
+    if (d >= today) return; // skip today + future
+    const cur = by.get(d) ?? { runs: 0, orders: 0 };
     cur.runs += 1; cur.orders += Number(r.total_orders) || 0;
-    by.set(r.schedule_date, cur);
+    by.set(d, cur);
   });
   return [...by.entries()].map(([date, v]) => ({ date, ...v })).sort((a, b) => (a.date < b.date ? 1 : -1));
 }
