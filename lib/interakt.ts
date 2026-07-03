@@ -44,9 +44,14 @@ export async function sendTemplate(opts: { phone?: string | null; template: stri
   const p = normalizePhone(opts.phone);
   if (!p) return { ok: false, error: `invalid phone: ${opts.phone ?? "(none)"}` };
 
+  // Interakt strips a leading "91" (= the +91 country code) from phoneNumber, which mangles genuine
+  // mobiles that happen to start with 91 (e.g. 9182428057 -> 82428057 -> "invalid phone"). Re-add a
+  // "91" for those so the strip leaves the correct 10 digits. Numbers not starting with 91 are
+  // untouched, so this can't affect any currently-working number.
+  const sendNumber = p.countryCode === "+91" && p.phoneNumber.startsWith("91") ? "91" + p.phoneNumber : p.phoneNumber;
   const payload = JSON.stringify({
     countryCode: p.countryCode,
-    phoneNumber: p.phoneNumber,
+    phoneNumber: sendNumber,
     type: "Template",
     template: {
       name: opts.template,
