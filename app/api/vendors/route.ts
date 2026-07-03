@@ -46,9 +46,13 @@ export async function POST(req: NextRequest) {
     billingCycle: body.billingCycle || null,
     supervisors: Array.isArray(body.supervisors) ? body.supervisors : null,
   };
-  const created = [];
-  for (const city of cities) created.push(await addVendor({ city, ...common }));
-  return NextResponse.json({ vendors: created, vendor: created[0] });
+  try {
+    const created = [];
+    for (const city of cities) created.push(await addVendor({ city, ...common }));
+    return NextResponse.json({ vendors: created, vendor: created[0] });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message || "Could not add vendor" }, { status: 500 });
+  }
 }
 
 export async function PATCH(req: NextRequest) {

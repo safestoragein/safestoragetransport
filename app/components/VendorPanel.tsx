@@ -434,7 +434,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
         <input type="checkbox" checked={f.isIntercityVendor} onChange={(e) => set("isIntercityVendor", e.target.checked)} /> Intercity vendor
       </label>
 
-      {err && <div className="mt-2 text-xs text-red-600">{err}</div>}
+      {err && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700 ring-1 ring-red-200">⚠ {err}</div>}
       <div className="mt-3 flex gap-2">
         <button onClick={save} disabled={saving} className="rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button>
         <button onClick={onCancel} disabled={saving} className="rounded-lg px-4 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">Cancel</button>
@@ -477,8 +477,9 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
     try {
       const cleanSups = sups.filter((s) => s.name.trim() || s.phone.trim()).map((s) => ({ name: s.name.trim(), phone: s.phone.trim() }));
       const res = await fetch("/api/vendors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, cities: selCities, supervisors: cleanSups }) });
-      if (!res.ok) throw new Error("Could not save vendor");
-      const { vendors } = await res.json();
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "Could not save vendor");
+      const { vendors } = j;
       // upload documents to the FIRST created record (one set of docs per add)
       if ((saFile || gstFile) && vendors[0]) {
         if (saFile) vendors[0].serviceAgreementUrl = await uploadDoc(vendors[0].id, "service_agreement", saFile);
@@ -489,19 +490,22 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
   }
 
   const input = "w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm";
-  const field = (label: string, k: string, type = "text", placeholder = "") => (
+  const field = (label: string, k: string, type = "text", placeholder = "", req = false) => (
     <label className="block">
-      <span className="mb-1 block text-[11px] font-medium text-slate-500">{label}</span>
+      <span className="mb-1 block text-[11px] font-medium text-slate-500">{label}{req && <span className="text-red-500"> *</span>}</span>
       <input className={input} type={type} placeholder={placeholder} value={(f as unknown as Record<string, string>)[k]} onChange={(e) => set(k, e.target.value)} />
     </label>
   );
 
   return (
     <Card className="mb-4 p-4">
-      <div className="mb-3 text-sm font-semibold text-slate-700">Add a new vendor</div>
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-sm font-semibold text-slate-700">Add a new vendor</span>
+        <span className="text-[11px] text-slate-400"><span className="text-red-500">*</span> required</span>
+      </div>
 
       {/* cities — multi-select; one record is created per selected city */}
-      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Cities (one record created per city)</div>
+      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Cities <span className="text-red-500">*</span> (select at least one — one record created per city)</div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         {existingCities.map((c) => (
           <button key={c} type="button" onClick={() => toggleCity(c)} className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ${selCities.includes(c) ? "bg-blue-600 text-white ring-blue-600" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}>{c}</button>
@@ -515,8 +519,8 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
 
       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Vendor &amp; pricing</div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {field("Vendor name", "name", "text", "e.g. VMS Packers Team 1")}
-        <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Vehicle</span>
+        {field("Vendor name", "name", "text", "e.g. VMS Packers Team 1", true)}
+        <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Vehicle <span className="text-red-500">*</span></span>
           <select className={input} value={f.vehicleType} onChange={(e) => { const vt = e.target.value; setF((p) => ({ ...p, vehicleType: vt, tier: vt === "others" ? "non_general" : p.tier })); }}>
             <option value="14ft">14ft (7 pallets)</option><option value="10ft">10ft (4 pallets)</option><option value="others">Other (7 pallets)</option>
           </select>
@@ -569,7 +573,7 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
         <input type="checkbox" checked={f.isIntercityVendor} onChange={(e) => set("isIntercityVendor", e.target.checked)} /> Intercity vendor
       </label>
 
-      {err && <div className="mt-2 text-xs text-red-600">{err}</div>}
+      {err && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700 ring-1 ring-red-200">⚠ {err}</div>}
       <button onClick={submit} disabled={saving} className="mt-3 rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50">{saving ? "Saving…" : selCities.length > 1 ? `Save ${selCities.length} vendor records` : "Save vendor"}</button>
     </Card>
   );
