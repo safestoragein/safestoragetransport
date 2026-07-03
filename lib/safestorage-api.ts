@@ -18,6 +18,7 @@ import { getBookings, getVendors } from "./mock-data";
 import { geocodeAddress, CITY_WAREHOUSE, CITY_CENTER } from "./geocode";
 import { VEHICLE_CAPACITY, bufferedPickupPallets, requiredVehicleFor } from "./config";
 import { parseRequiredTime } from "./timeslot";
+import { flag } from "./format";
 
 const API_BASE = process.env.SAFESTORAGE_API_BASE || "https://safestorage.in/back";
 
@@ -150,7 +151,7 @@ export async function loadLive(citySlug: string, date: string): Promise<DaySnaps
       type: /retriev/i.test(o.order_type || "") ? "retrieval" : "pickup",
       category: /partial/i.test(o.order_type || "") ? "partial_retrieval" : /retriev/i.test(o.order_type || "") ? "full_retrieval" : "pickup",
       orderId: String(o.order_id || `${o.customer_unique_id}-${i}`),
-      isIntercity: Boolean(o.is_intercity) || /intercity|shifting/i.test(o.order_type || ""),
+      isIntercity: flag(o.is_intercity) || /intercity|shifting/i.test(o.order_type || ""),
       isShifting: /shifting/i.test(o.order_type || ""),
       customerName: o.customer_name || o.customer_unique_id || "Customer",
       location: { lat: g.lat, lng: g.lng, label: g.locality ?? (o.order_address || "").split(",")[0] },

@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { db, hasDb } from "@/lib/db";
+import { flag } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
     service_date,
     event: String(pick("event", "type", "action") || "updated").toLowerCase(),
     order_type: pick("order_type", "orderType"),
-    is_intercity: body.is_intercity != null ? Boolean(body.is_intercity) : null,
+    is_intercity: body.is_intercity != null ? flag(body.is_intercity) : null,
     time_slot: pick("order_timeslot", "time_slot", "timeSlot"),
     order_status: pick("order_status", "status"),
     source: "webhook",

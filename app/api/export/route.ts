@@ -9,6 +9,7 @@ import { NextRequest } from "next/server";
 import * as XLSX from "xlsx";
 import { loadSchedule, loadAllSchedules } from "@/lib/schedule";
 import { loadLiveRaw, listLiveCities } from "@/lib/safestorage-api";
+import { flag } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -43,7 +44,7 @@ async function buildCitySheet(citySlug: string, date: string) {
     const r = rawByRef.get(ref) ?? {};
     const s = bySched.get(ref);
     const otype = s?.order_type ?? r.order_type ?? "";
-    const intercity = Boolean(r.is_intercity) || s?.is_intercity || /intercity|shifting/i.test(otype);
+    const intercity = flag(r.is_intercity) || s?.is_intercity || /intercity|shifting/i.test(otype);
     const stated = s?.stated_pallets;
     const pallet = s?.pallets ?? (parseFloat(r.total_pallet) || "");
     const notes = [s?.team_notes ?? r.customer_notes ?? "", stated != null && Number(stated) !== Number(s?.pallets) ? `(customer stated ${stated}p)` : ""].filter(Boolean).join(" ");
