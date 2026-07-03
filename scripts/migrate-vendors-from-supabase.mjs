@@ -12,6 +12,27 @@
 // Add --truncate to wipe the MySQL vendors table first for an exact 1:1 copy.
 import mysql from "mysql2/promise";
 import { readFileSync } from "node:fs";
+import https from "node:https";
+import http from "node:http";
+
+// Plain https GET (avoids Node's built-in fetch/undici, whose WASM HTTP parser fails
+// to allocate memory under CloudLinux LVE limits on shared hosting).
+function httpGet(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const lib = u.protocol === "http:" ? http : https;
+    const req = lib.request(
+      { hostname: u.hostname, port: u.port || (u.protocol === "http:" ? 80 : 443), path: u.pathname + u.search, method: "GET", headers },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode || 0, buffer: Buffer.concat(chunks), headers: res.headers }));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 // ── load .env.local (simple parser; doesn't override already-set env) ────────
 try {
@@ -57,18 +78,16 @@ function enc(v) {
 
 // ── 1) read from Supabase (PostgREST); Accept-Profile selects the schema ─────
 const url = `${SUPABASE_URL.replace(/\/$/, "")}/rest/v1/vendors?select=*&limit=10000`;
-const res = await fetch(url, {
-  headers: {
-    apikey: SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    "Accept-Profile": "safestorage",
-  },
+const res = await httpGet(url, {
+  apikey: SUPABASE_SERVICE_ROLE_KEY,
+  Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+  "Accept-Profile": "safestorage",
 });
-if (!res.ok) {
-  console.error(`Supabase read failed: HTTP ${res.status} — ${await res.text()}`);
+if (res.status < 200 || res.status >= 300) {
+  console.error(`Supabase read failed: HTTP ${res.status} — ${res.buffer.toString("utf8").slice(0, 500)}`);
   process.exit(1);
 }
-const rows = await res.json();
+const rows = JSON.parse(res.buffer.toString("utf8"));
 console.log(`Fetched ${rows.length} vendors from Supabase.`);
 if (!rows.length) { console.log("Nothing to migrate."); process.exit(0); }
 

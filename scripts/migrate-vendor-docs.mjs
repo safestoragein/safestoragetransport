@@ -9,6 +9,26 @@
 // URLs are left alone.
 import mysql from "mysql2/promise";
 import { readFileSync } from "node:fs";
+import https from "node:https";
+import http from "node:http";
+
+// Plain http(s) GET (avoids Node's fetch/undici WASM parser, which OOMs under CloudLinux).
+function httpGet(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const lib = u.protocol === "http:" ? http : https;
+    const req = lib.request(
+      { hostname: u.hostname, port: u.port || (u.protocol === "http:" ? 80 : 443), path: u.pathname + u.search, method: "GET", headers },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode || 0, buffer: Buffer.concat(chunks), headers: res.headers }));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 try {
   const txt = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
@@ -47,10 +67,10 @@ try {
       const url = v[col];
       if (!url || !/^https?:\/\//i.test(url)) { continue; } // empty or already an in-app path
       try {
-        const res = await fetch(url);
-        if (!res.ok) { console.warn(`  ! ${v.id} ${kind}: HTTP ${res.status}`); failed++; continue; }
-        const buf = Buffer.from(await res.arrayBuffer());
-        const ct = res.headers.get("content-type") || "application/octet-stream";
+        const res = await httpGet(url);
+        if (res.status < 200 || res.status >= 300) { console.warn(`  ! ${v.id} ${kind}: HTTP ${res.status}`); failed++; continue; }
+        const buf = res.buffer;
+        const ct = res.headers["content-type"] || "application/octet-stream";
         const fname = (url.split("/").pop() || kind).split("?")[0].replace(/[^a-zA-Z0-9._-]/g, "_");
         await conn.execute(
           `INSERT INTO \`${PFX}vendor_documents\` (vendor_id, kind, filename, content_type, byte_size, data)
