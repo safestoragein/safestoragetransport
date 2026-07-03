@@ -44,14 +44,15 @@ const conn = MYSQL_URL
     });
 
 try {
+  const TABLE = (process.env.MYSQL_TABLE_PREFIX ?? "sst_") + "transport_users";
   await conn.execute(
-    `INSERT INTO transport_users (email, name, role, active, password_hash)
+    `INSERT INTO \`${TABLE}\` (email, name, role, active, password_hash)
      VALUES (?, ?, ?, 1, ?)
      ON DUPLICATE KEY UPDATE name = VALUES(name), role = VALUES(role), active = 1, password_hash = VALUES(password_hash)`,
     [email, name, role, hashPassword(password)],
   );
   const [rows] = await conn.execute(
-    "SELECT id, email, name, role, active FROM transport_users WHERE email = ?",
+    `SELECT id, email, name, role, active FROM \`${TABLE}\` WHERE email = ?`,
     [email],
   );
   console.log("✅ Transport user ready:", rows[0]);
