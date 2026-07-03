@@ -18,5 +18,7 @@ export function pct(n: number): string {
 // is_intercity="0" as intercity. Only 1 / "1" / true / "true" count as true.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function flag(v: any): boolean {
-  return v === true || v === 1 || v === "1" || (typeof v === "string" && v.trim().toLowerCase() === "true");
+  if (v === true || v === 1) return true;
+  if (typeof v === "string") { const s = v.trim().toLowerCase(); return s === "1" || s === "true"; }
+  return false;
 }
