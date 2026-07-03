@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
       const msg = customerMessage(order, date);
       const r = await sendTemplate({ phone: order.contact, template: msg.template, bodyValues: msg.bodyValues });
-      if (!r.ok) return NextResponse.json({ ok: false, error: `WhatsApp send failed: ${r.error}` }, { status: 502 });
+      if (!r.ok) return NextResponse.json({ ok: false, error: `WhatsApp send failed (to ${r.to ?? order.contact}): ${r.error}` }, { status: 502 });
 
       await c.from("notifications").insert({ run_id: b.runId, order_id: b.orderId, kind: "customer", channel: "whatsapp", status: "sent", detail: `interakt:${msg.template}` });
       return NextResponse.json({ ok: true, sentAt: new Date().toISOString() });

@@ -10,18 +10,33 @@ const LANG = process.env.INTERAKT_TEMPLATE_LANG || "en";
 export const interaktConfigured = Boolean(API_KEY);
 
 // Take the first number out of a "9876543210 / 9876543211" style field and split into cc + 10 digits.
-export function normalizePhone(raw?: string | null): { countryCode: string; phoneNumber: string } | null {
-  if (!raw) return null;
-  const first = String(raw).split(/[/,;]/)[0];
-  const digits = first.replace(/\D/g, "");
+// A contact can hold several numbers ("9876543210 / 9123456789"). Try each and PREFER a valid
+// Indian mobile (10 digits starting 6-9) — WhatsApp/Interakt rejects landlines/invalid numbers
+// with "Phone Number & Country Code provided is invalid". Falls back to the first well-formed
+// 10-digit number if none is a clear mobile.
+function toTenDigits(candidate: string): string | null {
+  const digits = candidate.replace(/\D/g, "");
   if (!digits) return null;
-  if (digits.length === 12 && digits.startsWith("91")) return { countryCode: "+91", phoneNumber: digits.slice(2) };
-  if (digits.length === 11 && digits.startsWith("0")) return { countryCode: DEFAULT_CC, phoneNumber: digits.slice(1) };
-  if (digits.length >= 10) return { countryCode: DEFAULT_CC, phoneNumber: digits.slice(-10) };
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+  if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1);
+  if (digits.length >= 10) return digits.slice(-10);
   return null;
 }
 
-export interface SendResult { ok: boolean; error?: string; id?: string }
+export function normalizePhone(raw?: string | null): { countryCode: string; phoneNumber: string } | null {
+  if (!raw) return null;
+  let fallback: { countryCode: string; phoneNumber: string } | null = null;
+  for (const part of String(raw).split(/[/,;&]+/)) {
+    const phone = toTenDigits(part.trim());
+    if (!phone || phone.length !== 10) continue;
+    const hit = { countryCode: DEFAULT_CC, phoneNumber: phone };
+    if (/^[6-9]/.test(phone)) return hit;   // valid Indian mobile → use immediately
+    if (!fallback) fallback = hit;          // landline-ish → keep only if nothing better turns up
+  }
+  return fallback;
+}
+
+export interface SendResult { ok: boolean; error?: string; id?: string; to?: string }
 
 export async function sendTemplate(opts: { phone?: string | null; template: string; bodyValues: (string | number | null | undefined)[]; languageCode?: string }): Promise<SendResult> {
   if (!API_KEY) return { ok: false, error: "INTERAKT_API_KEY not set" };
@@ -42,6 +57,7 @@ export async function sendTemplate(opts: { phone?: string | null; template: stri
     },
   });
 
+  const to = `${p.countryCode}${p.phoneNumber}`;
   return new Promise((resolve) => {
     const u = new URL("/v1/public/message/", BASE);
     const req = https.request(
@@ -65,15 +81,15 @@ export async function sendTemplate(opts: { phone?: string | null; template: stri
           try {
             const j = JSON.parse(body);
             // Interakt returns { result: true, id, message }.
-            if (okStatus && j.result !== false) resolve({ ok: true, id: j.id });
-            else resolve({ ok: false, error: (j.message || body).toString().slice(0, 300) });
+            if (okStatus && j.result !== false) resolve({ ok: true, id: j.id, to });
+            else resolve({ ok: false, error: (j.message || body).toString().slice(0, 300), to });
           } catch {
-            resolve({ ok: okStatus, error: okStatus ? undefined : body.slice(0, 300) });
+            resolve({ ok: okStatus, error: okStatus ? undefined : body.slice(0, 300), to });
           }
         });
       },
     );
-    req.on("error", (e) => resolve({ ok: false, error: e.message }));
+    req.on("error", (e) => resolve({ ok: false, error: e.message, to }));
     req.write(payload);
     req.end();
   });

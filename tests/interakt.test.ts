@@ -19,4 +19,10 @@ describe("normalizePhone()", () => {
     expect(normalizePhone(null)).toBeNull();
     expect(normalizePhone("12345")).toBeNull();
   });
+  it("prefers a valid mobile (6-9) over a leading landline", () => {
+    expect(normalizePhone("04041234567 / 9876543210")).toEqual({ countryCode: "+91", phoneNumber: "9876543210" });
+  });
+  it("uses the second number when the first is blank", () => {
+    expect(normalizePhone(" / 9876543210")).toEqual({ countryCode: "+91", phoneNumber: "9876543210" });
+  });
 });
