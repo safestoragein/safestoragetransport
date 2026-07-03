@@ -162,6 +162,7 @@ export async function loadLive(citySlug: string, date: string): Promise<DaySnaps
       city: cap(citySlug),
       timeSlot: o.order_timeslot || undefined,
       orderStatus: o.order_status || undefined,
+      bookingDate: o.order_created_at || undefined,
       contact: [o.customer_contact1, o.customer_contact2].filter(Boolean).join(" / ") || undefined,
       // revenue charged to the customer (team-confirmed fields): pickup vs retrieval
       transportCharge: /retriev/i.test(o.order_type || "")

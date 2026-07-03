@@ -20,6 +20,14 @@ function fmtClock(min: number) {
 }
 
 
+// Booking date (order_created_at, e.g. "2026-01-04 09:31:29") → short "4 Jul 2026".
+function fmtBooked(raw: string | null | undefined) {
+  if (!raw) return null;
+  const d = new Date(String(raw).replace(" ", "T"));
+  if (isNaN(d.getTime())) return String(raw).slice(0, 10);
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
 // Lift available at the site? No lift => more manual carry => the team typically adds a resource.
 function liftBadge(raw: string | null | undefined) {
   if (raw == null || String(raw).trim() === "") return null;
@@ -174,6 +182,7 @@ export default function ScheduleCityView({ initial, tab = "all" }: { initial: Sc
                     {o.time_slot && <span className={`text-xs ${plan?.byOrder?.[o.customer_unique_id]?.late ? "text-red-500" : "text-slate-400"}`}>wants {o.time_slot.replace(/:00/g, "")}</span>}
                     {o.required_time && <span className="rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800">⏰ {o.required_time}</span>}
                     {(() => { const lb = liftBadge(o.lift); return lb ? <span className={`rounded px-1 text-[10px] font-medium ${lb.ok === false ? "bg-orange-100 text-orange-700" : lb.ok ? "bg-slate-100 text-slate-500" : "bg-slate-100 text-slate-500"}`}>{lb.text}</span> : null; })()}
+                    {fmtBooked(o.booking_date) && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500" title="When the customer booked this order">booked {fmtBooked(o.booking_date)}</span>}
                   </div>
                   {o.team_notes && <div className="mt-1 truncate text-[11px] text-slate-500">📝 {o.team_notes}</div>}
 

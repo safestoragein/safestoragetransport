@@ -16,7 +16,7 @@ export const maxDuration = 300;
 const HEADERS = [
   "Customer Id", "Customer Notes", "Customer Name", "Contact", "Address",
   "Transport Charges", "Pallet", "Goods Location", "Vehicle", "Remarks",
-  "Floor / Lift", "Time Slot",
+  "Floor / Lift", "Time Slot", "Booked On",
 ];
 
 const TYPE_LABEL: Record<string, string> = {
@@ -60,6 +60,7 @@ async function buildCitySheet(citySlug: string, date: string) {
       intercity ? "Intercity" : TYPE_LABEL[otype] ?? otype,
       [r.floor ? `Floor: ${r.floor}` : "", r.lift ? `Lift: ${r.lift}` : ""].filter(Boolean).join(" / "),
       s?.time_slot ?? r.order_timeslot ?? "",
+      s?.booking_date ?? r.order_created_at ?? "",
     ];
   });
 
@@ -69,7 +70,7 @@ async function buildCitySheet(citySlug: string, date: string) {
   const ws = XLSX.utils.aoa_to_sheet([HEADERS, ...rows]);
   ws["!cols"] = [
     { wch: 12 }, { wch: 22 }, { wch: 20 }, { wch: 16 }, { wch: 48 },
-    { wch: 14 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 16 }, { wch: 18 }, { wch: 18 },
+    { wch: 14 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
   ];
   return { name: cap(citySlug).slice(0, 28), ws, count: rows.length };
 }

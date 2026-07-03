@@ -50,12 +50,13 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
     required_time: b.requiredTimeText ?? null,
     team_notes: b.teamNotes ?? null,
     order_status: b.orderStatus ?? null,
+    booking_date: b.bookingDate ?? null,
   }));
   if (orderRows.length) {
     const { error } = await c.from("orders").upsert(orderRows, { onConflict: "order_id" });
-    // Resilient to newer columns not existing yet (07/09/10 migrations): retry without them.
-    if (error && /(stated_pallets|lift|warehouse_lat|warehouse_lng|is_shifting)/.test(error.message || "")) {
-      const stripped = orderRows.map(({ stated_pallets, lift, warehouse_lat, warehouse_lng, is_shifting, ...rest }) => rest);
+    // Resilient to newer columns not existing yet: retry without them.
+    if (error && /(stated_pallets|lift|warehouse_lat|warehouse_lng|is_shifting|booking_date)/.test(error.message || "")) {
+      const stripped = orderRows.map(({ stated_pallets, lift, warehouse_lat, warehouse_lng, is_shifting, booking_date, ...rest }) => rest);
       await c.from("orders").upsert(stripped, { onConflict: "order_id" });
     }
   }
@@ -108,6 +109,7 @@ function orderRowOf(b: Booking, date: string, citySlug: string) {
     locality: b.location.label ?? null, lat: b.location.lat, lng: b.location.lng,
     warehouse_name: b.warehouse.label ?? null, warehouse_lat: b.warehouse.lat ?? null, warehouse_lng: b.warehouse.lng ?? null,
     time_slot: b.timeSlot ?? null, required_time: b.requiredTimeText ?? null, team_notes: b.teamNotes ?? null, order_status: b.orderStatus ?? null,
+    booking_date: b.bookingDate ?? null,
   };
 }
 
@@ -125,8 +127,8 @@ export async function syncNewOrders(citySlug: string, date: string): Promise<{ a
   const orderRows = snap.bookings.map((b) => orderRowOf(b, date, citySlug));
   if (orderRows.length) {
     const { error } = await c.from("orders").upsert(orderRows, { onConflict: "order_id" });
-    if (error && /(stated_pallets|lift|warehouse_lat|warehouse_lng|is_shifting)/.test(error.message || "")) {
-      const stripped = orderRows.map(({ stated_pallets, lift, warehouse_lat, warehouse_lng, is_shifting, ...rest }) => rest);
+    if (error && /(stated_pallets|lift|warehouse_lat|warehouse_lng|is_shifting|booking_date)/.test(error.message || "")) {
+      const stripped = orderRows.map(({ stated_pallets, lift, warehouse_lat, warehouse_lng, is_shifting, booking_date, ...rest }) => rest);
       await c.from("orders").upsert(stripped, { onConflict: "order_id" });
     }
   }
@@ -149,6 +151,7 @@ export interface ScheduleOrder {
   order_id: string; customer_unique_id: string; customer_name: string; contact: string | null;
   order_type: string; is_intercity: boolean; is_shifting?: boolean; intercity_profit?: number | null; pallets: number | null; stated_pallets: number | null; transport_charge: number | null;
   locality: string | null; time_slot: string | null; required_time: string | null; team_notes: string | null; lift: string | null;
+  booking_date: string | null; // order_created_at — when the customer booked
   trip_no: number; stop_seq: number; resources: number;
 }
 export interface ScheduleVendor {

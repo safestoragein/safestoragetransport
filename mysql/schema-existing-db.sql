@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS sst_orders (
   required_time      VARCHAR(64)   NULL,
   team_notes         TEXT          NULL,
   order_status       VARCHAR(64)   NULL,
+  booking_date       VARCHAR(32)   NULL,           -- order_created_at (when the customer booked)
   created_at         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
