@@ -120,6 +120,27 @@ function TimelineBar({ plan }: { plan: any }) {
 // ── Route map: depot → stops (visit order) → warehouse, following real roads ────────────────────
 function shortWh(name: any) { return name ? String(name).split(/[·,]/)[0].trim() : "Warehouse"; }
 
+// The booking feed has no coordinates, so addresses are geocoded and many fall back to the
+// same city-centre point — stacking stops on one pixel so they hide each other (retrievals
+// vanish under pickups). Spread any stops that share a point into a small ring so all show.
+function spreadStacked(stops: any[]): { lat: number; lng: number }[] {
+  const pos = stops.map((o) => ({ lat: Number(o.lat), lng: Number(o.lng) }));
+  const groups = new Map<string, number[]>();
+  pos.forEach((p, i) => {
+    const key = `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
+    const g = groups.get(key); if (g) g.push(i); else groups.set(key, [i]);
+  });
+  for (const idxs of groups.values()) {
+    if (idxs.length < 2) continue;
+    const R = 0.0016; // ~170 m
+    idxs.forEach((idx, k) => {
+      const ang = (2 * Math.PI * k) / idxs.length;
+      pos[idx] = { lat: pos[idx].lat + R * Math.cos(ang), lng: pos[idx].lng + R * Math.sin(ang) };
+    });
+  }
+  return pos;
+}
+
 function RouteMapMini({ v }: { v: any }) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -142,10 +163,13 @@ function RouteMapMini({ v }: { v: any }) {
       mapRef.current = map;
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, subdomains: "abc" }).addTo(map);
 
+      // Spread stops that geocoded to the same point so every marker is visible.
+      const disp = spreadStacked(stops);
+
       // ordered waypoints: depot → stops → warehouse (drop pickups at the end)
       const wps: { lat: number; lng: number }[] = [];
       if (depot) wps.push(depot);
-      stops.forEach((o: any) => wps.push({ lat: Number(o.lat), lng: Number(o.lng) }));
+      stops.forEach((_o: any, i: number) => wps.push(disp[i]));
       if (wh && hasPick) wps.push(wh);
 
       const pill = (bg: string, text: string) => L.divIcon({ className: "", html: `<div style="background:${bg};color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.35);transform:translate(-50%,-140%)">${text}</div>`, iconSize: [0, 0] });
@@ -154,7 +178,7 @@ function RouteMapMini({ v }: { v: any }) {
       stops.forEach((o: any, i: number) => {
         const color = o.order_type === "pickup" ? "#2563eb" : "#059669";
         const t = v.plan?.byOrder?.[o.customer_unique_id]?.arrive;
-        L.marker([Number(o.lat), Number(o.lng)], { icon: L.divIcon({ className: "", html: `<div style="background:${color};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)">${i + 1}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }) })
+        L.marker([disp[i].lat, disp[i].lng], { icon: L.divIcon({ className: "", html: `<div style="background:${color};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)">${i + 1}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }) })
           .addTo(map).bindPopup(`<b>${i + 1}. ${o.customer_unique_id}</b> — ${o.order_type === "pickup" ? "Pickup" : "Retrieval"}<br>${o.customer_name}${o.locality ? `<br>${o.locality}` : ""}${t != null ? `<br>~${fmtClock(t)}` : ""}`);
       });
       if (wh) L.marker([wh.lat, wh.lng], { icon: pill("#0f172a", `⌂ ${wh.name}`) }).addTo(map).bindPopup(`<b>Warehouse</b><br>${wh.name}`);

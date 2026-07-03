@@ -163,8 +163,8 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
   // Tomorrow's schedule has Schedule / Intercity / Shifting sub-tabs (intercity + shifting are held
   // out of the regular schedule). Other modes show everything ("all").
   const [schedTab, setSchedTab] = useState<"schedule" | "intercity" | "shifting">("schedule");
-  const cats = { intercity: 0, shifting: 0 };
-  for (const c of shown) for (const v of c.vendors) for (const o of v.orders as any[]) { if (o.is_shifting) cats.shifting++; else if (o.is_intercity) cats.intercity++; }
+  const cats = { schedule: 0, intercity: 0, shifting: 0 };
+  for (const c of shown) for (const v of c.vendors) for (const o of v.orders as any[]) { if (o.is_shifting) cats.shifting++; else if (o.is_intercity) cats.intercity++; else cats.schedule++; }
   const tabbed = !isHistory && !isToday; // tomorrow only
   const cityTab: "all" | "schedule" | "intercity" | "shifting" = tabbed ? schedTab : "all";
 
@@ -320,9 +320,9 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
         {tabbed && (
           <div className="mb-4 flex gap-1 border-b border-slate-200">
             {([
-              { id: "schedule", label: "Schedule" },
-              { id: "intercity", label: `Intercity${cats.intercity ? ` (${cats.intercity})` : ""}` },
-              { id: "shifting", label: `Shifting${cats.shifting ? ` (${cats.shifting})` : ""}` },
+              { id: "schedule", label: `Schedule (${cats.schedule})` },
+              { id: "intercity", label: `Intercity (${cats.intercity})` },
+              { id: "shifting", label: `Shifting (${cats.shifting})` },
             ] as const).map((tb) => (
               <button
                 key={tb.id}
