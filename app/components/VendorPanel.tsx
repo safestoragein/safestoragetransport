@@ -171,7 +171,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                 {showAll && <th className="px-3 py-2 font-medium">Supervisor</th>}
                 {showAll && <th className="px-3 py-2 font-medium">Notes</th>}
                 <th className="px-3 py-2 font-medium">Active</th>
-                {showAll && header("Intercity", "isIntercityVendor")}
+                {header("Intercity", "isIntercityVendor")}
                 <th className="px-3 py-2 font-medium"></th>
               </tr>
             </thead>
@@ -252,13 +252,11 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActiv
             {busy ? "…" : isActive ? "Active" : "Inactive"}
           </button>
         </td>
-        {showAll && (
-          <td className="px-3 py-2.5">
-            <button disabled={busy} onClick={onToggleIntercity} className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${v.isIntercityVendor ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-50 text-slate-500 ring-slate-200"}`}>
-              {busy ? "…" : v.isIntercityVendor ? "Yes" : "No"}
-            </button>
-          </td>
-        )}
+        <td className="px-3 py-2.5">
+          <button disabled={busy} onClick={onToggleIntercity} className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${v.isIntercityVendor ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-50 text-slate-500 ring-slate-200"}`}>
+            {busy ? "…" : v.isIntercityVendor ? "Yes" : "No"}
+          </button>
+        </td>
         <td className="whitespace-nowrap px-3 py-2.5 text-right">
           {canEdit && <button onClick={onEdit} className={`mr-3 text-xs font-medium hover:underline ${mode === "edit" ? "text-indigo-600" : "text-slate-600 hover:text-slate-900"}`}>Edit</button>}
           <button onClick={onDetails} className="mr-3 text-xs text-blue-600 hover:underline">{mode === "details" ? "Hide" : "Details"}</button>
@@ -267,7 +265,7 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActiv
       </tr>
       {open && (
         <tr className="border-t border-slate-100 bg-slate-50">
-          <td colSpan={showAll ? 13 : 7} className="px-3 py-3">
+          <td colSpan={showAll ? 13 : 8} className="px-3 py-3">
             {mode === "edit" ? (
               <EditForm v={v} onSaved={onSaved} onCancel={onCancelEdit} />
             ) : (
