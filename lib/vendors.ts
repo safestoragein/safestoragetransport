@@ -140,6 +140,17 @@ export interface NewVendorInput {
 
 const blank = (s?: string | null) => (s && s.trim() ? s.trim() : null);
 
+// Extract the offending column from a DB "unknown column" error so a not-yet-migrated column can
+// be dropped and the save retried. Handles MariaDB/MySQL ("Unknown column 'app_pin' in 'field
+// list'"), Postgres ('column "app_pin"'), and the generic "'app_pin' column" wording.
+function unknownColumn(msg: string): string | undefined {
+  const m =
+    msg.match(/[Uu]nknown column '([a-z_]+)'/) ||
+    msg.match(/column "([a-z_]+)"/) ||
+    msg.match(/'([a-z_]+)' column/);
+  return m?.[1];
+}
+
 // Vendor `supervisors` is a JSON column. mysql2 auto-parses it on MySQL 8 (array),
 // but on MariaDB the JSON type is text so it comes back as a string — parse it here.
 function parseSupervisors(v: any): { name: string; phone: string }[] | null {
@@ -197,7 +208,7 @@ export async function addVendor(input: NewVendorInput): Promise<VendorMaster> {
     for (let i = 0; i < 10; i++) {
       const { data, error } = await c.from(TABLE).insert(attempt).select().single();
       if (!error) return fromRow(data);
-      const col = (error.message.match(/'([a-z_]+)' column/) || error.message.match(/column "([a-z_]+)"/) || [])[1];
+      const col = unknownColumn(error.message);
       if (col && col in attempt) { const { [col]: _drop, ...rest } = attempt; attempt = rest; continue; }
       throw new Error(error.message);
     }
@@ -236,7 +247,7 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
     for (let i = 0; i < 10; i++) {
       const { error } = await c.from(TABLE).update(attempt).eq("id", id);
       if (!error) return;
-      const col = (error.message.match(/'([a-z_]+)' column/) || error.message.match(/column "([a-z_]+)"/) || [])[1];
+      const col = unknownColumn(error.message);
       if (col && col in attempt && Object.keys(attempt).length > 1) { const { [col]: _drop, ...rest } = attempt; attempt = rest; continue; }
       throw new Error(error.message);
     }
