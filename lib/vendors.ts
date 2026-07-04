@@ -20,6 +20,7 @@ export interface VendorMaster {
   perTransaction: number | null;
   startingPoint: string;
   isIntercityVendor: boolean;
+  doesLocal: boolean; // does this vendor also do LOCAL pickup/retrieval? if yes it's in the general pool
   // operational (from the teams/vehicles data, present in Supabase rows)
   systemTeamNo?: string | null;
   vehicleNo?: string | null;
@@ -86,6 +87,8 @@ function fromRow(r: any): VendorMaster {
     perTransaction: r.per_transaction != null ? Number(r.per_transaction) : null,
     startingPoint: r.starting_point ?? "",
     isIntercityVendor: !!r.is_intercity_vendor,
+    // Before the migration runs the column is absent -> a vendor does local unless it's intercity.
+    doesLocal: r.does_local != null ? !!r.does_local : !r.is_intercity_vendor,
     systemTeamNo: r.system_team_no ?? null,
     vehicleNo: r.vehicle_no ?? null,
     driverName: r.driver_name ?? null,
@@ -114,6 +117,7 @@ export interface NewVendorInput {
   dailyPrice?: number | null;
   pricingNote?: string | null;
   isIntercityVendor?: boolean;
+  doesLocal?: boolean;
   tier?: "general" | "non_general";
   supervisorName?: string | null;
   supervisorContact?: string | null;
@@ -173,6 +177,7 @@ export async function addVendor(input: NewVendorInput): Promise<VendorMaster> {
       daily_price: input.dailyPrice ?? null, pricing_note: blank(input.pricingNote),
       starting_point: blank(input.startingPoint),
       is_intercity_vendor: !!input.isIntercityVendor,
+      does_local: input.doesLocal != null ? !!input.doesLocal : !input.isIntercityVendor,
       // primary supervisor mirrors supervisors[0] so existing schedule displays keep working
       supervisor_name: blank(sups?.[0]?.name ?? input.supervisorName), supervisor_contact: blank(sups?.[0]?.phone ?? input.supervisorContact),
       driver_name: blank(input.driverName), driver_contact: blank(input.driverContact),
@@ -203,7 +208,7 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
     const row: any = {};
     // map camelCase patch keys -> snake_case columns; only set what's present
     const M: Record<string, string> = {
-      isIntercityVendor: "is_intercity_vendor", tier: "tier", dailyPrice: "daily_price",
+      isIntercityVendor: "is_intercity_vendor", doesLocal: "does_local", tier: "tier", dailyPrice: "daily_price",
       pricingNote: "pricing_note", startingPoint: "starting_point", name: "name",
       supervisorName: "supervisor_name", supervisorContact: "supervisor_contact",
       driverName: "driver_name", driverContact: "driver_contact", packerNames: "packer_names",
@@ -282,6 +287,7 @@ async function fallbackAdd(input: NewVendorInput): Promise<VendorMaster> {
     tier: vt === "others" ? "non_general" : input.tier ?? "general",
     dailyPrice: input.dailyPrice ?? null, pricingNote: blank(input.pricingNote), perTransaction: null,
     startingPoint: (input.startingPoint || "").trim(), isIntercityVendor: !!input.isIntercityVendor,
+    doesLocal: input.doesLocal != null ? !!input.doesLocal : !input.isIntercityVendor,
     supervisorName: blank(input.supervisorName), supervisorContact: blank(input.supervisorContact),
     driverName: blank(input.driverName), driverContact: blank(input.driverContact),
     packerNames: blank(input.packerNames), vehicleNo: blank(input.vehicleNo),

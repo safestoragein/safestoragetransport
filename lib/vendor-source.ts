@@ -14,9 +14,11 @@ export async function masterVendorsForCity(citySlug: string): Promise<Vendor[]> 
     const { data, error } = await db().from("vendors").select("*").eq("active", true).ilike("city", citySlug);
     if (error || !data) return [];
     return data
-      // Intercity vendors are NEVER auto-assigned to general pickup/retrieval work. Intercity orders
-      // go to the manual "team to assign" bucket where the team picks an intercity vendor by hand.
-      .filter((r: any) => !flag(r.is_intercity_vendor))
+      // The optimiser pool = every vendor that does LOCAL pickup/retrieval — including an intercity
+      // vendor that also runs local. A vendor is excluded only if it does NOT do local work.
+      // (Before the does_local migration runs the column is absent, so fall back to the old rule:
+      // exclude intercity vendors.)
+      .filter((r: any) => (r.does_local != null ? flag(r.does_local) : !flag(r.is_intercity_vendor)))
       .map((r: any) => {
         // Assign by the vehicle's real size: a 10ft van is capped at its own (smaller) pallet
         // capacity, a 14ft at its larger one. Never treat a 10ft as a 14ft.

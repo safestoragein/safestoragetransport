@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS sst_vendors (
   starting_lat        DOUBLE        NULL,
   starting_lng        DOUBLE        NULL,
   is_intercity_vendor TINYINT(1)    NOT NULL DEFAULT 0,
+  does_local          TINYINT(1)    NOT NULL DEFAULT 1, -- does local pickup/retrieval -> in the optimiser pool
   system_team_id      VARCHAR(64)   NULL,
   system_team_no      VARCHAR(120)  NULL,
   vehicle_no          VARCHAR(64)   NULL,

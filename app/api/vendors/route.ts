@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
     dailyPrice: body.dailyPrice != null && body.dailyPrice !== "" ? Number(body.dailyPrice) : null,
     pricingNote: body.pricingNote || null,
     isIntercityVendor: !!body.isIntercityVendor,
+    // default: a vendor does local unless it's explicitly intercity-only
+    doesLocal: body.doesLocal != null ? !!body.doesLocal : !body.isIntercityVendor,
     tier: body.tier === "non_general" ? ("non_general" as const) : ("general" as const),
     driverName: body.driverName || null,
     driverContact: body.driverContact || null,

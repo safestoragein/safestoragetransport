@@ -36,16 +36,18 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
     active: shown.filter((v) => v.active !== false).length,
     general: shown.filter((v) => v.tier === "general").length,
     intercity: shown.filter((v) => v.isIntercityVendor).length,
+    local: shown.filter((v) => v.doesLocal).length,
     dailyCost: shown.reduce((s, v) => s + (v.dailyPrice || 0), 0),
     cities: new Set(shown.map((v) => v.city)).size,
   };
 
-  type SortKey = "city" | "name" | "vehicleType" | "tier" | "startingPoint" | "dailyPrice" | "isIntercityVendor";
+  type SortKey = "city" | "name" | "vehicleType" | "tier" | "startingPoint" | "dailyPrice" | "isIntercityVendor" | "doesLocal";
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null);
   const toggleSort = (key: SortKey) => setSort((s) => (s && s.key === key ? { key, dir: (s.dir === 1 ? -1 : 1) as 1 | -1 } : { key, dir: 1 }));
   const sortVal = (v: VendorMaster, k: SortKey): string | number => {
     if (k === "dailyPrice") return v.dailyPrice ?? v.perTransaction ?? -1;
     if (k === "isIntercityVendor") return v.isIntercityVendor ? 1 : 0;
+    if (k === "doesLocal") return v.doesLocal ? 1 : 0;
     return ((v[k] as string | null) ?? "").toString().toLowerCase();
   };
   const sorted = sort
@@ -133,7 +135,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
           { label: "Vendors", value: stats.total },
           { label: "Active", value: stats.active },
           { label: "Cities", value: stats.cities },
-          { label: "General", value: stats.general },
+          { label: "Does local", value: stats.local },
           { label: "Intercity", value: stats.intercity },
           { label: "Daily cost", value: money(stats.dailyCost) },
         ].map((s) => (
@@ -171,6 +173,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                 {showAll && <th className="px-3 py-2 font-medium">Supervisor</th>}
                 {showAll && <th className="px-3 py-2 font-medium">Notes</th>}
                 <th className="px-3 py-2 font-medium">Active</th>
+                {header("Local", "doesLocal")}
                 {header("Intercity", "isIntercityVendor")}
                 <th className="px-3 py-2 font-medium"></th>
               </tr>
@@ -182,6 +185,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                   mode={exp?.id === v.id ? exp.mode : null}
                   busy={busy === v.id} canEdit={canEdit}
                   onToggleIntercity={() => patchVendor(v, { isIntercityVendor: !v.isIntercityVendor })}
+                  onToggleLocal={() => patchVendor(v, { doesLocal: !v.doesLocal })}
                   onToggleActive={() => patchVendor(v, { active: !(v.active !== false) })}
                   onSetPriority={(g) => patchVendor(v, { priorityGroup: g })}
                   onSetBilling={(c) => patchVendor(v, { billingCycle: c })}
@@ -212,9 +216,9 @@ function DocLink({ label, url }: { label: string; url?: string | null }) {
   );
 }
 
-function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActive, onSetPriority, onSetBilling, onDetails, onEdit, onCancelEdit, onSaved, onDelete }: {
+function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal, onToggleActive, onSetPriority, onSetBilling, onDetails, onEdit, onCancelEdit, onSaved, onDelete }: {
   v: VendorMaster; showAll: boolean; mode: "details" | "edit" | null; busy: boolean; canEdit: boolean;
-  onToggleIntercity: () => void; onToggleActive: () => void; onSetPriority: (g: string | null) => void; onSetBilling: (c: string | null) => void;
+  onToggleIntercity: () => void; onToggleLocal: () => void; onToggleActive: () => void; onSetPriority: (g: string | null) => void; onSetBilling: (c: string | null) => void;
   onDetails: () => void; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void; onDelete: () => void;
 }) {
   const open = mode !== null;
@@ -253,6 +257,11 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActiv
           </button>
         </td>
         <td className="px-3 py-2.5">
+          <button disabled={busy} onClick={onToggleLocal} className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${v.doesLocal ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-50 text-slate-500 ring-slate-200"}`}>
+            {busy ? "…" : v.doesLocal ? "Yes" : "No"}
+          </button>
+        </td>
+        <td className="px-3 py-2.5">
           <button disabled={busy} onClick={onToggleIntercity} className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${v.isIntercityVendor ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-50 text-slate-500 ring-slate-200"}`}>
             {busy ? "…" : v.isIntercityVendor ? "Yes" : "No"}
           </button>
@@ -265,7 +274,7 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleActiv
       </tr>
       {open && (
         <tr className="border-t border-slate-100 bg-slate-50">
-          <td colSpan={showAll ? 13 : 8} className="px-3 py-3">
+          <td colSpan={showAll ? 14 : 9} className="px-3 py-3">
             {mode === "edit" ? (
               <EditForm v={v} onSaved={onSaved} onCancel={onCancelEdit} />
             ) : (
@@ -337,7 +346,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
     securityDeposit: v.securityDeposit != null ? String(v.securityDeposit) : "",
     driverName: v.driverName ?? "", driverContact: v.driverContact ?? "",
     packerNames: v.packerNames ?? "", vehicleNo: v.vehicleNo ?? "", systemTeamNo: v.systemTeamNo ?? "",
-    notes: v.notes ?? "", priorityGroup: v.priorityGroup ?? "", billingCycle: v.billingCycle ?? "", isIntercityVendor: v.isIntercityVendor,
+    notes: v.notes ?? "", priorityGroup: v.priorityGroup ?? "", billingCycle: v.billingCycle ?? "", isIntercityVendor: v.isIntercityVendor, doesLocal: v.doesLocal,
   });
   const [sups, setSups] = useState<Sup[]>(v.supervisors && v.supervisors.length ? v.supervisors : (v.supervisorName ? [{ name: v.supervisorName, phone: v.supervisorContact || "" }] : [{ name: "", phone: "" }]));
   const [saFile, setSaFile] = useState<File | null>(null);
@@ -355,7 +364,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
       const cleanSups = sups.filter((s) => s.name.trim() || s.phone.trim()).map((s) => ({ name: s.name.trim(), phone: s.phone.trim() }));
       const patch = {
         id: v.id, name: f.name.trim(), startingPoint: f.startingPoint.trim(), tier: f.tier,
-        isIntercityVendor: f.isIntercityVendor, notes: f.notes.trim() || null, priorityGroup: f.priorityGroup || null, billingCycle: f.billingCycle || null,
+        isIntercityVendor: f.isIntercityVendor, doesLocal: f.doesLocal, notes: f.notes.trim() || null, priorityGroup: f.priorityGroup || null, billingCycle: f.billingCycle || null,
         dailyPrice: f.dailyPrice === "" ? null : Number(f.dailyPrice),
         securityDeposit: f.securityDeposit === "" ? null : Number(f.securityDeposit),
         driverName: f.driverName.trim() || null, driverContact: f.driverContact.trim() || null,
@@ -431,6 +440,9 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
       <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={f.isIntercityVendor} onChange={(e) => set("isIntercityVendor", e.target.checked)} /> Intercity vendor
       </label>
+      <label className="mt-1 flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={f.doesLocal} onChange={(e) => set("doesLocal", e.target.checked)} /> Does local pickup/retrieval <span className="text-xs text-slate-400">(included in local scheduling)</span>
+      </label>
 
       {err && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700 ring-1 ring-red-200">⚠ {err}</div>}
       <div className="mt-3 flex gap-2">
@@ -453,7 +465,7 @@ async function uploadDoc(vendorId: string, kind: "service_agreement" | "gst", fi
 const EMPTY = {
   name: "", vehicleType: "14ft", tier: "general", startingPoint: "", dailyPrice: "", pricingNote: "", securityDeposit: "",
   driverName: "", driverContact: "", packerNames: "", vehicleNo: "", vehicleName: "", systemTeamNo: "", remarks: "",
-  notes: "", priorityGroup: "", billingCycle: "", isIntercityVendor: false,
+  notes: "", priorityGroup: "", billingCycle: "", isIntercityVendor: false, doesLocal: true,
 };
 
 function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdded: (v: VendorMaster[]) => void }) {
@@ -569,6 +581,9 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
 
       <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={f.isIntercityVendor} onChange={(e) => set("isIntercityVendor", e.target.checked)} /> Intercity vendor
+      </label>
+      <label className="mt-1 flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={f.doesLocal} onChange={(e) => set("doesLocal", e.target.checked)} /> Does local pickup/retrieval <span className="text-xs text-slate-400">(included in local scheduling)</span>
       </label>
 
       {err && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700 ring-1 ring-red-200">⚠ {err}</div>}
