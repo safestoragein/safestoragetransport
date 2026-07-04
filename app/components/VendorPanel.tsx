@@ -346,7 +346,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
     securityDeposit: v.securityDeposit != null ? String(v.securityDeposit) : "",
     driverName: v.driverName ?? "", driverContact: v.driverContact ?? "",
     packerNames: v.packerNames ?? "", vehicleNo: v.vehicleNo ?? "", systemTeamNo: v.systemTeamNo ?? "",
-    notes: v.notes ?? "", priorityGroup: v.priorityGroup ?? "", billingCycle: v.billingCycle ?? "", isIntercityVendor: v.isIntercityVendor, doesLocal: v.doesLocal,
+    notes: v.notes ?? "", priorityGroup: v.priorityGroup ?? "", billingCycle: v.billingCycle ?? "", isIntercityVendor: v.isIntercityVendor, doesLocal: v.doesLocal, appPin: v.appPin ?? "",
   });
   const [sups, setSups] = useState<Sup[]>(v.supervisors && v.supervisors.length ? v.supervisors : (v.supervisorName ? [{ name: v.supervisorName, phone: v.supervisorContact || "" }] : [{ name: "", phone: "" }]));
   const [saFile, setSaFile] = useState<File | null>(null);
@@ -364,7 +364,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
       const cleanSups = sups.filter((s) => s.name.trim() || s.phone.trim()).map((s) => ({ name: s.name.trim(), phone: s.phone.trim() }));
       const patch = {
         id: v.id, name: f.name.trim(), startingPoint: f.startingPoint.trim(), tier: f.tier,
-        isIntercityVendor: f.isIntercityVendor, doesLocal: f.doesLocal, notes: f.notes.trim() || null, priorityGroup: f.priorityGroup || null, billingCycle: f.billingCycle || null,
+        isIntercityVendor: f.isIntercityVendor, doesLocal: f.doesLocal, appPin: f.appPin.trim() || null, notes: f.notes.trim() || null, priorityGroup: f.priorityGroup || null, billingCycle: f.billingCycle || null,
         dailyPrice: f.dailyPrice === "" ? null : Number(f.dailyPrice),
         securityDeposit: f.securityDeposit === "" ? null : Number(f.securityDeposit),
         driverName: f.driverName.trim() || null, driverContact: f.driverContact.trim() || null,
@@ -443,6 +443,10 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
       <label className="mt-1 flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={f.doesLocal} onChange={(e) => set("doesLocal", e.target.checked)} /> Does local pickup/retrieval <span className="text-xs text-slate-400">(included in local scheduling)</span>
       </label>
+      <label className="mt-2 block text-sm text-slate-700">
+        <span className="mb-1 block text-xs font-medium text-slate-500">Mobile app PIN <span className="text-slate-400">(vendor logs in with their phone + this PIN)</span></span>
+        <input value={f.appPin} onChange={(e) => set("appPin", e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="e.g. 1234" className="w-40 rounded-lg border border-slate-200 px-3 py-1.5 text-sm" />
+      </label>
 
       {err && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700 ring-1 ring-red-200">⚠ {err}</div>}
       <div className="mt-3 flex gap-2">
@@ -465,7 +469,7 @@ async function uploadDoc(vendorId: string, kind: "service_agreement" | "gst", fi
 const EMPTY = {
   name: "", vehicleType: "14ft", tier: "general", startingPoint: "", dailyPrice: "", pricingNote: "", securityDeposit: "",
   driverName: "", driverContact: "", packerNames: "", vehicleNo: "", vehicleName: "", systemTeamNo: "", remarks: "",
-  notes: "", priorityGroup: "", billingCycle: "", isIntercityVendor: false, doesLocal: true,
+  notes: "", priorityGroup: "", billingCycle: "", isIntercityVendor: false, doesLocal: true, appPin: "",
 };
 
 function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdded: (v: VendorMaster[]) => void }) {
@@ -584,6 +588,10 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
       </label>
       <label className="mt-1 flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={f.doesLocal} onChange={(e) => set("doesLocal", e.target.checked)} /> Does local pickup/retrieval <span className="text-xs text-slate-400">(included in local scheduling)</span>
+      </label>
+      <label className="mt-2 block text-sm text-slate-700">
+        <span className="mb-1 block text-xs font-medium text-slate-500">Mobile app PIN <span className="text-slate-400">(vendor logs in with their phone + this PIN)</span></span>
+        <input value={f.appPin} onChange={(e) => set("appPin", e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="e.g. 1234" className="w-40 rounded-lg border border-slate-200 px-3 py-1.5 text-sm" />
       </label>
 
       {err && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700 ring-1 ring-red-200">⚠ {err}</div>}

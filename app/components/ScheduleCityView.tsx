@@ -12,6 +12,23 @@ const TYPE: Record<string, { label: string; cls: string; dot: string }> = {
   partial_retrieval: { label: "Partial", cls: "bg-amber-50 border-amber-200", dot: "bg-amber-500" },
 };
 
+// Live status pushed by the vendor from the mobile app.
+const LIVE: Record<string, { label: string; cls: string }> = {
+  en_route: { label: "🚚 On the way", cls: "bg-purple-100 text-purple-700" },
+  arrived: { label: "📍 Reached", cls: "bg-indigo-100 text-indigo-700" },
+  packing: { label: "📦 Packing", cls: "bg-amber-100 text-amber-800" },
+  loaded: { label: "✅ Loaded", cls: "bg-teal-100 text-teal-700" },
+  delivered: { label: "🏁 Delivered", cls: "bg-emerald-600 text-white" },
+};
+// "2026-07-04 09:31:29" → "9:31 AM" (short, for the "updated" tooltip/label)
+function shortTime(raw: string | null | undefined) {
+  if (!raw) return "";
+  const m = String(raw).match(/(\d{1,2}):(\d{2})/);
+  if (!m) return "";
+  let h = Number(m[1]); const ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;
+  return `${h}:${m[2]} ${ap}`;
+}
+
 // The day plan itself is computed SERVER-SIDE (real OSRM road travel) and arrives on v.plan.
 function fmtClock(min: number) {
   const h = Math.floor(min / 60) % 24, m = Math.round(min % 60);
@@ -181,6 +198,11 @@ export default function ScheduleCityView({ initial, tab = "all" }: { initial: Sc
                     {!v.isUnassigned && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">{idx + 1}</span>}
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${t.dot}`}>{t.label}{o.is_shifting ? " · shifting" : o.is_intercity ? " · intercity" : ""}</span>
                     <span className="text-sm font-medium text-slate-800">{o.customer_unique_id}</span>
+                    {o.live_status && LIVE[o.live_status] && (
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${LIVE[o.live_status].cls}`} title={o.live_status_at ? `updated ${shortTime(o.live_status_at)}` : "from the vendor app"}>
+                        {LIVE[o.live_status].label}{o.live_status_at ? ` · ${shortTime(o.live_status_at)}` : ""}
+                      </span>
+                    )}
                     <span className="text-sm text-slate-600">{o.locality} · {o.customer_name}</span>
                     {/* pallets: ACTUAL (as booked) first, ASSUMED (buffered for pickups) in brackets */}
                     <span className="text-xs text-slate-600">

@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS sst_vendors (
   starting_lng        DOUBLE        NULL,
   is_intercity_vendor TINYINT(1)    NOT NULL DEFAULT 0,
   does_local          TINYINT(1)    NOT NULL DEFAULT 1, -- does local pickup/retrieval -> in the optimiser pool
+  app_pin             VARCHAR(12)   NULL,                -- PIN the vendor uses to log into the mobile app
   system_team_id      VARCHAR(64)   NULL,
   system_team_no      VARCHAR(120)  NULL,
   vehicle_no          VARCHAR(64)   NULL,
@@ -112,6 +113,8 @@ CREATE TABLE IF NOT EXISTS sst_orders (
   required_time      VARCHAR(64)   NULL,
   team_notes         TEXT          NULL,
   order_status       VARCHAR(64)   NULL,
+  live_status        VARCHAR(24)   NULL,           -- vendor app: en_route/arrived/packing/loaded/delivered
+  live_status_at     TIMESTAMP     NULL,
   booking_date       VARCHAR(32)   NULL,           -- order_created_at (when the customer booked)
   created_at         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -228,6 +231,31 @@ CREATE TABLE IF NOT EXISTS sst_vendor_documents (
   PRIMARY KEY (id),
   UNIQUE KEY uq_sst_vendor_documents_vk (vendor_id, kind),
   KEY idx_sst_vendor_documents_vendor (vendor_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Vendor app: per-order event audit trail (with GPS at the moment of the tap).
+CREATE TABLE IF NOT EXISTS sst_order_events (
+  id         CHAR(36)     NOT NULL,
+  order_id   CHAR(36)     NOT NULL,
+  vendor_id  CHAR(36)     NULL,
+  event      VARCHAR(32)  NOT NULL,
+  lat        DOUBLE       NULL,
+  lng        DOUBLE       NULL,
+  note       TEXT         NULL,
+  created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_sst_order_events_order  (order_id),
+  KEY idx_sst_order_events_vendor (vendor_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Vendor app: GPS pings (latest row per vendor = current location).
+CREATE TABLE IF NOT EXISTS sst_vendor_locations (
+  vendor_id   CHAR(36)  NOT NULL,
+  lat         DOUBLE    NULL,
+  lng         DOUBLE    NULL,
+  accuracy    DOUBLE    NULL,
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_sst_vendor_locations_vendor (vendor_id, recorded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ─────────────── UUID id defaults (single-statement triggers) ───────────────

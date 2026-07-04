@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     isIntercityVendor: !!body.isIntercityVendor,
     // default: a vendor does local unless it's explicitly intercity-only
     doesLocal: body.doesLocal != null ? !!body.doesLocal : !body.isIntercityVendor,
+    appPin: body.appPin != null && body.appPin !== "" ? String(body.appPin).trim() : null,
     tier: body.tier === "non_general" ? ("non_general" as const) : ("general" as const),
     driverName: body.driverName || null,
     driverContact: body.driverContact || null,

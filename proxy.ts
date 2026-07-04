@@ -11,6 +11,9 @@ export function proxy(request: NextRequest) {
   // Public: the login page, the auth endpoints, and the booking webhook (secured by its own secret).
   if (pathname === "/login" || pathname.startsWith("/api/auth/") || pathname.startsWith("/api/webhooks/")) return NextResponse.next();
 
+  // Vendor mobile app: its own Bearer-token auth (see lib/vendor-auth). Not gated by the admin cookie.
+  if (pathname.startsWith("/api/vendor/")) return NextResponse.next();
+
   // Vercel Cron hits GET /api/schedule/generate with no session — allow it via its platform header.
   if (pathname.startsWith("/api/schedule/generate") && request.headers.get("x-vercel-cron")) return NextResponse.next();
 

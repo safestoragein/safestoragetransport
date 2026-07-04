@@ -153,6 +153,7 @@ export interface ScheduleOrder {
   locality: string | null; time_slot: string | null; required_time: string | null; team_notes: string | null; lift: string | null;
   booking_date: string | null; // order_created_at — when the customer booked
   trip_no: number; stop_seq: number; resources: number;
+  live_status?: string | null; live_status_at?: string | null; // vendor app: en_route/arrived/packing/loaded/delivered
 }
 export interface ScheduleVendor {
   vendorId: string | null; vendorName: string; isUnassigned?: boolean;
@@ -164,6 +165,7 @@ export interface ScheduleVendor {
   // pricing (what WE pay this vendor) + intercity flag
   isIntercity?: boolean; tier?: string; dailyPrice?: number | null; perTransaction?: number | null; pricingNote?: string | null;
   plan?: VendorPlan; // server-computed day plan (real OSRM travel times)
+  liveLat?: number | null; liveLng?: number | null; liveLocationAt?: string | null; // latest GPS ping from the vendor app
 }
 export interface AvailableVendor { id: string; name: string; vehicleType: string; tier: string; isIntercity: boolean }
 export interface ScheduleData {
@@ -208,6 +210,14 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
     if (n.kind === "customer" && n.order_id) customerNotified.set(n.order_id, n.sent_at);
   });
 
+  // latest GPS ping per vendor (from the vendor app) — for the live pin on Today's schedule
+  const runVendorIds = [...new Set((assigns ?? []).map((a: any) => a.vendor_id).filter(Boolean))];
+  const lastLoc = new Map<string, { lat: number; lng: number; at: string }>();
+  if (runVendorIds.length) {
+    const { data: locs } = await c.from("vendor_locations").select("vendor_id, lat, lng, recorded_at").in("vendor_id", runVendorIds).order("recorded_at", { ascending: false });
+    (locs ?? []).forEach((l: any) => { if (!lastLoc.has(l.vendor_id)) lastLoc.set(l.vendor_id, { lat: l.lat, lng: l.lng, at: l.recorded_at }); });
+  }
+
   const byVendor = new Map<string, ScheduleVendor>();
   const ensureVendor = (key: string, init: () => ScheduleVendor) => { if (!byVendor.has(key)) byVendor.set(key, init()); return byVendor.get(key)!; };
 
@@ -245,7 +255,8 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
   const extraTripCost = REGION.extraTripCost;
   const rank = (v: ScheduleVendor) => (v.isUnassigned ? 2 : v.isIntercity ? 1 : 0); // local vendors → intercity → unassigned
   const vendors = [...byVendor.values()]
-    .map((v) => ({ ...v, pallets: Math.round(v.pallets * 10) / 10, actualPallets: Math.round(v.actualPallets * 10) / 10, tripCount: new Set(v.orders.map((o) => o.trip_no)).size }))
+    .map((v) => ({ ...v, pallets: Math.round(v.pallets * 10) / 10, actualPallets: Math.round(v.actualPallets * 10) / 10, tripCount: new Set(v.orders.map((o) => o.trip_no)).size,
+      liveLat: v.vendorId ? lastLoc.get(v.vendorId)?.lat ?? null : null, liveLng: v.vendorId ? lastLoc.get(v.vendorId)?.lng ?? null : null, liveLocationAt: v.vendorId ? lastLoc.get(v.vendorId)?.at ?? null : null }))
     .sort((a, b) => rank(a) - rank(b));
   // Attach the realistic day plan (real road travel via OSRM) to each assigned vendor.
   await Promise.all(vendors.map(async (v) => { if (!v.isUnassigned) v.plan = await buildVendorPlan(v); }));
