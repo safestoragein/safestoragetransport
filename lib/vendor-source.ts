@@ -13,9 +13,9 @@ export async function masterVendorsForCity(citySlug: string): Promise<Vendor[]> 
     const { data, error } = await db().from("vendors").select("*").eq("active", true).ilike("city", citySlug);
     if (error || !data) return [];
     return data.map((r: any) => {
-      // Business rule: treat EVERY vendor as a 14ft vehicle for scheduling (ignore the 10ft tag
-      // on the master record) so any two ~3.5p retrievals can share one vendor.
-      const vt: VehicleType = "14ft";
+      // Assign by the vehicle's real size: a 10ft van is capped at its own (smaller) pallet
+      // capacity, a 14ft at its larger one. Never treat a 10ft as a 14ft.
+      const vt: VehicleType = r.vehicle_type === "10ft" ? "10ft" : "14ft";
       const g = geocodeAddress(r.starting_point || "", citySlug);
       const tier = r.tier === "non_general" ? "non_general" : "general";
       return {
