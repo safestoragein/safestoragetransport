@@ -168,10 +168,13 @@ export async function loadLive(citySlug: string, date: string): Promise<DaySnaps
       orderStatus: o.order_status || undefined,
       bookingDate: o.order_created_at || undefined,
       contact: [o.customer_contact1, o.customer_contact2].filter(Boolean).join(" / ") || undefined,
-      // revenue charged to the customer (team-confirmed fields): pickup vs retrieval
+      // Transport charged to the customer, from the work-order feed:
+      //   retrieval → retrieval_transport_charges ; pickup → transport_cost
+      // (the old `total_pickup_charges_with_gst` field does not exist in this feed, which is why
+      //  every pickup was showing ₹0). Keep the old name as a fallback in case a feed ever adds it.
       transportCharge: /retriev/i.test(o.order_type || "")
         ? parseFloat(o.retrieval_transport_charges) || 0
-        : parseFloat(o.total_pickup_charges_with_gst) || 0,
+        : parseFloat(o.transport_cost) || parseFloat(o.total_pickup_charges_with_gst) || 0,
       packingCharge: parseFloat(o.item_packing_charges) || 0,
       teamNotes: (o.customer_notes || "").trim() || undefined,
       ...timeFromNotes(o.customer_notes),
