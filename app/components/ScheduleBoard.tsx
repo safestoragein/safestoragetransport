@@ -143,6 +143,14 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     return () => { stop = true; clearInterval(id); };
   }, [mode, data?.date]);
 
+  // Today's schedule is a live monitoring view — refresh every 45s so vendor-app status + GPS
+  // updates flow in without a manual reload.
+  useEffect(() => {
+    if (mode !== "today") return;
+    const id = setInterval(() => { load(todayStr); }, 45_000);
+    return () => clearInterval(id);
+  }, [mode, load, todayStr]);
+
   async function pullChanges() {
     if (!data?.date) return;
     setPulling(true);

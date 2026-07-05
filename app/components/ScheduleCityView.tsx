@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ScheduleData } from "@/lib/schedule";
 import { money } from "@/lib/format";
 import { Card } from "./ui";
@@ -27,6 +27,35 @@ function shortTime(raw: string | null | undefined) {
   if (!m) return "";
   let h = Number(m[1]); const ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;
   return `${h}:${m[2]} ${ap}`;
+}
+// Minutes since a DB timestamp (best-effort; both server + client are IST). null if unparseable.
+function minsAgo(raw: string | null | undefined): number | null {
+  if (!raw) return null;
+  const t = new Date(String(raw).replace(" ", "T")).getTime();
+  if (isNaN(t)) return null;
+  return Math.round((Date.now() - t) / 60000);
+}
+// Freshness label — "just now / 5m ago / 2h ago"; falls back to the clock for odd/old values.
+function agoText(raw: string | null | undefined): string {
+  const m = minsAgo(raw);
+  if (m == null) return "";
+  if (m < 0 || m > 1440) return shortTime(raw);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  return `${Math.floor(m / 60)}h ago`;
+}
+// Green (<5m) / amber (<20m) / grey (stale) dot for how fresh a GPS ping is.
+function freshDot(raw: string | null | undefined): string {
+  const m = minsAgo(raw);
+  if (m == null) return "text-slate-300";
+  if (m < 5) return "text-emerald-500";
+  if (m < 20) return "text-amber-500";
+  return "text-slate-400";
+}
+// Google Maps link: prefer exact coords, else search the address text.
+function mapsUrl(lat?: number | null, lng?: number | null, label?: string | null): string {
+  if (lat != null && lng != null) return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(label || "")}`;
 }
 
 // The day plan itself is computed SERVER-SIDE (real OSRM road travel) and arrives on v.plan.
@@ -60,6 +89,10 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
   const [sched, setSched] = useState<ScheduleData>(initial);
   const [pending, setPending] = useState<string | null>(null);
   const [openPlan, setOpenPlan] = useState<string | null>(null);
+
+  // Sync when the parent hands down fresh data (e.g. Today's 45s live poll). Local optimistic
+  // edits (reassign/notify) keep the same `initial` object, so they're not clobbered mid-action.
+  useEffect(() => { setSched(initial); }, [initial]);
 
   async function reload() {
     const r = await fetch(`/api/schedule?city=${sched.city}&date=${sched.date}`).then((x) => x.json());
@@ -117,6 +150,28 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
 
   return (
     <div className="space-y-3">
+      {/* Live monitoring summary — only appears once vendors start acting in the app today */}
+      {(() => {
+        const all = displayVendors.flatMap((v) => v.orders as any[]);
+        const c: Record<string, number> = { en_route: 0, arrived: 0, packing: 0, loaded: 0, delivered: 0 };
+        let started = 0;
+        for (const o of all) { const s = o.live_status; if (s && s in c) { c[s]++; started++; } }
+        if (!started) return null;
+        const notStarted = all.length - started;
+        const item = (emoji: string, label: string, n: number, cls: string) =>
+          n > 0 ? <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${cls}`}>{emoji} {n} {label}</span> : null;
+        return (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm">
+            <span className="font-semibold text-slate-700">🔴 Live:</span>
+            {item("🚚", "on the way", c.en_route, "bg-purple-50 text-purple-700")}
+            {item("📍", "reached", c.arrived, "bg-indigo-50 text-indigo-700")}
+            {item("📦", "packing", c.packing, "bg-amber-50 text-amber-800")}
+            {item("✅", "loaded", c.loaded, "bg-teal-50 text-teal-700")}
+            {item("🏁", "delivered", c.delivered, "bg-emerald-100 text-emerald-700")}
+            {notStarted > 0 && <span className="text-slate-400">· {notStarted} not started</span>}
+          </div>
+        );
+      })()}
       {displayVendors.map((v) => {
         const plan = v.plan ?? null;
         // What WE pay this vendor for the day: base (general = flat daily; non-general/intercity =
@@ -150,6 +205,28 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                 {v.driverName && <span>Driver: <b className="font-medium text-slate-700">{v.driverName}</b> {v.driverContact}</span>}
                 {(v.vehicleType || v.vehicleNo) && <span>Vehicle: <b className="font-medium text-slate-700">{v.vehicleType === "others" ? "Other" : v.vehicleType || ""}</b>{v.vehicleNo ? `${v.vehicleType ? " · " : ""}${v.vehicleNo}` : ""}</span>}
               </div>
+              {/* Live tracking (from the vendor app): current GPS + delivery progress */}
+              {!v.isUnassigned && (() => {
+                const total = v.orders.length;
+                const delivered = v.orders.filter((o) => o.live_status === "delivered").length;
+                const active = v.orders.filter((o) => o.live_status && o.live_status !== "delivered").length;
+                const hasLive = v.liveLat != null && v.liveLng != null;
+                if (!hasLive && !delivered && !active) return null; // nothing live yet
+                return (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    {hasLive && (
+                      <a href={mapsUrl(v.liveLat, v.liveLng)} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"
+                        title="Vendor's live GPS from the app — open in Google Maps">
+                        <span className={freshDot(v.liveLocationAt)}>●</span> Live location · {agoText(v.liveLocationAt)}
+                      </a>
+                    )}
+                    {total > 0 && (delivered > 0 || active > 0) && (
+                      <span className="text-slate-500">Progress: <b className="text-slate-700">{delivered}/{total}</b> done{active ? ` · ${active} in progress` : ""}</span>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             {v.isUnassigned ? (
               <span className="shrink-0 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-800">Assign a vendor on each order ↓</span>
@@ -203,7 +280,13 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                         {LIVE[o.live_status].label}{o.live_status_at ? ` · ${shortTime(o.live_status_at)}` : ""}
                       </span>
                     )}
-                    <span className="text-sm text-slate-600">{o.locality} · {o.customer_name}</span>
+                    <span className="text-sm text-slate-600">{o.customer_name}</span>
+                    {o.contact && (
+                      <a href={`tel:${String(o.contact).split(/[/,]/)[0].trim()}`} className="text-xs font-medium text-blue-600 hover:underline" title="Call customer">📞 {o.contact}</a>
+                    )}
+                    {o.locality && (
+                      <a href={mapsUrl(o.lat, o.lng, o.locality)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline" title="Open customer location in Google Maps">📍 {o.locality}</a>
+                    )}
                     {/* pallets: ACTUAL (as booked) first, ASSUMED (buffered for pickups) in brackets */}
                     <span className="text-xs text-slate-600">
                       <b className="font-semibold">{(o.stated_pallets ?? o.pallets) ?? "—"}p</b> <span className="text-slate-400">actual</span>
