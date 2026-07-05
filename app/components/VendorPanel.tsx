@@ -294,6 +294,7 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
                 <Detail label="Daily price" value={v.dailyPrice != null ? `${money(v.dailyPrice)}/day` : v.pricingNote || null} />
                 <Detail label="Pallet capacity" value={`${v.palletCapacity} pallets`} />
                 <Detail label="Security deposit" value={v.securityDeposit != null ? money(v.securityDeposit) : null} />
+                <Detail label="Mobile app PIN" value={v.appPin || "— not set —"} sub={v.appPin ? "vendor logs in with their phone + this PIN" : null} />
                 <DocLink label="Service agreement" url={v.serviceAgreementUrl} />
                 <DocLink label="GST document" url={v.gstDocumentUrl} />
                 {v.notes && <div className="sm:col-span-2 lg:col-span-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Notes</div><div className="text-slate-700">{v.notes}</div></div>}

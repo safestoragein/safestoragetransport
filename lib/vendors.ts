@@ -248,7 +248,11 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
       const { error } = await c.from(TABLE).update(attempt).eq("id", id);
       if (!error) return;
       const col = unknownColumn(error.message);
-      if (col && col in attempt && Object.keys(attempt).length > 1) { const { [col]: _drop, ...rest } = attempt; attempt = rest; continue; }
+      if (col && col in attempt) {
+        const { [col]: _drop, ...rest } = attempt;
+        if (Object.keys(rest).length === 0) return; // only field was un-migrated → nothing to persist yet
+        attempt = rest; continue;
+      }
       throw new Error(error.message);
     }
     return;
