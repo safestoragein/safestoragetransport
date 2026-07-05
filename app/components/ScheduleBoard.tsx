@@ -465,7 +465,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                           <span className={`text-xs ${c.totals.margin < 0 ? "text-red-600" : "text-emerald-600"}`}>margin {money(c.totals.margin)}</span>
                         </>}
                   </div>
-                  <ScheduleCityView initial={c} tab={cityTab} />
+                  <ScheduleCityView initial={c} tab={cityTab} readOnly={isHistory} />
                 </section>
               ))}
             </div>

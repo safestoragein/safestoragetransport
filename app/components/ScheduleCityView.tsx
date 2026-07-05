@@ -56,7 +56,7 @@ function liftBadge(raw: string | null | undefined) {
 
 // One city's persisted schedule. Owns its own state; reloads from the server after any change
 // (reassign vendor / add resource / notify) so groupings stay correct.
-export default function ScheduleCityView({ initial, tab = "all" }: { initial: ScheduleData; tab?: "all" | "schedule" | "intercity" | "shifting" }) {
+export default function ScheduleCityView({ initial, tab = "all", readOnly = false }: { initial: ScheduleData; tab?: "all" | "schedule" | "intercity" | "shifting"; readOnly?: boolean }) {
   const [sched, setSched] = useState<ScheduleData>(initial);
   const [pending, setPending] = useState<string | null>(null);
   const [openPlan, setOpenPlan] = useState<string | null>(null);
@@ -226,18 +226,25 @@ export default function ScheduleCityView({ initial, tab = "all" }: { initial: Sc
 
                   {/* controls: reassign vendor · notify customer (resource is per-vendor, in the header) */}
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                    <select
-                      value={v.vendorId ?? ""}
-                      disabled={pending === `assign:${o.id}`}
-                      onChange={(e) => reassign(o.id, e.target.value)}
-                      className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
-                    >
-                      <option value="">— team to assign —</option>
-                      {/* Intercity orders → only intercity vendors; local orders → only local vendors. */}
-                      {sched.availableVendors.filter((av) => (o.is_intercity ? av.isIntercity : !av.isIntercity)).map((av) => (
-                        <option key={av.id} value={av.id}>{av.name}</option>
-                      ))}
-                    </select>
+                    {readOnly ? (
+                      // Old schedules are already sent to vendors/customers — vendor is locked.
+                      <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600" title="Past schedule — vendor cannot be changed">
+                        🔒 {v.isUnassigned ? "Unassigned" : (v.vendorName || "—")}
+                      </span>
+                    ) : (
+                      <select
+                        value={v.vendorId ?? ""}
+                        disabled={pending === `assign:${o.id}`}
+                        onChange={(e) => reassign(o.id, e.target.value)}
+                        className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                      >
+                        <option value="">— team to assign —</option>
+                        {/* Intercity orders → only intercity vendors; local orders → only local vendors. */}
+                        {sched.availableVendors.filter((av) => (o.is_intercity ? av.isIntercity : !av.isIntercity)).map((av) => (
+                          <option key={av.id} value={av.id}>{av.name}</option>
+                        ))}
+                      </select>
+                    )}
 
                     {/* intercity profit is recorded manually (negotiated per trip) */}
                     {o.is_intercity && (
