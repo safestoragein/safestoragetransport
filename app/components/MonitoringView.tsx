@@ -33,6 +33,21 @@ const bookedOn = (o: any, m: LiveMap): string | undefined => {
   return isNaN(d.getTime()) ? undefined : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 };
 
+// Short clock (from a "YYYY-MM-DD HH:MM:SS" timestamp) → "2:15 PM".
+const shortClock = (raw: string | null | undefined): string | undefined => {
+  if (!raw) return undefined;
+  const mt = String(raw).match(/(\d{1,2}):(\d{2})/);
+  if (!mt) return undefined;
+  let h = Number(mt[1]); const ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;
+  return `${h}:${mt[2]} ${ap}`;
+};
+// The time a stop was actually completed. The WMS feed carries NO timestamps, so we use the vendor
+// app's live_status_at (set when the vendor taps loaded/delivered). "done at 2:15 PM".
+const doneTime = (o: any): string | undefined =>
+  o?.live_status_at && (o.live_status === "delivered" || o.live_status === "loaded")
+    ? `done ${shortClock(o.live_status_at)}`
+    : undefined;
+
 function ordered(orders: any[], plan: any) {
   return [...orders].sort((a, b) =>
     (plan?.byOrder?.[a.customer_unique_id]?.arrive ?? a.stop_seq ?? 0) -
@@ -57,9 +72,9 @@ function vendorChain(v: any, m: LiveMap): LifeStep[] {
       sub: allGot ? (retr.length > 1 ? "all picked from WH" : "picked from WH") : `${got}/${retr.length} picked`,
       top: { ref: `${retr.length} retrieval${retr.length > 1 ? "s" : ""}`, name: "from warehouse" },
     });
-    for (const o of retr) steps.push({ label: "Deliver", sub: friendly(o, m) ?? undefined, kind: "retrieval", done: delivered(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact, booked: bookedOn(o, m) } });
+    for (const o of retr) steps.push({ label: "Deliver", sub: friendly(o, m) ?? undefined, at: doneTime(o), kind: "retrieval", done: delivered(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, area: o.locality ?? undefined, phone: o.contact, booked: bookedOn(o, m) } });
   }
-  for (const o of pick) steps.push({ label: "Pick up", sub: friendly(o, m) ?? undefined, kind: "pickup", done: pickedUp(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, phone: o.contact, booked: bookedOn(o, m) } });
+  for (const o of pick) steps.push({ label: "Pick up", sub: friendly(o, m) ?? undefined, at: doneTime(o), kind: "pickup", done: pickedUp(o, m), top: { ref: o.customer_unique_id, name: o.customer_name, area: o.locality ?? undefined, phone: o.contact, booked: bookedOn(o, m) } });
   if (pick.length) {
     const dropped = pick.filter((o) => droppedWh(o, m)).length;
     const allDropped = dropped === pick.length;
