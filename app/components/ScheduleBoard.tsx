@@ -42,6 +42,35 @@ function agg(cities: ScheduleData[]) {
   return { pickup, full, partial, pallets: Math.round(pallets * 10) / 10, revenue, cost, margin, vendors, orders, cities: cities.length };
 }
 
+// Current wall-clock in IST (minutes from midnight) — to flag stops whose planned time has passed.
+function nowMinIST(): number {
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+  const h = Number(p.find((x) => x.type === "hour")?.value ?? 0), mi = Number(p.find((x) => x.type === "minute")?.value ?? 0);
+  return h * 60 + mi;
+}
+// Live monitoring roll-up for Today's schedule — progress + at-risk, from the vendor-app status.
+function aggMonitor(cities: ScheduleData[]) {
+  const now = nowMinIST();
+  let pickups = 0, retr = 0, pickDone = 0, retrDone = 0, inProg = 0, notStarted = 0, danger = 0;
+  const liveVendors = new Set<string>();
+  for (const c of cities) for (const v of c.vendors) {
+    if (v.isUnassigned) continue;
+    if (v.liveLat != null && v.liveLng != null) liveVendors.add(String(v.vendorId ?? v.vendorName));
+    for (const o of v.orders as any[]) {
+      const isPick = o.order_type === "pickup";
+      if (isPick) pickups++; else retr++;
+      const s = String(o.live_status || "").toLowerCase();
+      const done = s === "delivered";
+      if (done) { if (isPick) pickDone++; else retrDone++; }
+      else if (["en_route", "arrived", "packing", "loaded"].includes(s)) inProg++;
+      else notStarted++;
+      const bo = v.plan?.byOrder?.[o.customer_unique_id];
+      if (!done && ((bo?.arrive != null && now > bo.arrive) || bo?.late)) danger++;
+    }
+  }
+  return { total: pickups + retr, pickups, retr, pickDone, retrDone, inProg, notStarted, danger, liveVendors: liveVendors.size };
+}
+
 // Shared all-cities schedule view. The Schedule tab uses it for TOMORROW; the Old-schedules tab
 // uses the SAME view with a date picker over every persisted date. Identical content either way.
 export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorrow" | "history"; user: SessionUser | null }) {
@@ -184,6 +213,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
   const packingDirty = packing !== null && packingDraft !== String(packing);
   const isHistory = mode === "history";
   const isToday = mode === "today";
+  const m = isToday ? aggMonitor(shown) : null; // live monitoring roll-up (Today only)
   const activeKey = isHistory ? "history" : isToday ? "today" : "schedule";
   const title = isHistory ? "Old schedules" : isToday ? "Today's schedule" : "Tomorrow's schedule";
   const subtitle = isHistory
@@ -398,21 +428,32 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
           </div>
         )}
 
-        {/* Summary stat cards — only on the Schedule tab */}
+        {/* Summary stat cards. Today = live monitoring (progress + at-risk); else = financial. */}
         {!loading && shown.length > 0 && cityTab !== "intercity" && cityTab !== "shifting" && (
           <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-            {[
-              { label: "Cities", value: t.cities },
-              { label: "Vendors", value: t.vendors },
-              { label: "Orders", value: t.orders },
-              { label: "Pallets", value: t.pallets },
-              { label: "Revenue", value: money(t.revenue) },
-              { label: "Cost", value: money(t.cost) },
-              { label: "Margin", value: money(t.margin), neg: t.margin < 0 },
-            ].map((s) => (
+            {(isToday && m
+              ? [
+                  { label: "Orders", value: m.total },
+                  { label: "Pickups done", value: `${m.pickDone}/${m.pickups}`, good: m.pickups > 0 && m.pickDone === m.pickups },
+                  { label: "Retrievals done", value: `${m.retrDone}/${m.retr}`, good: m.retr > 0 && m.retrDone === m.retr },
+                  { label: "In progress", value: m.inProg, accent: true },
+                  { label: "Not started", value: m.notStarted },
+                  { label: "⚠ At risk", value: m.danger, neg: m.danger > 0 },
+                  { label: "Live teams", value: m.liveVendors },
+                ]
+              : [
+                  { label: "Cities", value: t.cities },
+                  { label: "Vendors", value: t.vendors },
+                  { label: "Orders", value: t.orders },
+                  { label: "Pallets", value: t.pallets },
+                  { label: "Revenue", value: money(t.revenue) },
+                  { label: "Cost", value: money(t.cost) },
+                  { label: "Margin", value: money(t.margin), neg: t.margin < 0 },
+                ]
+            ).map((s: any) => (
               <Card key={s.label} className="p-3">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{s.label}</div>
-                <div className={`mt-0.5 text-lg font-bold ${s.neg ? "text-red-600" : "text-slate-900"}`}>{s.value}</div>
+                <div className={`mt-0.5 text-lg font-bold ${s.neg ? "text-red-600" : s.good ? "text-emerald-600" : s.accent ? "text-amber-600" : "text-slate-900"}`}>{s.value}</div>
               </Card>
             ))}
           </div>
