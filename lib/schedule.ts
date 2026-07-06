@@ -10,6 +10,7 @@ import { computePnL } from "./economics";
 import { getPackingPerPallet } from "./settings";
 import { REGION } from "./config";
 import { buildVendorPlan, VendorPlan } from "./dayplan";
+import { splitOversizeBookings, baseOrderId } from "./split";
 import { Booking } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -20,12 +21,14 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
   const usedMaster = vendors.length > 0;
   if (!usedMaster) vendors = snap.vendors; // fallback to derived teams when no master vendors
 
-  const result = optimize(snap.date, snap.city, snap.bookings, vendors);
+  // Split any booking too big for one team into per-team loads BEFORE allocating.
+  const bookings = splitOversizeBookings(snap.bookings);
+  const result = optimize(snap.date, snap.city, bookings, vendors);
   const pnl = computePnL(result, { packingPerPallet: await getPackingPerPallet() });
   const c = db();
 
   // 1) upsert the order snapshot
-  const orderRows = snap.bookings.map((b: Booking) => ({
+  const orderRows = bookings.map((b: Booking) => ({
     schedule_date: date,
     city: citySlug,
     order_id: b.orderId!,
@@ -63,7 +66,7 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
 
   const { data: orders } = await c.from("orders").select("id, order_id").in("order_id", orderRows.map((o) => o.order_id));
   const orderUuidByOrderId = new Map((orders ?? []).map((o: any) => [o.order_id, o.id]));
-  const orderUuidByBooking = new Map(snap.bookings.map((b) => [b.id, orderUuidByOrderId.get(b.orderId!)]));
+  const orderUuidByBooking = new Map(bookings.map((b) => [b.id, orderUuidByOrderId.get(b.orderId!)]));
 
   // 2) create the run
   const { data: run, error: runErr } = await c.from("schedule_runs").insert({
@@ -124,7 +127,8 @@ export async function syncNewOrders(citySlug: string, date: string): Promise<{ a
   if (!run) return { added: 0, error: `no schedule run for ${citySlug} on ${date} — generate it first` };
 
   const snap = await loadLive(citySlug, date);
-  const orderRows = snap.bookings.map((b) => orderRowOf(b, date, citySlug));
+  const bookings = splitOversizeBookings(snap.bookings); // same split as generate → no duplicate rows
+  const orderRows = bookings.map((b) => orderRowOf(b, date, citySlug));
   if (orderRows.length) {
     const { error } = await c.from("orders").upsert(orderRows, { onConflict: "order_id" });
     if (error && /(stated_pallets|lift|warehouse_lat|warehouse_lng|is_shifting|booking_date)/.test(error.message || "")) {
@@ -138,7 +142,7 @@ export async function syncNewOrders(citySlug: string, date: string): Promise<{ a
   const existing = new Set((assigns ?? []).map((a: any) => a.order_id));
 
   const newRows: any[] = [];
-  for (const b of snap.bookings) {
+  for (const b of bookings) {
     const uuid = uuidByOrderId.get(b.orderId!);
     if (uuid && !existing.has(uuid)) newRows.push({ run_id: run.id, vendor_id: null, vendor_name: null, order_id: uuid, trip_no: 0, stop_seq: 0 });
   }
@@ -303,7 +307,8 @@ export async function removeStaleFromRun(citySlug: string, date: string): Promis
   const orderUuids = [...new Set((assigns ?? []).map((a: any) => a.order_id))]; // eslint-disable-line @typescript-eslint/no-explicit-any
   if (!orderUuids.length) return { removed: 0 };
   const { data: orders } = await c.from("orders").select("id, order_id").in("id", orderUuids);
-  const stale = (orders ?? []).filter((o: any) => !liveIds.has(String(o.order_id))).map((o: any) => o.id); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Compare on the BASE id so auto-split parts (…-p1of2) match the whole order in the live feed.
+  const stale = (orders ?? []).filter((o: any) => !liveIds.has(baseOrderId(o.order_id))).map((o: any) => o.id); // eslint-disable-line @typescript-eslint/no-explicit-any
 
   let removed = 0;
   for (const uuid of stale) {
@@ -333,7 +338,8 @@ export async function diffSchedule(date: string): Promise<ScheduleDiff> {
     const { data: assigns } = await c.from("schedule_assignments").select("order_id").eq("run_id", run.id);
     const uuids = [...new Set((assigns ?? []).map((a: any) => a.order_id))];
     const persisted: any[] = uuids.length ? ((await c.from("orders").select("order_id, customer_unique_id, time_slot").in("id", uuids)).data ?? []) : [];
-    const persById = new Map<string, any>(persisted.map((o: any) => [String(o.order_id), o]));
+    // Key by BASE id so the two halves of an auto-split order collapse back to the one live order.
+    const persById = new Map<string, any>(persisted.map((o: any) => [baseOrderId(o.order_id), o]));
 
     let live: any[] = [];
     try { live = await loadLiveRaw(city, date); } catch { live = []; }

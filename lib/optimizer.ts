@@ -25,6 +25,7 @@ import {
   Vendor,
 } from "./types";
 import { REGION, effectiveCapacity, TRIPS_PER_DAY } from "./config";
+import { vendorFamily } from "./split";
 import { roadKm, round1 } from "./geo";
 
 const EPS = 0.001;
@@ -238,8 +239,9 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
       let bestOpensNew = false;
       if (fitting.length) {
         const minRank = Math.min(...fitting.map(({ v }) => priRank(v)));
-        // Names of vendors already on the road — used to keep a vendor's 2 teams working together.
-        const openNames = new Set(vendors.filter((x) => assignedTo.get(x.id)!.length > 0).map((x) => x.name));
+        // Families of vendors already on the road — to keep a vendor's 2 teams (e.g. "VMS Team 1/2")
+        // working the same job.
+        const openFamilies = new Set(vendors.filter((x) => assignedTo.get(x.id)!.length > 0).map((x) => vendorFamily(x.name)));
         for (const { v, p, opensNew } of fitting.filter(({ v }) => priRank(v) === minRank)) {
           const wB = slotWindow(b);
           const conflict = !opensNew && !!wB && assignedTo.get(v.id)!.some((x) => windowsOverlap(slotWindow(x), wB));
@@ -251,7 +253,7 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
             (opensNew ? 1 : 0) * 1_000_000_000 + // strongly prefer filling an open vehicle over a new one
             (conflict ? WINDOW_CONFLICT_PENALTY : 0) + // ...unless it clashes with a same-window order here
             (opensNew ? clusterKm : -p * 1000 + clusterKm * 1000) + // new: nearest depot; fill: top off but stay near the cluster
-            (opensNew && openNames.has(v.name) ? -SIBLING_BONUS_KM : 0) + // 2nd team → prefer the same vendor's other team
+            (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // 2nd team → prefer same vendor's other team
             (v.tier === "non_general" ? 500_000 : 0) + // keep premium/intercity vendors for overflow
             (vehicleMismatch(v, b) ? VEHICLE_PENALTY_SCORE : 0);
           if (score < bestScore) { bestScore = score; bestV = v; bestOpensNew = opensNew; }

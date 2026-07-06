@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { ScheduleData } from "@/lib/schedule";
 import { money } from "@/lib/format";
+import { splitInfo } from "@/lib/split";
 import { Card } from "./ui";
 import VendorDetails from "./VendorDetails";
 
@@ -275,6 +276,11 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     {!v.isUnassigned && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">{idx + 1}</span>}
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${t.dot}`}>{t.label}{o.is_shifting ? " · shifting" : o.is_intercity ? " · intercity" : ""}</span>
                     <span className="text-sm font-medium text-slate-800">{o.customer_unique_id}</span>
+                    {splitInfo(o.order_id) && (
+                      <span className="rounded bg-fuchsia-100 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700" title="Big load split across 2 teams of the same vendor">
+                        split {splitInfo(o.order_id)!.part}/{splitInfo(o.order_id)!.total}
+                      </span>
+                    )}
                     {o.live_status && LIVE[o.live_status] && (
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${LIVE[o.live_status].cls}`} title={o.live_status_at ? `updated ${shortTime(o.live_status_at)}` : "from the vendor app"}>
                         {LIVE[o.live_status].label}{o.live_status_at ? ` · ${shortTime(o.live_status_at)}` : ""}
@@ -342,7 +348,9 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                       </span>
                     )}
 
-                    {!v.isUnassigned && (
+                    {!v.isUnassigned && splitInfo(o.order_id) && splitInfo(o.order_id)!.part > 1 ? (
+                      <span className="ml-auto text-[11px] text-slate-400">customer notified on part 1/{splitInfo(o.order_id)!.total}</span>
+                    ) : !v.isUnassigned && (
                       o.customerNotifiedAt ? (
                         <span className="ml-auto flex shrink-0 items-center gap-1">
                           <span className="rounded bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-700">Customer notified ✓</span>
