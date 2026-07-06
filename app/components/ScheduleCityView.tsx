@@ -186,9 +186,18 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
         <Card key={v.vendorId ?? v.vendorName} className={`overflow-hidden ${v.isUnassigned ? "ring-1 ring-amber-300" : v.isCoTeam ? "ring-1 ring-fuchsia-200" : ""}`}>
           <div className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 ${v.isUnassigned ? "bg-amber-50" : v.isCoTeam ? "bg-fuchsia-50" : "bg-slate-50"}`}>
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-800">
                 {v.vendorName}
                 {v.isCoTeam && <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700">2nd team · with {v.coTeamOf}</span>}
+                {/* header shows BOTH team names when this card runs a big 2-team order */}
+                {!v.isCoTeam && (() => {
+                  const coNames = [...new Set(v.orders.flatMap((o: any) => (o.coTeams ?? []).map((ct: any) => ct.vendorName)).filter(Boolean))];
+                  return coNames.length > 0 ? (
+                    <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700" title="This vendor runs 2 teams on a big order">
+                      🚚 2 teams: {v.vendorName} + {coNames.join(" + ")}
+                    </span>
+                  ) : null;
+                })()}
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
                 {v.isCoTeam
@@ -334,7 +343,15 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     <div className="mt-1.5 text-[11px] text-fuchsia-600">Shared big order — assign / notify from {v.coTeamOf}&apos;s card.</div>
                   ) : (
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                    {readOnly ? (
+                    {teamsNeeded(Number(o.pallets) || 0) > 1 ? (
+                      // Big order = 2 teams of one vendor. Show BOTH allocated teams, ticked (auto-assigned).
+                      <span className="inline-flex flex-wrap items-center gap-1" title="Big order — 2 teams of this vendor are allocated (auto)">
+                        <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">✓ {v.vendorName}{v.vehicleType ? ` (${v.vehicleType})` : ""}</span>
+                        {(o.coTeams ?? []).map((ct: any, i: number) => (
+                          <span key={i} className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">✓ {ct.vendorName}{ct.vehicleType ? ` (${ct.vehicleType})` : ""}</span>
+                        ))}
+                      </span>
+                    ) : readOnly ? (
                       // Old schedules are already sent to vendors/customers — vendor is locked.
                       <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600" title="Past schedule — vendor cannot be changed">
                         🔒 {v.isUnassigned ? "Unassigned" : (v.vendorName || "—")}

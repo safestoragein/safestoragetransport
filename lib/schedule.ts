@@ -309,11 +309,25 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
 
   const resourceCost = REGION.resourceCost;
   const extraTripCost = REGION.extraTripCost;
-  const rank = (v: ScheduleVendor) => (v.isUnassigned ? 3 : v.isCoTeam ? 1 : v.isIntercity ? 2 : 0); // local → co-team → intercity → unassigned
-  const vendors = [...byVendor.values()]
+  const mapped = [...byVendor.values()]
     .map((v) => ({ ...v, pallets: Math.round(v.pallets * 10) / 10, actualPallets: Math.round(v.actualPallets * 10) / 10, tripCount: new Set(v.orders.map((o) => o.trip_no)).size,
-      liveLat: v.vendorId ? lastLoc.get(v.vendorId)?.lat ?? null : null, liveLng: v.vendorId ? lastLoc.get(v.vendorId)?.lng ?? null : null, liveLocationAt: v.vendorId ? lastLoc.get(v.vendorId)?.at ?? null : null }))
-    .sort((a, b) => rank(a) - rank(b));
+      liveLat: v.vendorId ? lastLoc.get(v.vendorId)?.lat ?? null : null, liveLng: v.vendorId ? lastLoc.get(v.vendorId)?.lng ?? null : null, liveLocationAt: v.vendorId ? lastLoc.get(v.vendorId)?.at ?? null : null }));
+  // Order: each primary vendor, immediately followed by ITS 2nd-team card(s) (matched by the shared
+  // order) — so a big order's two teams sit together — then intercity, then unassigned.
+  const isPrimary = (v: ScheduleVendor) => !v.isCoTeam && !v.isUnassigned && !v.isIntercity;
+  const cos = mapped.filter((v) => v.isCoTeam);
+  const usedCo = new Set<ScheduleVendor>();
+  const vendors: ScheduleVendor[] = [];
+  for (const p of mapped.filter(isPrimary)) {
+    vendors.push(p);
+    const ids = new Set(p.orders.map((o: any) => o.id));
+    for (const ct of cos) if (!usedCo.has(ct) && ct.orders.some((o: any) => ids.has(o.id))) { vendors.push(ct); usedCo.add(ct); }
+  }
+  vendors.push(
+    ...cos.filter((ct) => !usedCo.has(ct)),                          // any co-team we couldn't match
+    ...mapped.filter((v) => v.isIntercity && !v.isCoTeam && !v.isUnassigned),
+    ...mapped.filter((v) => v.isUnassigned),
+  );
   // Attach the realistic day plan (real road travel via OSRM) to each assigned vendor.
   await Promise.all(vendors.map(async (v) => { if (!v.isUnassigned && !v.isCoTeam) v.plan = await buildVendorPlan(v); }));
 
