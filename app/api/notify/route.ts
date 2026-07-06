@@ -62,7 +62,8 @@ export async function POST(req: NextRequest) {
 
       // Big orders run 2+ teams of the same vendor — notify the reserved co-team(s) too, with the
       // same shared-order details, so both teams show up.
-      const coTeams: { name: string; ok: boolean; error?: string }[] = [];
+      const coTeams: { name: string; ok: boolean; error?: string; skipped?: boolean }[] = [];
+      const sentPhones = new Set<string>([String(phone).replace(/\D/g, "").slice(-10)]); // don't message one number twice
       const { data: coRows } = await c.from("schedule_assignments").select("order_id, vendor_id, vendor_name").eq("run_id", b.runId).eq("stop_seq", -1).in("order_id", orderIds);
       const coOrdersByVendor = new Map<string, string[]>();
       for (const cr of coRows ?? []) { if (!cr.vendor_id) continue; const l = coOrdersByVendor.get(cr.vendor_id) ?? []; l.push(cr.order_id); coOrdersByVendor.set(cr.vendor_id, l); }
@@ -71,6 +72,10 @@ export async function POST(req: NextRequest) {
         const coPhone = coVendor?.supervisor_contact || coVendor?.driver_contact;
         const coName = coVendor?.supervisor_name || coVendor?.name || "Partner";
         if (!coPhone) { coTeams.push({ name: coName, ok: false, error: "no supervisor/driver phone" }); continue; }
+        // Both teams share one supervisor number? Then the primary message already covered it.
+        const key = String(coPhone).replace(/\D/g, "").slice(-10);
+        if (sentPhones.has(key)) { coTeams.push({ name: coName, ok: true, skipped: true }); continue; }
+        sentPhones.add(key);
         const coOrders = coOrderIds.map((id) => byId.get(id)).filter(Boolean) as any[];
         const cm = vendorMessage(coName, coOrders, date);
         const cr = await sendTemplate({ phone: coPhone, template: cm.template, bodyValues: cm.bodyValues });
