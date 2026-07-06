@@ -183,12 +183,17 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
         const base = perTxn ? (v.perTransaction != null ? v.perTransaction * v.orders.length : null) : (v.dailyPrice ?? null);
         const pay = base != null ? base + addOns : null;
         return (
-        <Card key={v.vendorId ?? v.vendorName} className={`overflow-hidden ${v.isUnassigned ? "ring-1 ring-amber-300" : ""}`}>
-          <div className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 ${v.isUnassigned ? "bg-amber-50" : "bg-slate-50"}`}>
+        <Card key={v.vendorId ?? v.vendorName} className={`overflow-hidden ${v.isUnassigned ? "ring-1 ring-amber-300" : v.isCoTeam ? "ring-1 ring-fuchsia-200" : ""}`}>
+          <div className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 ${v.isUnassigned ? "bg-amber-50" : v.isCoTeam ? "bg-fuchsia-50" : "bg-slate-50"}`}>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-800">{v.vendorName}</div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                {v.vendorName}
+                {v.isCoTeam && <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700">2nd team · with {v.coTeamOf}</span>}
+              </div>
               <div className="mt-0.5 text-xs text-slate-500">
-                {v.startingPoint ? `from ${v.startingPoint} · ` : ""}{!v.isUnassigned && `${v.tripCount} trip${v.tripCount > 1 ? "s" : ""} · `}{v.orders.length} stops · {v.actualPallets} pallets{v.actualPallets !== v.pallets ? ` (${v.pallets} assumed)` : ""} · {money(v.revenue)} transport collected
+                {v.isCoTeam
+                  ? <>2nd team on a big order — shares the job with <b>{v.coTeamOf}</b>. Paid as a separate vehicle; revenue shown on the main team.</>
+                  : <>{v.startingPoint ? `from ${v.startingPoint} · ` : ""}{!v.isUnassigned && `${v.tripCount} trip${v.tripCount > 1 ? "s" : ""} · `}{v.orders.length} stops · {v.actualPallets} pallets{v.actualPallets !== v.pallets ? ` (${v.pallets} assumed)` : ""} · {money(v.revenue)} transport collected</>}
               </div>
               {!v.isUnassigned && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
@@ -231,6 +236,8 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
             </div>
             {v.isUnassigned ? (
               <span className="shrink-0 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-800">Assign a vendor on each order ↓</span>
+            ) : v.isCoTeam ? (
+              <span className="shrink-0 rounded-lg bg-fuchsia-100 px-3 py-1.5 text-xs font-medium text-fuchsia-700" title="Notify + manage this order on the main team's card">notify on main team ↑</span>
             ) : (
               <div className="flex shrink-0 items-center gap-2">
                 <span className="flex items-center gap-1 text-[11px] text-slate-500" title="Extra labour resource for the whole day">
@@ -276,19 +283,20 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     {!v.isUnassigned && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">{idx + 1}</span>}
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${t.dot}`}>{t.label}{o.is_shifting ? " · shifting" : o.is_intercity ? " · intercity" : ""}</span>
                     <span className="text-sm font-medium text-slate-800">{o.customer_unique_id}</span>
-                    {teamsNeeded(Number(o.pallets) || 0) > 1 && (
-                      <span className="rounded bg-fuchsia-100 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700" title={`Big order — ${v.vendorName} sends ${teamsNeeded(Number(o.pallets) || 0)} teams (order kept whole)`}>
-                        🚚 {teamsNeeded(Number(o.pallets) || 0)} teams
+                    {v.isCoTeam ? (
+                      <span className="rounded bg-fuchsia-100 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700" title={`2nd team on this big order — main team is ${v.coTeamOf ?? ""}`}>
+                        🚚 2nd team{v.vehicleType ? ` (${v.vehicleType})` : ""} · with {v.coTeamOf}
                       </span>
-                    )}
-                    {o.coTeams?.map((ct: any, i: number) => {
-                      const sameSup = ct.supervisorContact && ct.supervisorContact === v.supervisorContact;
+                    ) : teamsNeeded(Number(o.pallets) || 0) > 1 && (() => {
+                      const label = (name?: string | null, veh?: string | null) => `${name ?? "—"}${veh ? ` (${veh})` : ""}`;
+                      const names = [label(v.vendorName, v.vehicleType), ...((o.coTeams ?? []).map((ct: any) => label(ct.vendorName, ct.vehicleType)))].join(", ");
+                      const sups = [`${v.supervisorName ?? ""} ${v.supervisorContact ?? ""}`.trim(), ...((o.coTeams ?? []).map((ct: any) => `${ct.supervisorName ?? ""} ${ct.supervisorContact ?? ""}`.trim()))].filter(Boolean).join(" · ");
                       return (
-                        <span key={i} className="rounded bg-fuchsia-50 px-1.5 py-0.5 text-[11px] text-fuchsia-700 ring-1 ring-fuchsia-100" title="2nd team on this order (same vendor)">
-                          👷 2nd team{ct.vehicleType ? ` (${ct.vehicleType})` : ""}: {sameSup ? "same supervisor" : `${ct.supervisorName || ct.vendorName}${ct.supervisorContact ? ` · ${ct.supervisorContact}` : ""}`}
+                        <span className="rounded bg-fuchsia-100 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700" title={`Big order — kept whole, ${teamsNeeded(Number(o.pallets) || 0)} teams. Supervisors: ${sups}`}>
+                          🚚 {teamsNeeded(Number(o.pallets) || 0)} teams: {names}
                         </span>
                       );
-                    })}
+                    })()}
                     {o.live_status && LIVE[o.live_status] && (
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${LIVE[o.live_status].cls}`} title={o.live_status_at ? `updated ${shortTime(o.live_status_at)}` : "from the vendor app"}>
                         {LIVE[o.live_status].label}{o.live_status_at ? ` · ${shortTime(o.live_status_at)}` : ""}
@@ -322,6 +330,9 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                   {o.team_notes && <div className="mt-1 truncate text-[11px] text-slate-500">📝 {o.team_notes}</div>}
 
                   {/* controls: reassign vendor · notify customer (resource is per-vendor, in the header) */}
+                  {v.isCoTeam ? (
+                    <div className="mt-1.5 text-[11px] text-fuchsia-600">Shared big order — assign / notify from {v.coTeamOf}&apos;s card.</div>
+                  ) : (
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
                     {readOnly ? (
                       // Old schedules are already sent to vendors/customers — vendor is locked.
@@ -375,6 +386,7 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                       )
                     )}
                   </div>
+                  )}
                 </div>
               );
             })}

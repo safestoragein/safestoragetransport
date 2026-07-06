@@ -182,6 +182,7 @@ export interface ScheduleVendor {
   isIntercity?: boolean; tier?: string; dailyPrice?: number | null; perTransaction?: number | null; pricingNote?: string | null;
   plan?: VendorPlan; // server-computed day plan (real OSRM travel times)
   liveLat?: number | null; liveLng?: number | null; liveLocationAt?: string | null; // latest GPS ping from the vendor app
+  isCoTeam?: boolean; coTeamOf?: string | null; // a reserved 2nd/3rd team card for a big order
 }
 export interface AvailableVendor { id: string; name: string; vehicleType: string; tier: string; isIntercity: boolean }
 export interface ScheduleData {
@@ -283,15 +284,38 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
     sv.revenue += Number(o.transport_charge) || 0;
   });
 
+  // 2nd/3rd-team cards so BOTH allocated teams appear in the list. The order here is a SHADOW of the
+  // big order (marked co-team, ₹0 revenue — that stays on the primary), so run totals are unaffected.
+  const primaryNameByOrder = new Map<string, string>();
+  (assigns ?? []).forEach((a: any) => { if (a.stop_seq !== -1 && a.vendor_name) primaryNameByOrder.set(a.order_id, a.vendor_name); });
+  (assigns ?? []).filter((a: any) => a.stop_seq === -1 && a.vendor_id).forEach((a: any) => {
+    const o: any = orderById.get(a.order_id);
+    if (!o) return;
+    const v: any = vById.get(a.vendor_id);
+    const sv = ensureVendor(`coteam:${a.vendor_id}:${a.order_id}`, () => ({
+      vendorId: a.vendor_id, vendorName: a.vendor_name, isCoTeam: true, coTeamOf: primaryNameByOrder.get(a.order_id) ?? null,
+      supervisorName: v?.supervisor_name, supervisorContact: v?.supervisor_contact,
+      driverName: v?.driver_name, driverContact: v?.driver_contact,
+      vehicleNo: v?.vehicle_no, vehicleType: v?.vehicle_type, startingPoint: v?.starting_point, depotLat: v?.starting_lat, depotLng: v?.starting_lng,
+      isIntercity: !!v?.is_intercity_vendor, tier: v?.tier,
+      dailyPrice: v?.daily_price != null ? Number(v.daily_price) : null,
+      perTransaction: v?.per_transaction != null ? Number(v.per_transaction) : null, pricingNote: v?.pricing_note ?? null,
+      orders: [], pallets: 0, actualPallets: 0, revenue: 0, resources: 0, extraTrips: 0, tripCount: 0, vendorNotifiedAt: null,
+    }));
+    sv.orders.push({ ...o, trip_no: 1, stop_seq: 1, isCoTeamOrder: true, coTeams: null } as any);
+    sv.pallets += Number(o.pallets) || 0;
+    sv.actualPallets += Number(o.stated_pallets ?? o.pallets) || 0;
+  });
+
   const resourceCost = REGION.resourceCost;
   const extraTripCost = REGION.extraTripCost;
-  const rank = (v: ScheduleVendor) => (v.isUnassigned ? 2 : v.isIntercity ? 1 : 0); // local vendors → intercity → unassigned
+  const rank = (v: ScheduleVendor) => (v.isUnassigned ? 3 : v.isCoTeam ? 1 : v.isIntercity ? 2 : 0); // local → co-team → intercity → unassigned
   const vendors = [...byVendor.values()]
     .map((v) => ({ ...v, pallets: Math.round(v.pallets * 10) / 10, actualPallets: Math.round(v.actualPallets * 10) / 10, tripCount: new Set(v.orders.map((o) => o.trip_no)).size,
       liveLat: v.vendorId ? lastLoc.get(v.vendorId)?.lat ?? null : null, liveLng: v.vendorId ? lastLoc.get(v.vendorId)?.lng ?? null : null, liveLocationAt: v.vendorId ? lastLoc.get(v.vendorId)?.at ?? null : null }))
     .sort((a, b) => rank(a) - rank(b));
   // Attach the realistic day plan (real road travel via OSRM) to each assigned vendor.
-  await Promise.all(vendors.map(async (v) => { if (!v.isUnassigned) v.plan = await buildVendorPlan(v); }));
+  await Promise.all(vendors.map(async (v) => { if (!v.isUnassigned && !v.isCoTeam) v.plan = await buildVendorPlan(v); }));
 
   const totalResources = vendors.reduce((s, v) => s + (v.resources || 0), 0);
   const totalExtraTrips = vendors.reduce((s, v) => s + (v.extraTrips || 0), 0);
