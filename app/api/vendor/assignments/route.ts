@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
   if (!v) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
   try {
-    const jobs = await vendorJobs(v.vendorId, date);
-    return NextResponse.json({ ok: true, date, vendor: { id: v.vendorId, name: v.name }, jobs });
+    const { published, notifiedAt, jobs } = await vendorJobs(v.vendorId, date);
+    return NextResponse.json({ ok: true, date, published, notifiedAt, vendor: { id: v.vendorId, name: v.name }, jobs });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }

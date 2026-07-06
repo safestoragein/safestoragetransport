@@ -27,22 +27,30 @@ export interface VendorJob {
 }
 
 // Ordered list of the vendor's stops for (their city, date). Empty if no published run yet.
-export async function vendorJobs(vendorId: string, date: string): Promise<VendorJob[]> {
-  if (!hasDb) return [];
+// Returns the vendor's jobs — but ONLY after the office has sent this vendor its notification for the
+// run. Before that, `published` is false and no jobs are exposed. `notifiedAt` lets the app detect a
+// fresh publish and alert the vendor.
+export async function vendorJobs(vendorId: string, date: string): Promise<{ published: boolean; notifiedAt: string | null; jobs: VendorJob[] }> {
+  const empty = { published: false, notifiedAt: null as string | null, jobs: [] as VendorJob[] };
+  if (!hasDb) return empty;
   const c = db();
   const { data: vRows } = await c.from("vendors").select("city").eq("id", vendorId).limit(1);
   const city = vRows?.[0]?.city;
-  if (!city) return [];
+  if (!city) return empty;
   const { data: runs } = await c.from("schedule_runs").select("id").eq("schedule_date", date).ilike("city", city).order("generated_at", { ascending: false }).limit(1);
   const run = runs?.[0];
-  if (!run) return [];
+  if (!run) return empty;
+  // GATE: the vendor sees nothing until the office notifies them for this run.
+  const { data: notif } = await c.from("notifications").select("sent_at").eq("run_id", run.id).eq("vendor_id", vendorId).eq("kind", "vendor").order("sent_at", { ascending: false }).limit(1);
+  const notifiedAt = notif?.[0]?.sent_at ?? null;
+  if (!notifiedAt) return empty;
   const { data: assigns } = await c.from("schedule_assignments").select("*").eq("run_id", run.id).eq("vendor_id", vendorId);
   const rows = assigns ?? [];
-  if (!rows.length) return [];
+  if (!rows.length) return { published: true, notifiedAt, jobs: [] };
   const orderIds = [...new Set(rows.map((a: any) => a.order_id))];
   const { data: orders } = await c.from("orders").select("*").in("id", orderIds);
   const byId = new Map((orders ?? []).map((o: any) => [o.id, o]));
-  return rows
+  const jobs = rows
     .sort((a: any, b: any) => a.trip_no - b.trip_no || a.stop_seq - b.stop_seq)
     .map((a: any) => {
       const o: any = byId.get(a.order_id) || {};
@@ -70,6 +78,7 @@ export async function vendorJobs(vendorId: string, date: string): Promise<Vendor
         liveStatusAt: o.live_status_at ?? null,
       } as VendorJob;
     });
+  return { published: true, notifiedAt, jobs };
 }
 
 // The status lifecycle a vendor advances through, in order. Kept server-side so the app and the
