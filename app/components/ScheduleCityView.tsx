@@ -281,6 +281,11 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                         🚚 {teamsNeeded(Number(o.pallets) || 0)} teams
                       </span>
                     )}
+                    {o.coTeams?.map((ct: any, i: number) => (
+                      <span key={i} className="rounded bg-fuchsia-50 px-1.5 py-0.5 text-[11px] text-fuchsia-700 ring-1 ring-fuchsia-100" title="2nd team on this order (same vendor)">
+                        👷 {ct.supervisorName || ct.vendorName}{ct.supervisorContact ? ` · ${ct.supervisorContact}` : ""}{ct.vehicleType ? ` · ${ct.vehicleType}` : ""}
+                      </span>
+                    ))}
                     {o.live_status && LIVE[o.live_status] && (
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${LIVE[o.live_status].cls}`} title={o.live_status_at ? `updated ${shortTime(o.live_status_at)}` : "from the vendor app"}>
                         {LIVE[o.live_status].label}{o.live_status_at ? ` · ${shortTime(o.live_status_at)}` : ""}

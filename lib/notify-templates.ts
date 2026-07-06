@@ -42,9 +42,12 @@ export function requestedWindow(requiredTime?: string | null): string | null {
   return `${fmtMin(start)}–${fmtMin(start + 60)}`;
 }
 
+import { teamsNeeded } from "./config";
+
 export interface OrderLike {
   order_type?: string | null; customer_name?: string | null; contact?: string | null;
   locality?: string | null; time_slot?: string | null; required_time?: string | null; schedule_date?: string | null;
+  pallets?: number | string | null;
 }
 
 // ── Customer: NEVER contains vendor details ──────────────────────────────────
@@ -68,7 +71,9 @@ export function vendorMessage(vendorName: string, orders: OrderLike[], date?: st
     else if (o.time_slot) timing = `slot ${o.time_slot}`;
     else timing = "flexible";
     const kind = typeWord(o.order_type);
-    return `${i + 1}. ${o.customer_name || "Customer"}, ${o.contact || "-"} — ${o.locality || "-"} — ${kind} — ${timing}`;
+    const teams = teamsNeeded(Number(o.pallets) || 0);
+    const teamNote = teams > 1 ? ` — ${teams} TEAMS on this order, coordinate with the other team` : "";
+    return `${i + 1}. ${o.customer_name || "Customer"}, ${o.contact || "-"} — ${o.locality || "-"} — ${kind} — ${timing}${teamNote}`;
   });
   const list = lines.join("\n");
   const template = anyFixed ? TEMPLATES.vendorFixed : TEMPLATES.vendorRecommended;

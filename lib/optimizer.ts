@@ -243,6 +243,7 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
       if (!bestPick || km < bestPick.km) bestPick = { primary, siblings: chosen.filter((v) => v.id !== primary.id), km };
     }
     if (bestPick) {
+      b.coTeams = bestPick.siblings.map((s) => s.id); // remember the reserved 2nd/3rd teams
       take(bestPick.primary.id, b, `Big order (${b.pallets}p) — ${bestPick.primary.name} sends ${need} teams (order kept whole).`);
       for (const s of bestPick.siblings) consumed.add(s.id);
     }

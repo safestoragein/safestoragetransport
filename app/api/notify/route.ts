@@ -59,7 +59,26 @@ export async function POST(req: NextRequest) {
       if (!r.ok) return NextResponse.json({ ok: false, error: `WhatsApp send failed: ${r.error}` }, { status: 502 });
 
       await c.from("notifications").insert({ run_id: b.runId, vendor_id: b.vendorId, kind: "vendor", channel: "whatsapp", status: "sent", detail: `interakt:${msg.template} (${ordered.length} stops)` });
-      return NextResponse.json({ ok: true, stops: ordered.length, sentAt: new Date().toISOString() });
+
+      // Big orders run 2+ teams of the same vendor — notify the reserved co-team(s) too, with the
+      // same shared-order details, so both teams show up.
+      const coTeams: { name: string; ok: boolean; error?: string }[] = [];
+      const { data: coRows } = await c.from("schedule_assignments").select("order_id, vendor_id, vendor_name").eq("run_id", b.runId).eq("stop_seq", -1).in("order_id", orderIds);
+      const coOrdersByVendor = new Map<string, string[]>();
+      for (const cr of coRows ?? []) { if (!cr.vendor_id) continue; const l = coOrdersByVendor.get(cr.vendor_id) ?? []; l.push(cr.order_id); coOrdersByVendor.set(cr.vendor_id, l); }
+      for (const [coVid, coOrderIds] of coOrdersByVendor) {
+        const { data: coVendor } = await c.from("vendors").select("*").eq("id", coVid).maybeSingle();
+        const coPhone = coVendor?.supervisor_contact || coVendor?.driver_contact;
+        const coName = coVendor?.supervisor_name || coVendor?.name || "Partner";
+        if (!coPhone) { coTeams.push({ name: coName, ok: false, error: "no supervisor/driver phone" }); continue; }
+        const coOrders = coOrderIds.map((id) => byId.get(id)).filter(Boolean) as any[];
+        const cm = vendorMessage(coName, coOrders, date);
+        const cr = await sendTemplate({ phone: coPhone, template: cm.template, bodyValues: cm.bodyValues });
+        if (cr.ok) await c.from("notifications").insert({ run_id: b.runId, vendor_id: coVid, kind: "vendor", channel: "whatsapp", status: "sent", detail: `interakt:${cm.template} (co-team, ${coOrders.length})` });
+        coTeams.push({ name: coName, ok: cr.ok, error: cr.error });
+      }
+
+      return NextResponse.json({ ok: true, stops: ordered.length, coTeams, sentAt: new Date().toISOString() });
     }
 
     return NextResponse.json({ ok: false, error: "unknown kind" }, { status: 400 });

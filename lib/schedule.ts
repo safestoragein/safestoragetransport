@@ -77,6 +77,7 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
 
   // 3) insert assignments
   const vName = new Map(vendors.map((v) => [v.id, v.name]));
+  const bookingById = new Map(bookings.map((b) => [b.id, b]));
   const rows: any[] = [];
   for (const a of result.assignments) {
     a.trips.forEach((t, ti) => t.bookingIds.forEach((bid, si) => {
@@ -88,6 +89,11 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
         vendor_name: vName.get(a.vendorId) ?? a.vendorId,
         order_id: oid, trip_no: ti + 1, stop_seq: si + 1,
       });
+      // Big order → also record its reserved 2nd/3rd teams as co-team rows (stop_seq = -1), so the
+      // schedule can show both teams and the vendor notify reaches both.
+      for (const coId of bookingById.get(bid)?.coTeams ?? []) {
+        rows.push({ run_id: run.id, vendor_id: isUuid(coId) ? coId : null, vendor_name: vName.get(coId) ?? coId, order_id: oid, trip_no: ti + 1, stop_seq: -1 });
+      }
     }));
   }
   // Unassigned (intercity retrievals + any overflow) get a null-vendor row so they're scoped to THIS
@@ -157,6 +163,13 @@ export interface ScheduleOrder {
   booking_date: string | null; // order_created_at — when the customer booked
   trip_no: number; stop_seq: number; resources: number;
   live_status?: string | null; live_status_at?: string | null; // vendor app: en_route/arrived/packing/loaded/delivered
+  coTeams?: CoTeam[] | null; // big order: the reserved 2nd/3rd teams (same vendor) working it
+}
+export interface CoTeam {
+  vendorId: string | null; vendorName: string | null;
+  supervisorName: string | null; supervisorContact: string | null;
+  driverName: string | null; driverContact: string | null;
+  vehicleType: string | null; vehicleNo: string | null;
 }
 export interface ScheduleVendor {
   vendorId: string | null; vendorName: string; isUnassigned?: boolean;
@@ -221,10 +234,26 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
     (locs ?? []).forEach((l: any) => { if (!lastLoc.has(l.vendor_id)) lastLoc.set(l.vendor_id, { lat: l.lat, lng: l.lng, at: l.recorded_at }); });
   }
 
+  // Co-team rows (stop_seq = -1): a big order's reserved 2nd/3rd teams. Attach their supervisor/phone
+  // to the order rather than drawing them as separate stops.
+  const coByOrder = new Map<string, any[]>();
+  (assigns ?? []).filter((a: any) => a.stop_seq === -1).forEach((a: any) => {
+    const v: any = a.vendor_id ? vById.get(a.vendor_id) : null;
+    const list = coByOrder.get(a.order_id) ?? [];
+    list.push({
+      vendorId: a.vendor_id, vendorName: a.vendor_name,
+      supervisorName: v?.supervisor_name ?? null, supervisorContact: v?.supervisor_contact ?? null,
+      driverName: v?.driver_name ?? null, driverContact: v?.driver_contact ?? null,
+      vehicleType: v?.vehicle_type ?? null, vehicleNo: v?.vehicle_no ?? null,
+    });
+    coByOrder.set(a.order_id, list);
+  });
+
   const byVendor = new Map<string, ScheduleVendor>();
   const ensureVendor = (key: string, init: () => ScheduleVendor) => { if (!byVendor.has(key)) byVendor.set(key, init()); return byVendor.get(key)!; };
 
   (assigns ?? []).sort((a: any, b: any) => a.trip_no - b.trip_no || a.stop_seq - b.stop_seq).forEach((a: any) => {
+    if (a.stop_seq === -1) return; // co-team row — handled above
     const o: any = orderById.get(a.order_id);
     if (!o) return;
     // An intercity order must never sit under a regular vendor — if a stale assignment put it there,
@@ -248,7 +277,7 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
         vendorNotifiedAt: a.vendor_id ? vendorNotified.get(a.vendor_id) ?? null : null,
       };
     });
-    sv.orders.push({ ...o, trip_no: a.trip_no, stop_seq: a.stop_seq, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null } as any);
+    sv.orders.push({ ...o, trip_no: a.trip_no, stop_seq: a.stop_seq, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null, coTeams: coByOrder.get(a.order_id) ?? null } as any);
     sv.pallets += Number(o.pallets) || 0;
     sv.actualPallets += Number(o.stated_pallets ?? o.pallets) || 0;
     sv.revenue += Number(o.transport_charge) || 0;
