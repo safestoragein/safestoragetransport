@@ -211,7 +211,8 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {data?.date && allCities.length > 0 && (
+            {/* Old schedules are read-only history — no export / generate there. */}
+            {data?.date && allCities.length > 0 && !isHistory && (
               <a
                 href={withBase(`/api/export?date=${data.date}${cityFilter !== "All" ? `&city=${cityFilter}` : ""}`)}
                 className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
@@ -219,9 +220,9 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                 ⬇ Download Excel
               </a>
             )}
-            {/* Today is monitoring-only — no generate. */}
-            {!isToday && (
-              <button onClick={generate} disabled={busy || (isHistory && !data?.date)} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+            {/* Generate: Tomorrow only. Today is monitoring-only; Old schedules are read-only. */}
+            {!isToday && !isHistory && (
+              <button onClick={generate} disabled={busy} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
                 {busy ? "Generating all cities…" : "Generate / refresh all cities"}
               </button>
             )}
