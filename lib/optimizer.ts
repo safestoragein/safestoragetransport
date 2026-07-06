@@ -38,6 +38,10 @@ const VEHICLE_PENALTY_SCORE = 200_000;
 // When a SECOND team is needed, prefer another team of the SAME vendor (team rule: a vendor with 2
 // teams sends both). Worth ~this many km of detour so a sibling team wins over a nearer stranger.
 const SIBLING_BONUS_KM = 25;
+// Auto-split: keep both halves of one big order on the SAME vendor family (strong — overrides tier),
+// and steer the FIRST half onto a vendor that actually HAS a second team.
+const SPLIT_SAME_FAMILY_BONUS = 600_000;
+const SPLIT_MULTITEAM_BONUS_KM = 40;
 const vehicleMismatch = (v: Vendor, b: Booking) =>
   !!b.requiredVehicle && v.tier === "general" && v.vehicle.type !== b.requiredVehicle;
 
@@ -165,10 +169,21 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
   const byId = new Map(bookings.map((b) => [b.id, b]));
   const palletsAt = (vId: string) => palletsOf(assignedTo.get(vId)!);
 
+  // Auto-split support: how many teams each vendor family has, and which family a split order's
+  // already-placed part went to (so its other parts join the SAME vendor's other teams).
+  const vByIdMap = new Map(vendors.map((v) => [v.id, v]));
+  // Per family, the effective caps of its teams — so we can ask "does this family have 2 teams big
+  // enough for both halves of this order?".
+  const familyCaps = new Map<string, number[]>();
+  for (const v of vendors) { const f = vendorFamily(v.name); const arr = familyCaps.get(f) ?? []; arr.push(effectiveCapacity(v.vehicle.type)); familyCaps.set(f, arr); }
+  const teamsBigEnough = (fam: string, pallets: number) => (familyCaps.get(fam) ?? []).filter((cap) => cap >= pallets - EPS).length;
+  const groupFamily = new Map<string, string>();
+
   const take = (vId: string, b: Booking, why: string) => {
     assignedTo.get(vId)!.push(b);
     reasoning.get(vId)!.push(why);
     remaining.delete(b.id);
+    if (b.splitGroup) groupFamily.set(b.splitGroup, vendorFamily(vByIdMap.get(vId)!.name));
   };
 
   const nearestFitting = (v: Vendor, limit: number): Booking | null => {
@@ -254,6 +269,10 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
             (conflict ? WINDOW_CONFLICT_PENALTY : 0) + // ...unless it clashes with a same-window order here
             (opensNew ? clusterKm : -p * 1000 + clusterKm * 1000) + // new: nearest depot; fill: top off but stay near the cluster
             (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // 2nd team → prefer same vendor's other team
+            // Auto-split parts: 2nd+ part joins the family its sibling went to; 1st part prefers a
+            // vendor that has a spare 2nd team (so the sibling can actually land there).
+            (b.splitGroup && groupFamily.get(b.splitGroup) === vendorFamily(v.name) ? -SPLIT_SAME_FAMILY_BONUS : 0) +
+            (b.splitGroup && !groupFamily.has(b.splitGroup) && teamsBigEnough(vendorFamily(v.name), b.pallets) >= 2 ? -SPLIT_MULTITEAM_BONUS_KM : 0) +
             (v.tier === "non_general" ? 500_000 : 0) + // keep premium/intercity vendors for overflow
             (vehicleMismatch(v, b) ? VEHICLE_PENALTY_SCORE : 0);
           if (score < bestScore) { bestScore = score; bestV = v; bestOpensNew = opensNew; }

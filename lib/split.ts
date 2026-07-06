@@ -46,6 +46,7 @@ export function splitOversizeBookings(bookings: Booking[]): Booking[] {
         ...b,
         id: `${b.id}::p${i}`,
         orderId: `${b.orderId}-p${i}of${n}`,
+        splitGroup: String(b.orderId), // all parts of this booking share a group → same vendor family
         pallets: each,
         statedPallets: eachStated,
         transportCharge: i === 1 ? b.transportCharge : 0, // revenue counted once

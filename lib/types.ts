@@ -68,6 +68,7 @@ export interface Booking {
   teamNotes?: string; // customer_notes — operator notes incl. customer time requests
   requiredTimeText?: string; // a customer-requested time pulled from the notes, if any (e.g. "morning slot")
   requiredSlot?: { start: number; end: number }; // parsed required window (minutes from midnight) — schedule here
+  splitGroup?: string; // set on auto-split parts (= base order id) so the optimiser keeps them on one vendor family
   // Existing-system manual assignment, used ONLY for the savings comparison. Never written back.
   currentVendorId?: string | null;
 }
