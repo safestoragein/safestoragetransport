@@ -192,6 +192,13 @@ function RouteMapMini({ v }: { v: any }) {
       });
       if (wh) L.marker([wh.lat, wh.lng], { icon: pill("#0f172a", `⌂ ${wh.name}`) }).addTo(map).bindPopup(`<b>Warehouse</b><br>${wh.name}`);
 
+      // LIVE vendor pin — where the vendor is right now (from the app's GPS pings).
+      const hasLive = v.liveLat != null && v.liveLng != null;
+      if (hasLive) {
+        const liveIcon = L.divIcon({ className: "", html: `<div style="background:#e11d48;color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:3px solid #fff;box-shadow:0 0 0 5px rgba(225,29,72,.22),0 1px 6px rgba(0,0,0,.5)">🚚</div>`, iconSize: [32, 32], iconAnchor: [16, 16] });
+        L.marker([Number(v.liveLat), Number(v.liveLng)], { icon: liveIcon, zIndexOffset: 1000 }).addTo(map).bindPopup(`<b>Vendor is here now</b>${v.liveLocationAt ? `<br>updated ${v.liveLocationAt}` : ""}`);
+      }
+
       // draw the ACTUAL road route (OSRM geometry); fall back to a straight dashed line.
       let drew = false;
       let osrmLegs: number[] | null = null;
@@ -220,6 +227,7 @@ function RouteMapMini({ v }: { v: any }) {
       }
 
       const bounds = wps.map((p) => [p.lat, p.lng] as [number, number]);
+      if (hasLive) bounds.push([Number(v.liveLat), Number(v.liveLng)]); // keep the live pin in view
       if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
       else if (bounds.length === 1) map.setView(bounds[0], 12);
       else map.setView([12.95, 77.6], 11);
@@ -239,6 +247,7 @@ function RouteMapMini({ v }: { v: any }) {
           <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-600" /> retrieval drop</span>
           <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-blue-600" /> pickup</span>
           <span className="flex items-center gap-1"><span className="h-1 w-4 rounded bg-indigo-600" /> driving route</span>
+          {v.liveLat != null && v.liveLng != null && <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-rose-600" /> 🚚 vendor now (live)</span>}
         </div>
       </div>
       {/* readable itinerary so the order is obvious without reading the map */}

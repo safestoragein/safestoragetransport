@@ -15,6 +15,20 @@ import { Booking } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// Real driving ETA (minutes) between two points via OSRM. Null on any failure (caller falls back).
+async function osrmEtaMin(aLat: number, aLng: number, bLat: number, bLng: number): Promise<number | null> {
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 4000);
+    const r: any = await fetch(`https://router.project-osrm.org/route/v1/driving/${aLng},${aLat};${bLng},${bLat}?overview=false`, { signal: ctrl.signal }).then((x) => x.json());
+    clearTimeout(to);
+    const dur = r?.routes?.[0]?.duration; // seconds
+    return dur != null ? Math.max(1, Math.round(dur / 60)) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function generateSchedule(citySlug: string, date: string, trigger: "cron" | "manual" = "manual") {
   const snap = await loadLive(citySlug, date);
   let vendors = await masterVendorsForCity(citySlug);
@@ -182,6 +196,7 @@ export interface ScheduleVendor {
   isIntercity?: boolean; tier?: string; dailyPrice?: number | null; perTransaction?: number | null; pricingNote?: string | null;
   plan?: VendorPlan; // server-computed day plan (real OSRM travel times)
   liveLat?: number | null; liveLng?: number | null; liveLocationAt?: string | null; // latest GPS ping from the vendor app
+  etaMin?: number | null; etaToRef?: string | null; // real road ETA (OSRM) from the live GPS to the next stop
   isCoTeam?: boolean; coTeamOf?: string | null; // a reserved 2nd/3rd team card for a big order
 }
 export interface AvailableVendor { id: string; name: string; vehicleType: string; tier: string; isIntercity: boolean }
@@ -330,6 +345,15 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
   );
   // Attach the realistic day plan (real road travel via OSRM) to each assigned vendor.
   await Promise.all(vendors.map(async (v) => { if (!v.isUnassigned && !v.isCoTeam) v.plan = await buildVendorPlan(v); }));
+
+  // Real road ETA (OSRM) from each live vendor's current GPS to their next pending stop.
+  await Promise.all(vendors.map(async (v) => {
+    if (v.isUnassigned || v.liveLat == null || v.liveLng == null) return;
+    const nx = v.orders.find((o) => o.live_status !== "delivered" && o.lat != null && o.lng != null);
+    if (!nx) return;
+    const eta = await osrmEtaMin(Number(v.liveLat), Number(v.liveLng), Number(nx.lat), Number(nx.lng));
+    if (eta != null) { v.etaMin = eta; v.etaToRef = nx.customer_unique_id; }
+  }));
 
   const totalResources = vendors.reduce((s, v) => s + (v.resources || 0), 0);
   const totalExtraTrips = vendors.reduce((s, v) => s + (v.extraTrips || 0), 0);

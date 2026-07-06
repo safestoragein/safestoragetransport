@@ -232,16 +232,18 @@ export default function MonitoringView({ cities }: { cities: ScheduleData[] }) {
                       const ago = minsSince(v.liveLocationAt);
                       const pending = ordered(v.orders, v.plan).filter((o: any) => (isPickup(o) ? !pickedUp(o, live) : !delivered(o, live)));
                       const nx = pending.find((o: any) => o.lat != null && o.lng != null);
-                      const eta = nx ? etaMin(havKm(v.liveLat, v.liveLng, nx.lat, nx.lng)) : null;
+                      // Prefer the real road ETA (OSRM, from the server); fall back to a straight-line estimate.
+                      const eta = v.etaMin != null ? v.etaMin : (nx ? etaMin(havKm(v.liveLat, v.liveLng, nx.lat, nx.lng)) : null);
+                      const etaRef = v.etaToRef ?? (nx ? nx.customer_unique_id : null);
                       return (
                         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                           <a href={`https://www.google.com/maps/search/?api=1&query=${v.liveLat},${v.liveLng}`} target="_blank" rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100" title="Vendor's live GPS from the app">
                             <span className={`h-2 w-2 rounded-full ${freshDot(ago)}`} /> Live location · {agoLabel(ago)}
                           </a>
-                          {eta != null && nx && (
-                            <span className="rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-700 ring-1 ring-blue-200" title="Rough ETA from the vendor's current location to the next stop">
-                              ~{eta} min to {nx.customer_unique_id}
+                          {eta != null && etaRef && (
+                            <span className="rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-700 ring-1 ring-blue-200" title="Driving ETA from the vendor's current location to the next stop">
+                              ~{eta} min to {etaRef}
                             </span>
                           )}
                         </div>
