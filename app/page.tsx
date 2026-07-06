@@ -2,7 +2,8 @@ import CommandCenter from "./components/CommandCenter";
 import ScheduleBoard from "./components/ScheduleBoard";
 import VendorPanel from "./components/VendorPanel";
 import SchedulingRules from "./components/SchedulingRules";
-import { listAllDates, loadAllCitiesSummary } from "@/lib/safestorage-api";
+import { listAllDates } from "@/lib/safestorage-api";
+import { loadOpsDashboard } from "@/lib/dashboard";
 import { listVendors } from "@/lib/vendors";
 import { getSession } from "@/lib/session";
 
@@ -21,14 +22,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
 
   // Dashboard — multi-city overview (formerly "Command center"). `src=admin` kept as an alias.
   if (view === "dashboard" || sp.src === "admin") {
-    try {
-      const dates = await listAllDates();
-      const date = sp.date ?? pickDefault(dates);
-      const summaries = await loadAllCitiesSummary(date);
-      return <CommandCenter summaries={summaries} dateLabel={fmtDate(date)} dates={dates} activeDate={date} user={user} />;
-    } catch {
-      // fall through to the schedule board on failure
-    }
+    const dash = await loadDashboardData(sp.date).catch(() => null);
+    if (dash) return <CommandCenter ops={dash.ops} dateLabel={fmtDate(dash.date)} dates={dash.dates} activeDate={dash.date} user={user} />;
+    // fall through to the schedule board on failure
   }
 
   // Vendor panel (vendor master)
@@ -44,6 +40,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
   if (view === "today") return <ScheduleBoard mode="today" user={user} />;
   if (view === "history") return <ScheduleBoard mode="history" user={user} />;
   return <ScheduleBoard mode="tomorrow" user={user} />; // view === "schedule"
+}
+
+async function loadDashboardData(reqDate?: string) {
+  const dates = await listAllDates();
+  const date = reqDate ?? pickDefault(dates);
+  const ops = await loadOpsDashboard(date);
+  return { ops, dates, date };
 }
 
 function pickDefault(dates: { date: string; count: number }[]): string {
