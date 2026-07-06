@@ -26,25 +26,20 @@ export interface VendorJob {
   liveStatusAt: string | null;
 }
 
-// Ordered list of the vendor's stops for (their city, date). Empty if no published run yet.
-// Returns the vendor's jobs — but ONLY after the office has sent this vendor its notification for the
-// run. Before that, `published` is false and no jobs are exposed. `notifiedAt` lets the app detect a
-// fresh publish and alert the vendor.
-export async function vendorJobs(vendorId: string, date: string): Promise<{ published: boolean; notifiedAt: string | null; jobs: VendorJob[] }> {
+// The vendor's stops for the schedule they were MOST RECENTLY notified about (today's, or the
+// upcoming one the office published the evening before — date-agnostic on purpose). Empty/`published:
+// false` until the office has actually sent this vendor their notification. `_date` is accepted for
+// backwards-compat but ignored — the notification is the source of truth.
+export async function vendorJobs(vendorId: string, _date?: string): Promise<{ published: boolean; notifiedAt: string | null; jobs: VendorJob[] }> {
   const empty = { published: false, notifiedAt: null as string | null, jobs: [] as VendorJob[] };
   if (!hasDb) return empty;
   const c = db();
-  const { data: vRows } = await c.from("vendors").select("city").eq("id", vendorId).limit(1);
-  const city = vRows?.[0]?.city;
-  if (!city) return empty;
-  const { data: runs } = await c.from("schedule_runs").select("id").eq("schedule_date", date).ilike("city", city).order("generated_at", { ascending: false }).limit(1);
-  const run = runs?.[0];
-  if (!run) return empty;
-  // GATE: the vendor sees nothing until the office notifies them for this run.
-  const { data: notif } = await c.from("notifications").select("sent_at").eq("run_id", run.id).eq("vendor_id", vendorId).eq("kind", "vendor").order("sent_at", { ascending: false }).limit(1);
+  // GATE + which run to show: the latest vendor notification for this vendor points at the run.
+  const { data: notif } = await c.from("notifications").select("run_id, sent_at").eq("vendor_id", vendorId).eq("kind", "vendor").order("sent_at", { ascending: false }).limit(1);
   const notifiedAt = notif?.[0]?.sent_at ?? null;
-  if (!notifiedAt) return empty;
-  const { data: assigns } = await c.from("schedule_assignments").select("*").eq("run_id", run.id).eq("vendor_id", vendorId);
+  const runId = notif?.[0]?.run_id ?? null;
+  if (!runId || !notifiedAt) return empty;
+  const { data: assigns } = await c.from("schedule_assignments").select("*").eq("run_id", runId).eq("vendor_id", vendorId);
   const rows = assigns ?? [];
   if (!rows.length) return { published: true, notifiedAt, jobs: [] };
   const orderIds = [...new Set(rows.map((a: any) => a.order_id))];
