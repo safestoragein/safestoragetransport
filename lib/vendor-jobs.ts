@@ -95,7 +95,7 @@ export async function vendorDates(vendorId: string): Promise<string[]> {
   const runIds = [...new Set((notifs ?? []).map((n: any) => n.run_id))];
   if (!runIds.length) return [];
   const { data: runs } = await c.from("schedule_runs").select("schedule_date").in("id", runIds);
-  const dates = [...new Set((runs ?? []).map((r: any) => String(r.schedule_date).slice(0, 10)).filter(Boolean))];
+  const dates: string[] = [...new Set((runs ?? []).map((r: any) => String(r.schedule_date).slice(0, 10)).filter(Boolean) as string[])];
   return dates.sort((a, b) => (a < b ? 1 : -1)); // newest first
 }
 
