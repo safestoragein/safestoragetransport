@@ -34,6 +34,9 @@ const EPS = 0.001;
 // soft preference (a penalty, not a hard block) so an order still schedules if only one class is free.
 const VEHICLE_PENALTY_KM = 1000;
 const VEHICLE_PENALTY_SCORE = 200_000;
+// When a SECOND team is needed, prefer another team of the SAME vendor (team rule: a vendor with 2
+// teams sends both). Worth ~this many km of detour so a sibling team wins over a nearer stranger.
+const SIBLING_BONUS_KM = 25;
 const vehicleMismatch = (v: Vendor, b: Booking) =>
   !!b.requiredVehicle && v.tier === "general" && v.vehicle.type !== b.requiredVehicle;
 
@@ -235,6 +238,8 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
       let bestOpensNew = false;
       if (fitting.length) {
         const minRank = Math.min(...fitting.map(({ v }) => priRank(v)));
+        // Names of vendors already on the road — used to keep a vendor's 2 teams working together.
+        const openNames = new Set(vendors.filter((x) => assignedTo.get(x.id)!.length > 0).map((x) => x.name));
         for (const { v, p, opensNew } of fitting.filter(({ v }) => priRank(v) === minRank)) {
           const wB = slotWindow(b);
           const conflict = !opensNew && !!wB && assignedTo.get(v.id)!.some((x) => windowsOverlap(slotWindow(x), wB));
@@ -246,6 +251,7 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
             (opensNew ? 1 : 0) * 1_000_000_000 + // strongly prefer filling an open vehicle over a new one
             (conflict ? WINDOW_CONFLICT_PENALTY : 0) + // ...unless it clashes with a same-window order here
             (opensNew ? clusterKm : -p * 1000 + clusterKm * 1000) + // new: nearest depot; fill: top off but stay near the cluster
+            (opensNew && openNames.has(v.name) ? -SIBLING_BONUS_KM : 0) + // 2nd team → prefer the same vendor's other team
             (v.tier === "non_general" ? 500_000 : 0) + // keep premium/intercity vendors for overflow
             (vehicleMismatch(v, b) ? VEHICLE_PENALTY_SCORE : 0);
           if (score < bestScore) { bestScore = score; bestV = v; bestOpensNew = opensNew; }

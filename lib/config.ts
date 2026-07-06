@@ -43,31 +43,31 @@ export interface RegionConfig {
   extraTripCost: number; // 1500 for an optional, feasible 3rd trip on a vendor (manual)
 }
 
-// Rated capacity (what we quote): 14ft = 7 pallets, 10ft = 4.
+// Max pallets ONE vendor team can be allocated (team rule, incl. the assumed buffer):
+//   14ft → 10 pallets, 10ft → 5 pallets.
 export const VEHICLE_CAPACITY: Record<VehicleType, number> = {
-  "14ft": 7,
-  "10ft": 4,
+  "14ft": 10,
+  "10ft": 5,
 };
 
-// Effective capacity with the accepted overage tolerance — a 14ft may take up to 7.5 and a
-// 10ft up to 4.2 pallets in practice. Used for trip packing and for "overload" detection so
-// within-tolerance loads (e.g. 7.2 on a 14ft) are NOT flagged as problems.
+// Effective cap with the accepted floor-tolerance: a load still fits ONE team while it floors to the
+// rated max — 10.95 → 10 (ok on a 14ft), 11 → split; 5.9 → 5 (ok on a 10ft), 6 → split. Used for the
+// fit check, trip packing and "overload" detection.
 export const VEHICLE_EFFECTIVE_CAPACITY: Record<VehicleType, number> = {
-  "14ft": 7.5,
-  "10ft": 4.2,
+  "14ft": 10.95,
+  "10ft": 5.9,
 };
 
 export function effectiveCapacity(type: VehicleType): number {
   return VEHICLE_EFFECTIVE_CAPACITY[type];
 }
 
-// A vendor's WHOLE DAY totals ~7 pallets (±2) — one vehicle, ₹7,000. Those pallets are picked up
-// across up to 2 trips/stops (a pickup is heavy: packing ~4-5h + traffic); a rare 3rd stop only if
-// it's small and in the same direction. The total still stays within 7±2 either way. So the daily
-// cap is the rated load + 2 tolerance (NOT two vehicle loads).
+// One team = one vehicle. Its whole-day pallet ceiling IS the effective cap above (a 14ft team tops
+// out at ~10, a 10ft at ~5, buffer included). A load above that must go to a SECOND team — ideally a
+// second team of the same vendor (see optimizer sibling-team preference).
 export const TRIPS_PER_DAY = 2;
 export function vendorDailyCap(type: VehicleType): number {
-  return VEHICLE_CAPACITY[type] + 2; // 14ft -> 9, 10ft -> 6
+  return VEHICLE_EFFECTIVE_CAPACITY[type]; // 14ft -> 10.95, 10ft -> 5.9
 }
 
 export const REGION: RegionConfig = {
