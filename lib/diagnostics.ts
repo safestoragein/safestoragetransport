@@ -2,7 +2,7 @@
 // the sheet (no vendor master needed). This is what makes the real-data view actionable.
 
 import { OptimizationResult } from "./types";
-import { effectiveCapacity } from "./config";
+import { effectiveCapacity, teamsNeeded } from "./config";
 
 const MAX_VEHICLE_PALLETS = effectiveCapacity("14ft"); // largest single-vehicle load incl. tolerance (7.5)
 
@@ -29,8 +29,9 @@ export function diagnose(
   const byId = new Map(result.bookings.map((b) => [b.id, b]));
   const vById = new Map(result.vendors.map((v) => [v.id, v]));
 
-  // 1. Single bookings larger than any single vehicle (14ft max incl. 0.5 tolerance = 7.5)
-  const oversize = result.bookings.filter((b) => b.pallets > MAX_VEHICLE_PALLETS);
+  // 1. Single bookings larger than any single vehicle. A big order is EXPECTED to run 2+ teams of one
+  // vendor (handled by the optimiser), so only flag it as a problem if it wasn't given its teams.
+  const oversize = result.bookings.filter((b) => b.pallets > MAX_VEHICLE_PALLETS && teamsNeeded(b.pallets) <= 1);
   for (const b of oversize) {
     findings.push({
       severity: "high",
@@ -44,7 +45,7 @@ export function diagnose(
     const v = vById.get(a.vendorId);
     if (!v) continue;
     const cap = effectiveCapacity(v.vehicle.type);
-    const over = a.bookingIds.map((id) => byId.get(id)!).filter((b) => b.pallets > cap);
+    const over = a.bookingIds.map((id) => byId.get(id)!).filter((b) => b.pallets > cap && teamsNeeded(b.pallets) <= 1);
     for (const b of over) {
       findings.push({
         severity: "high",

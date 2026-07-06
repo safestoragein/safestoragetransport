@@ -70,6 +70,14 @@ export function vendorDailyCap(type: VehicleType): number {
   return VEHICLE_EFFECTIVE_CAPACITY[type]; // 14ft -> 10.95, 10ft -> 5.9
 }
 
+// How many teams ONE order needs. Anything a single 14ft team can carry (≤10.95, floor-tolerant) = 1
+// team; a bigger order needs 2 (or more) teams — which must all come from the SAME vendor. The order
+// itself is NEVER split; the teams share the one job.
+export function teamsNeeded(pallets: number): number {
+  const cap = VEHICLE_EFFECTIVE_CAPACITY["14ft"];
+  return pallets > cap + 1e-9 ? Math.ceil(pallets / cap) : 1;
+}
+
 export const REGION: RegionConfig = {
   region: "India",
   currency: "INR",

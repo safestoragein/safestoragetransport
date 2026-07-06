@@ -6,7 +6,7 @@
 // single transport block and adds the drop's revenue with almost no extra cost.
 
 import { OptimizationResult, Booking } from "./types";
-import { REGION } from "./config";
+import { REGION, teamsNeeded } from "./config";
 import { round1 } from "./geo";
 
 export interface VendorPnL {
@@ -47,7 +47,7 @@ export function computePnL(result: OptimizationResult, opts?: { packingPerPallet
 
   for (const a of result.assignments) {
     const name = result.vendors.find((v) => v.id === a.vendorId)?.name ?? a.vendorId;
-    let revenue = 0, packingCost = 0, pickups = 0, drops = 0, pallets = 0;
+    let revenue = 0, packingCost = 0, pickups = 0, drops = 0, pallets = 0, extraTeams = 0;
     for (const t of a.trips) {
       const bs = t.bookingIds.map((id) => byId.get(id)).filter(Boolean) as Booking[];
       const hasPickup = bs.some((b) => b.type === "pickup");
@@ -56,12 +56,14 @@ export function computePnL(result: OptimizationResult, opts?: { packingPerPallet
       for (const b of bs) {
         revenue += rev(b);
         pallets += b.pallets;
+        extraTeams += Math.max(0, teamsNeeded(b.pallets) - 1); // a big order runs 2 (or more) teams
         if (b.type === "pickup") { pickups++; packingCost += b.pallets * packingPerPallet; }
         else drops++;
       }
     }
-    // One vendor = one vehicle for the day = one flat block (₹7,000), however the stops route.
-    const transportCost = a.trips.length ? REGION.transportPerBlock : 0;
+    // One vendor = one vehicle for the day = one flat block (₹7,000). A big order that runs 2+ teams
+    // of the vendor pays a block per extra team.
+    const transportCost = (a.trips.length ? REGION.transportPerBlock : 0) + extraTeams * REGION.transportPerBlock;
     const cost = transportCost + packingCost;
     vendors.push({
       vendorId: a.vendorId, name, trips: a.trips.length, pickups, drops,

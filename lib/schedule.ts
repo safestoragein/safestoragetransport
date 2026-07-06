@@ -10,7 +10,7 @@ import { computePnL } from "./economics";
 import { getPackingPerPallet } from "./settings";
 import { REGION } from "./config";
 import { buildVendorPlan, VendorPlan } from "./dayplan";
-import { splitOversizeBookings, baseOrderId } from "./split";
+import { baseOrderId } from "./split";
 import { Booking } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -21,8 +21,7 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
   const usedMaster = vendors.length > 0;
   if (!usedMaster) vendors = snap.vendors; // fallback to derived teams when no master vendors
 
-  // Split any booking too big for one team into per-team loads BEFORE allocating.
-  const bookings = splitOversizeBookings(snap.bookings);
+  const bookings = snap.bookings; // orders stay whole; big ones get 2 teams (see optimizer)
   const result = optimize(snap.date, snap.city, bookings, vendors);
   const pnl = computePnL(result, { packingPerPallet: await getPackingPerPallet() });
   const c = db();
@@ -127,7 +126,7 @@ export async function syncNewOrders(citySlug: string, date: string): Promise<{ a
   if (!run) return { added: 0, error: `no schedule run for ${citySlug} on ${date} — generate it first` };
 
   const snap = await loadLive(citySlug, date);
-  const bookings = splitOversizeBookings(snap.bookings); // same split as generate → no duplicate rows
+  const bookings = snap.bookings;
   const orderRows = bookings.map((b) => orderRowOf(b, date, citySlug));
   if (orderRows.length) {
     const { error } = await c.from("orders").upsert(orderRows, { onConflict: "order_id" });

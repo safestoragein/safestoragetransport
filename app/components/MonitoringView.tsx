@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ScheduleData } from "@/lib/schedule";
-import { baseOrderId, splitInfo } from "@/lib/split";
+import { teamsNeeded } from "@/lib/config";
 import Lifecycle, { LifeStep } from "./Lifecycle";
 
 const cityName = (slug: string) => slug.replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
@@ -12,10 +12,9 @@ type LiveMap = Record<string, Live>;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const isPickup = (o: any) => o.order_type === "pickup";
-// Match on the BASE order id so both halves of an auto-split order pick up the same WMS status.
-const liveOf = (o: any, m: LiveMap): Live | null => m[baseOrderId(o.order_id)] ?? null;
-// "BH37000" + split part → "BH37000 (1/2)" for the timeline node.
-const refWithSplit = (o: any): string => { const s = splitInfo(o.order_id); return s ? `${o.customer_unique_id} (${s.part}/${s.total})` : o.customer_unique_id; };
+const liveOf = (o: any, m: LiveMap): Live | null => m[String(o.order_id ?? "")] ?? null;
+// A big order runs 2 teams of one vendor — label the node so the monitor shows it.
+const refWithTeams = (o: any): string => { const t = teamsNeeded(Number(o.pallets) || 0); return t > 1 ? `${o.customer_unique_id} · ${t} teams` : o.customer_unique_id; };
 const statusOf = (o: any, m: LiveMap) => (liveOf(o, m)?.status ?? o.order_status ?? "").toLowerCase();
 const wmsOf = (o: any, m: LiveMap) => (liveOf(o, m)?.wms ?? "").toUpperCase();
 
@@ -76,9 +75,9 @@ function vendorChain(v: any, m: LiveMap): LifeStep[] {
       sub: allGot ? (retr.length > 1 ? "all picked from WH" : "picked from WH") : `${got}/${retr.length} picked`,
       top: { ref: `${retr.length} retrieval${retr.length > 1 ? "s" : ""}`, name: "from warehouse" },
     });
-    for (const o of retr) steps.push({ label: "Deliver", sub: friendly(o, m) ?? undefined, at: doneTime(o), kind: "retrieval", done: delivered(o, m), top: { ref: refWithSplit(o), name: o.customer_name, area: o.locality ?? undefined, phone: o.contact, booked: bookedOn(o, m) } });
+    for (const o of retr) steps.push({ label: "Deliver", sub: friendly(o, m) ?? undefined, at: doneTime(o), kind: "retrieval", done: delivered(o, m), top: { ref: refWithTeams(o), name: o.customer_name, area: o.locality ?? undefined, phone: o.contact, booked: bookedOn(o, m) } });
   }
-  for (const o of pick) steps.push({ label: "Pick up", sub: friendly(o, m) ?? undefined, at: doneTime(o), kind: "pickup", done: pickedUp(o, m), top: { ref: refWithSplit(o), name: o.customer_name, area: o.locality ?? undefined, phone: o.contact, booked: bookedOn(o, m) } });
+  for (const o of pick) steps.push({ label: "Pick up", sub: friendly(o, m) ?? undefined, at: doneTime(o), kind: "pickup", done: pickedUp(o, m), top: { ref: refWithTeams(o), name: o.customer_name, area: o.locality ?? undefined, phone: o.contact, booked: bookedOn(o, m) } });
   if (pick.length) {
     const dropped = pick.filter((o) => droppedWh(o, m)).length;
     const allDropped = dropped === pick.length;
