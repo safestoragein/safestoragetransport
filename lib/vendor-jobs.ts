@@ -74,7 +74,8 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
         warehouseName: o.warehouse_name ?? null,
         warehouseLat: o.warehouse_lat ?? null,
         warehouseLng: o.warehouse_lng ?? null,
-        pallets: o.pallets != null ? Number(o.pallets) : null,
+        // ACTUAL pallets (as booked) — not the buffered/assumed count used for scheduling.
+        pallets: o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : null),
         timeSlot: o.time_slot ?? null,
         lift: o.lift ?? null,
         teamNotes: o.team_notes ?? null,
