@@ -56,7 +56,8 @@ describe("vendorMessage()", () => {
     expect(list).toContain("Kishore");
     expect(list).toContain("9876543210");     // customer contact included
     expect(list).toContain("Pravin");
-    expect(list.split("\n")).toHaveLength(2);  // one line per stop
+    expect(list.split("|")).toHaveLength(2);   // two stops, separated by " | " (NO newlines — Meta rejects them)
+    expect(list).not.toMatch(/[\n\t]/);        // no newline/tab in the variable value
     expect(list).not.toMatch(/pallet/i);       // pallets removed
   });
   it("uses the fixed template when any stop has a requested time", () => {

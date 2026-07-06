@@ -75,7 +75,8 @@ export function vendorMessage(vendorName: string, orders: OrderLike[], date?: st
     const teamNote = teams > 1 ? ` — ${teams} TEAMS on this order, coordinate with the other team` : "";
     return `${i + 1}. ${o.customer_name || "Customer"}, ${o.contact || "-"} — ${o.locality || "-"} — ${kind} — ${timing}${teamNote}`;
   });
-  const list = lines.join("\n");
+  // Joined with " | " (not newlines) — Meta rejects newlines inside a template variable.
+  const list = lines.join("   |   ");
   const template = anyFixed ? TEMPLATES.vendorFixed : TEMPLATES.vendorRecommended;
   return { template, bodyValues: [vendorName || "Partner", fmtDate(date), list] };
 }

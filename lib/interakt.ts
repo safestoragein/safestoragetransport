@@ -56,9 +56,9 @@ export async function sendTemplate(opts: { phone?: string | null; template: stri
     template: {
       name: opts.template,
       languageCode: opts.languageCode || LANG,
-      // Keep newlines (the vendor list is multi-line) but drop tabs / runs of spaces,
-      // which Meta does reject in variables.
-      bodyValues: opts.bodyValues.map((v) => String(v ?? "").replace(/\t/g, " ").replace(/ {2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim()),
+      // Meta/Interakt REJECT any tab, newline, or 3+ consecutive spaces inside a template variable.
+      // Flatten all whitespace to single spaces so multi-stop lists send fine.
+      bodyValues: opts.bodyValues.map((v) => String(v ?? "").replace(/[\t\r\n]+/g, " ").replace(/ {2,}/g, " ").trim()),
     },
   });
 
