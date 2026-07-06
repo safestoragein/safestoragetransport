@@ -9,10 +9,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const v = verifyVendor(req);
   if (!v) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+  // No date → the vendor's current (latest notified) schedule. A date → that day's schedule (history).
+  const date = req.nextUrl.searchParams.get("date");
   try {
-    const { published, notifiedAt, jobs } = await vendorJobs(v.vendorId, date);
-    return NextResponse.json({ ok: true, date, published, notifiedAt, vendor: { id: v.vendorId, name: v.name }, jobs });
+    const r = await vendorJobs(v.vendorId, date);
+    return NextResponse.json({ ok: true, published: r.published, notifiedAt: r.notifiedAt, date: r.date, vendor: { id: v.vendorId, name: v.name }, jobs: r.jobs });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }

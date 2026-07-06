@@ -30,18 +30,29 @@ export interface VendorJob {
 // upcoming one the office published the evening before — date-agnostic on purpose). Empty/`published:
 // false` until the office has actually sent this vendor their notification. `_date` is accepted for
 // backwards-compat but ignored — the notification is the source of truth.
-export async function vendorJobs(vendorId: string, _date?: string): Promise<{ published: boolean; notifiedAt: string | null; jobs: VendorJob[] }> {
-  const empty = { published: false, notifiedAt: null as string | null, jobs: [] as VendorJob[] };
+export async function vendorJobs(vendorId: string, date?: string | null): Promise<{ published: boolean; notifiedAt: string | null; date: string | null; jobs: VendorJob[] }> {
+  const empty = { published: false, notifiedAt: null as string | null, date: null as string | null, jobs: [] as VendorJob[] };
   if (!hasDb) return empty;
   const c = db();
-  // GATE + which run to show: the latest vendor notification for this vendor points at the run.
-  const { data: notif } = await c.from("notifications").select("run_id, sent_at").eq("vendor_id", vendorId).eq("kind", "vendor").order("sent_at", { ascending: false }).limit(1);
-  const notifiedAt = notif?.[0]?.sent_at ?? null;
-  const runId = notif?.[0]?.run_id ?? null;
-  if (!runId || !notifiedAt) return empty;
+  // The vendor's notifications point at the runs they can see. Without a date → the latest one
+  // (their current schedule). With a date → that specific day's run (history/date filter).
+  const { data: notifs } = await c.from("notifications").select("run_id, sent_at").eq("vendor_id", vendorId).eq("kind", "vendor").order("sent_at", { ascending: false });
+  if (!notifs?.length) return empty;
+  let runId = notifs[0].run_id as string;
+  let notifiedAt = notifs[0].sent_at as string;
+  if (date) {
+    const runIds = [...new Set(notifs.map((n: any) => n.run_id))];
+    const { data: runs } = await c.from("schedule_runs").select("id, schedule_date").in("id", runIds);
+    const dateByRun = new Map((runs ?? []).map((r: any) => [r.id, String(r.schedule_date).slice(0, 10)]));
+    const match = notifs.find((n: any) => dateByRun.get(n.run_id) === date);
+    if (!match) return empty; // that date has nothing for this vendor
+    runId = match.run_id; notifiedAt = match.sent_at;
+  }
+  const { data: runRow } = await c.from("schedule_runs").select("schedule_date").eq("id", runId).limit(1);
+  const runDate = runRow?.[0]?.schedule_date ? String(runRow[0].schedule_date).slice(0, 10) : null;
   const { data: assigns } = await c.from("schedule_assignments").select("*").eq("run_id", runId).eq("vendor_id", vendorId);
   const rows = assigns ?? [];
-  if (!rows.length) return { published: true, notifiedAt, jobs: [] };
+  if (!rows.length) return { published: true, notifiedAt, date: runDate, jobs: [] };
   const orderIds = [...new Set(rows.map((a: any) => a.order_id))];
   const { data: orders } = await c.from("orders").select("*").in("id", orderIds);
   const byId = new Map((orders ?? []).map((o: any) => [o.id, o]));
@@ -73,7 +84,19 @@ export async function vendorJobs(vendorId: string, _date?: string): Promise<{ pu
         liveStatusAt: o.live_status_at ?? null,
       } as VendorJob;
     });
-  return { published: true, notifiedAt, jobs };
+  return { published: true, notifiedAt, date: runDate, jobs };
+}
+
+// Distinct service dates this vendor has (notified) schedules for — powers the app's date filter.
+export async function vendorDates(vendorId: string): Promise<string[]> {
+  if (!hasDb) return [];
+  const c = db();
+  const { data: notifs } = await c.from("notifications").select("run_id").eq("vendor_id", vendorId).eq("kind", "vendor");
+  const runIds = [...new Set((notifs ?? []).map((n: any) => n.run_id))];
+  if (!runIds.length) return [];
+  const { data: runs } = await c.from("schedule_runs").select("schedule_date").in("id", runIds);
+  const dates = [...new Set((runs ?? []).map((r: any) => String(r.schedule_date).slice(0, 10)).filter(Boolean))];
+  return dates.sort((a, b) => (a < b ? 1 : -1)); // newest first
 }
 
 // The status lifecycle a vendor advances through, in order. Kept server-side so the app and the
