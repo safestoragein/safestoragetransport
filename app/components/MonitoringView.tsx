@@ -18,14 +18,22 @@ const refWithTeams = (o: any): string => { const t = teamsNeeded(Number(o.pallet
 const statusOf = (o: any, m: LiveMap) => (liveOf(o, m)?.status ?? o.order_status ?? "").toLowerCase();
 const wmsOf = (o: any, m: LiveMap) => (liveOf(o, m)?.wms ?? "").toUpperCase();
 
-// Map the WMS / order status to the on-ground milestones.
-const collected = (o: any, m: LiveMap) => { const n = wmsOf(o, m); return n === "GATE_PASS" || n === "RETRIEVAL_COMPLETD" || statusOf(o, m) === "completed"; }; // retrieval left the warehouse
-const delivered = (o: any, m: LiveMap) => wmsOf(o, m) === "RETRIEVAL_COMPLETD" || statusOf(o, m) === "completed";
-const pickedUp = (o: any, m: LiveMap) => statusOf(o, m) === "completed" || /INBOUND|RECEIV|GRN|INWARD/.test(wmsOf(o, m));
-const droppedWh = (o: any, m: LiveMap) => /INBOUND|RECEIV|GRN|INWARD/.test(wmsOf(o, m)) || statusOf(o, m) === "completed";
+// The vendor app's live status (what the SUPERVISOR taps in the phone) is the PRIMARY signal — the
+// WMS feed is the fallback. Flow: assigned → en_route → arrived → packing → loaded → delivered.
+const appStatus = (o: any) => String(o.live_status ?? "").toLowerCase();
+const appStarted = (o: any) => ["en_route", "arrived", "packing", "loaded", "delivered"].includes(appStatus(o));
+const APP_ORDER = ["assigned", "en_route", "arrived", "packing", "loaded", "delivered"];
+const APP_LABEL: Record<string, string> = { en_route: "🚚 on the way", arrived: "📍 reached", packing: "📦 packing", loaded: "✅ loaded", delivered: "🏁 delivered" };
+
+// Map the vendor-app status (or the WMS feed as fallback) to the on-ground milestones.
+const collected = (o: any, m: LiveMap) => appStarted(o) || (() => { const n = wmsOf(o, m); return n === "GATE_PASS" || n === "RETRIEVAL_COMPLETD" || statusOf(o, m) === "completed"; })();
+const delivered = (o: any, m: LiveMap) => appStatus(o) === "delivered" || wmsOf(o, m) === "RETRIEVAL_COMPLETD" || statusOf(o, m) === "completed";
+const pickedUp = (o: any, m: LiveMap) => ["loaded", "delivered"].includes(appStatus(o)) || statusOf(o, m) === "completed" || /INBOUND|RECEIV|GRN|INWARD/.test(wmsOf(o, m));
+const droppedWh = (o: any, m: LiveMap) => appStatus(o) === "delivered" || /INBOUND|RECEIV|GRN|INWARD/.test(wmsOf(o, m)) || statusOf(o, m) === "completed";
 
 const FRIENDLY: Record<string, string> = { GATE_PASS: "out of warehouse", RETRIEVAL_COMPLETD: "delivered", READY_TO_OUTBOUND: "ready at WH", READY_FOR_PICKLIST: "picking at WH" };
-const friendly = (o: any, m: LiveMap) => { const n = wmsOf(o, m); return n ? (FRIENDLY[n] ?? n.toLowerCase().replace(/_/g, " ")) : null; };
+// Prefer the vendor-app live state; fall back to the WMS label.
+const friendly = (o: any, m: LiveMap) => { const a = APP_LABEL[appStatus(o)]; if (a) return a; const n = wmsOf(o, m); return n ? (FRIENDLY[n] ?? n.toLowerCase().replace(/_/g, " ")) : null; };
 
 // When the customer booked this order (order_created_at from the live feed, "2026-01-04 09:31:29")
 // → a short "4 Jan 2026" the team can read. Falls back to undefined if missing/unparseable.
@@ -50,6 +58,25 @@ const doneTime = (o: any): string | undefined =>
   o?.live_status_at && (o.live_status === "delivered" || o.live_status === "loaded")
     ? `done ${shortClock(o.live_status_at)}`
     : undefined;
+
+// ── Live location + ETA (from the vendor app's GPS pings) ─────────────────────
+function havKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371, toR = (d: number) => (d * Math.PI) / 180;
+  const dLat = toR(bLat - aLat), dLng = toR(bLng - aLng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(aLat)) * Math.cos(toR(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+// Rough city ETA: straight-line × 1.4 road factor at ~22 km/h.
+const etaMin = (km: number) => Math.max(1, Math.round((km * 1.4) / 22 * 60));
+function minsSince(raw: string | null | undefined): number | null {
+  if (!raw) return null;
+  const t = new Date(String(raw).replace(" ", "T")).getTime();
+  if (isNaN(t)) return null;
+  return Math.round((Date.now() - t) / 60000);
+}
+const agoLabel = (m: number | null) => (m == null ? "" : m < 1 ? "just now" : m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ago`);
+// Freshness of the last GPS ping → dot colour.
+const freshDot = (m: number | null) => (m == null ? "bg-slate-300" : m < 5 ? "bg-emerald-500" : m < 20 ? "bg-amber-500" : "bg-slate-400");
 
 function ordered(orders: any[], plan: any) {
   return [...orders].sort((a, b) =>
@@ -200,6 +227,26 @@ export default function MonitoringView({ cities }: { cities: ScheduleData[] }) {
                         )}
                       </div>
                     </div>
+                    {/* Live location + ETA (from the vendor app's GPS pings) */}
+                    {v.liveLat != null && v.liveLng != null && (() => {
+                      const ago = minsSince(v.liveLocationAt);
+                      const pending = ordered(v.orders, v.plan).filter((o: any) => (isPickup(o) ? !pickedUp(o, live) : !delivered(o, live)));
+                      const nx = pending.find((o: any) => o.lat != null && o.lng != null);
+                      const eta = nx ? etaMin(havKm(v.liveLat, v.liveLng, nx.lat, nx.lng)) : null;
+                      return (
+                        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                          <a href={`https://www.google.com/maps/search/?api=1&query=${v.liveLat},${v.liveLng}`} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100" title="Vendor's live GPS from the app">
+                            <span className={`h-2 w-2 rounded-full ${freshDot(ago)}`} /> Live location · {agoLabel(ago)}
+                          </a>
+                          {eta != null && nx && (
+                            <span className="rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-700 ring-1 ring-blue-200" title="Rough ETA from the vendor's current location to the next stop">
+                              ~{eta} min to {nx.customer_unique_id}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {/* Progress bar: how far through the run this team is */}
                     <div className="mb-3 flex items-center gap-2.5">
                       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
