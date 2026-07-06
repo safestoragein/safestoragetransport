@@ -258,6 +258,22 @@ CREATE TABLE IF NOT EXISTS sst_vendor_locations (
   KEY idx_sst_vendor_locations_vendor (vendor_id, recorded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Vendor app: KYC + pickup/delivery proof photos.
+CREATE TABLE IF NOT EXISTS sst_order_photos (
+  id           CHAR(36)     NOT NULL,
+  order_id     CHAR(36)     NOT NULL,
+  vendor_id    CHAR(36)     NULL,
+  kind         VARCHAR(16)  NOT NULL,
+  filename     VARCHAR(255) NULL,
+  content_type VARCHAR(120) NULL,
+  byte_size    INT          NULL,
+  data         LONGBLOB     NOT NULL,
+  created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_sst_order_photos_order (order_id),
+  KEY idx_sst_order_photos_kind  (order_id, kind)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ─────────────── UUID id defaults (single-statement triggers) ───────────────
 DROP TRIGGER IF EXISTS bi_sst_vendors;
 DROP TRIGGER IF EXISTS bi_sst_vendor_documents;

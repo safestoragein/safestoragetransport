@@ -47,6 +47,7 @@ const UUID_TABLES = new Set([
   "schedule_changes",
   "notifications",
   "order_events",
+  "order_photos",
 ]);
 
 let _pool: mysql.Pool | null = null;
