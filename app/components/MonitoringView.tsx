@@ -167,9 +167,46 @@ export default function MonitoringView({ cities }: { cities: ScheduleData[] }) {
 
   if (cities.length === 0) return null;
   const now = nowMinIST();
+
+  // Live roll-up — uses the SAME done-logic as the timeline (vendor app status + WMS feed), so the
+  // cards always agree with the green ticks below.
+  let pickups = 0, retr = 0, pickDone = 0, retrDone = 0, inProg = 0, notStarted = 0, danger = 0;
+  const liveTeams = new Set<string>();
+  for (const c of cities) for (const v of c.vendors as any[]) {
+    if (v.isUnassigned) continue;
+    if (v.liveLat != null && v.liveLng != null) liveTeams.add(String(v.vendorId ?? v.vendorName));
+    for (const o of v.orders as any[]) {
+      const isP = isPickup(o);
+      if (isP) pickups++; else retr++;
+      const done = isP ? pickedUp(o, live) : delivered(o, live);
+      if (done) { if (isP) pickDone++; else retrDone++; continue; }
+      const started = appStarted(o) || collected(o, live);
+      if (started) inProg++; else notStarted++;
+      const bo = v.plan?.byOrder?.[o.customer_unique_id];
+      if ((bo?.arrive != null && now > bo.arrive) || bo?.late) danger++;
+    }
+  }
+  const cards = [
+    { label: "Orders", value: pickups + retr },
+    { label: "Pickups done", value: `${pickDone}/${pickups}`, good: pickups > 0 && pickDone === pickups },
+    { label: "Retrievals done", value: `${retrDone}/${retr}`, good: retr > 0 && retrDone === retr },
+    { label: "In progress", value: inProg, accent: true },
+    { label: "Not started", value: notStarted },
+    { label: "⚠ At risk", value: danger, neg: danger > 0 },
+    { label: "Live teams", value: liveTeams.size },
+  ];
+
   return (
     <div className="space-y-8">
-      {updatedAt && <div className="-mt-2 text-right text-[11px] text-slate-400">live status · updated {updatedAt} · auto-refreshes every minute</div>}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+        {cards.map((s: any) => (
+          <div key={s.label} className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{s.label}</div>
+            <div className={`mt-0.5 text-lg font-bold ${s.neg ? "text-red-600" : s.good ? "text-emerald-600" : s.accent ? "text-amber-600" : "text-slate-900"}`}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+      {updatedAt && <div className="-mt-4 text-right text-[11px] text-slate-400">live status · updated {updatedAt} · auto-refreshes every minute</div>}
       {cities.map((c) => {
         // Worst-first: teams running late float to the top, on-track teams sink, finished ones last.
         const assigned = c.vendors
