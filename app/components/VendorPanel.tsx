@@ -31,7 +31,21 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
 
   const cities = [...new Set(vendors.map((v) => v.city))].sort();
   const [cityFilter, setCityFilter] = useState("All");
-  const shown = cityFilter === "All" ? vendors : vendors.filter((v) => v.city === cityFilter);
+  const [typeFilter, setTypeFilter] = useState<"All" | "intercity" | "local" | "both">("All");
+  const [vehicleFilter, setVehicleFilter] = useState<"All" | "14ft" | "10ft" | "others">("All");
+  // "intercity"/"local" mean does-only-that; "both" = does intercity AND local.
+  const matchType = (v: VendorMaster) => {
+    const ic = !!v.isIntercityVendor, lo = !!v.doesLocal;
+    if (typeFilter === "both") return ic && lo;
+    if (typeFilter === "intercity") return ic && !lo;
+    if (typeFilter === "local") return lo && !ic;
+    return true;
+  };
+  const shown = vendors.filter((v) =>
+    (cityFilter === "All" || v.city === cityFilter) &&
+    matchType(v) &&
+    (vehicleFilter === "All" || v.vehicleType === vehicleFilter),
+  );
 
   const stats = {
     total: shown.length,
@@ -162,6 +176,23 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
           <option value="All">All cities ({vendors.length})</option>
           {cities.map((c) => <option key={c} value={c}>{c} ({vendors.filter((v) => v.city === c).length})</option>)}
         </select>
+
+        <label className="text-xs font-medium text-slate-500">Type</label>
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700">
+          <option value="All">All types</option>
+          <option value="local">Local only</option>
+          <option value="intercity">Intercity only</option>
+          <option value="both">Both (local + intercity)</option>
+        </select>
+
+        <label className="text-xs font-medium text-slate-500">Vehicle</label>
+        <select value={vehicleFilter} onChange={(e) => setVehicleFilter(e.target.value as typeof vehicleFilter)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700">
+          <option value="All">All vehicles</option>
+          <option value="14ft">14ft</option>
+          <option value="10ft">10ft</option>
+          <option value="others">Other</option>
+        </select>
+
         <button onClick={() => setShowAll((s) => !s)} className="ml-auto rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">
           {showAll ? "− Fewer columns" : "+ More columns"}
         </button>
