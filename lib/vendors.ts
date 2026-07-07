@@ -244,8 +244,15 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
       notes: "notes", priorityGroup: "priority_group", billingCycle: "billing_cycle",
     };
     for (const [k, col] of Object.entries(M)) if (k in patch) row[col] = (patch as any)[k];
-    // "others" capacity edit: snap to the 7- or 4-pallet class and keep effective in sync.
-    if ("palletCapacity" in patch && (patch as any).palletCapacity != null) {
+    // Vehicle-type change (team swaps a 10ft ⇄ 14ft, or picks "others"): set the type AND recompute
+    // rated + effective capacity so the scheduler caps it correctly. "others" honours an explicit
+    // palletCapacity; 14ft/10ft use their fixed numbers.
+    if ("vehicleType" in patch && (patch as any).vehicleType) {
+      const vt = (patch as any).vehicleType as VehicleClass;
+      const cp = capFor(vt, (patch as any).palletCapacity);
+      row.vehicle_type = vt; row.pallet_capacity = cp.cap; row.effective_capacity = cp.eff;
+    } else if ("palletCapacity" in patch && (patch as any).palletCapacity != null) {
+      // "others" capacity edit: snap to the 7- or 4-pallet class and keep effective in sync.
       const cp = capFor("others", Number((patch as any).palletCapacity));
       row.pallet_capacity = cp.cap; row.effective_capacity = cp.eff;
     }

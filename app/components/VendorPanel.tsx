@@ -86,8 +86,16 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
 
   async function patchVendor(v: VendorMaster, patch: Partial<VendorMaster>) {
     setBusy(v.id);
-    await fetch("/api/vendors", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: v.id, ...patch }) });
-    setVendors((arr) => arr.map((x) => (x.id === v.id ? { ...x, ...patch } : x)));
+    setVendors((arr) => arr.map((x) => (x.id === v.id ? { ...x, ...patch } : x))); // optimistic
+    const r = await fetch("/api/vendors", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: v.id, ...patch }) })
+      .then((x) => x.json()).catch(() => ({ ok: false, error: "network error" }));
+    if (r && r.ok === false) {
+      setVendors((arr) => arr.map((x) => (x.id === v.id ? v : x))); // revert
+      const dup = /duplicate|uq_|unique/i.test(r.error || "");
+      alert(dup
+        ? `${v.name} already has a separate ${patch.vehicleType ?? "record"} entry in ${v.city}. Vendors with two vehicle sizes are kept as two rows — edit that other row instead.`
+        : (r.error || "Could not save the change."));
+    }
     setBusy(null);
   }
   async function onDelete(v: VendorMaster) {
@@ -164,7 +172,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
               <tr className="bg-slate-50 text-left text-xs text-slate-500">
                 {header("City", "city")}
                 {header("Vendor", "name")}
-                {showAll && header("Vehicle", "vehicleType")}
+                {header("Vehicle", "vehicleType")}
                 {header("Tier", "tier")}
                 <th className="px-3 py-2 font-medium">Priority</th>
                 {showAll && header("Starting point", "startingPoint")}
@@ -189,6 +197,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                   onToggleActive={() => patchVendor(v, { active: !(v.active !== false) })}
                   onSetPriority={(g) => patchVendor(v, { priorityGroup: g })}
                   onSetBilling={(c) => patchVendor(v, { billingCycle: c })}
+                  onSetVehicle={(vt) => patchVendor(v, { vehicleType: vt as VendorMaster["vehicleType"], palletCapacity: vt === "14ft" ? 7 : vt === "10ft" ? 4 : v.palletCapacity })}
                   onDetails={() => toggle(v.id, "details")}
                   onEdit={() => toggle(v.id, "edit")} onCancelEdit={() => setExp(null)} onSaved={onSaved} onDelete={() => onDelete(v)}
                 />
@@ -216,9 +225,9 @@ function DocLink({ label, url }: { label: string; url?: string | null }) {
   );
 }
 
-function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal, onToggleActive, onSetPriority, onSetBilling, onDetails, onEdit, onCancelEdit, onSaved, onDelete }: {
+function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal, onToggleActive, onSetPriority, onSetBilling, onSetVehicle, onDetails, onEdit, onCancelEdit, onSaved, onDelete }: {
   v: VendorMaster; showAll: boolean; mode: "details" | "edit" | null; busy: boolean; canEdit: boolean;
-  onToggleIntercity: () => void; onToggleLocal: () => void; onToggleActive: () => void; onSetPriority: (g: string | null) => void; onSetBilling: (c: string | null) => void;
+  onToggleIntercity: () => void; onToggleLocal: () => void; onToggleActive: () => void; onSetPriority: (g: string | null) => void; onSetBilling: (c: string | null) => void; onSetVehicle: (vt: string) => void;
   onDetails: () => void; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void; onDelete: () => void;
 }) {
   const open = mode !== null;
@@ -233,7 +242,19 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
           <span className="mr-1 text-slate-400">{open ? "▾" : "▸"}</span>{v.name}
           {v.source === "panel" && <span className="ml-1.5 rounded bg-blue-50 px-1 text-[10px] text-blue-600">added</span>}
         </td>
-        {showAll && <td className="px-3 py-2.5 text-slate-600">{v.vehicleType === "others" ? `Other · ${v.palletCapacity} pallets` : (VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType)}</td>}
+        <td className="px-3 py-2.5">
+          {canEdit ? (
+            <select value={v.vehicleType} disabled={busy} onChange={(e) => onSetVehicle(e.target.value)}
+              title="Vehicle size — change when the vendor swaps vehicles; sets the pallet cap (14ft→7, 10ft→4)"
+              className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-xs font-medium text-slate-700">
+              <option value="14ft">14ft (7p)</option>
+              <option value="10ft">10ft (4p)</option>
+              <option value="others">Other · {v.palletCapacity}p</option>
+            </select>
+          ) : (
+            <span className="text-slate-600">{v.vehicleType === "others" ? `Other · ${v.palletCapacity} pallets` : (VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType)}</span>
+          )}
+        </td>
         <td className="px-3 py-2.5"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${TIER_BADGE[v.tier] ?? TIER_BADGE.general}`}>{TIER_LABEL[v.tier] ?? v.tier}</span></td>
         <td className="px-3 py-2.5">
           <select value={v.priorityGroup ?? ""} disabled={busy} onChange={(e) => onSetPriority(e.target.value || null)} className={`rounded-md border-0 px-1.5 py-0.5 text-xs font-semibold ${PRIORITY_BADGE[v.priorityGroup ?? ""] ?? "bg-slate-50 text-slate-400"}`}>
@@ -274,7 +295,7 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
       </tr>
       {open && (
         <tr className="border-t border-slate-100 bg-slate-50">
-          <td colSpan={showAll ? 14 : 9} className="px-3 py-3">
+          <td colSpan={showAll ? 14 : 10} className="px-3 py-3">
             {mode === "edit" ? (
               <EditForm v={v} onSaved={onSaved} onCancel={onCancelEdit} />
             ) : (
@@ -288,6 +309,7 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
                 <Detail label="Vehicle no" value={v.vehicleNo} />
                 <Detail label="System team" value={v.systemTeamNo} />
                 <Detail label="Starting point" value={v.startingPoint} />
+                <Detail label="Vehicle" value={v.vehicleType === "others" ? `Other · ${v.palletCapacity} pallets` : (VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType)} />
                 <Detail label="Tier" value={TIER_LABEL[v.tier] ?? v.tier} />
                 <Detail label="Priority group" value={v.priorityGroup || null} />
                 <Detail label="Billing cycle" value={v.billingCycle ? v.billingCycle[0].toUpperCase() + v.billingCycle.slice(1) : null} />
@@ -399,7 +421,9 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
         )}
       </span>
       <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white" />
-      {file && <span className="mt-1 block text-[11px] text-emerald-600">{file.name} — will upload on save</span>}
+      {file
+        ? <span className="mt-1 block text-[11px] text-emerald-600">{file.name} — {current ? "will REPLACE the current file" : "will upload"} on save</span>
+        : current && <span className="mt-1 block text-[11px] text-slate-400">A file is on record — choose a new one to replace it.</span>}
     </label>
   );
 
