@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
   const common = {
     name: body.name,
     vehicleType: body.vehicleType,
+    palletCapacity: body.palletCapacity != null && body.palletCapacity !== "" ? Number(body.palletCapacity) : null,
     startingPoint: body.startingPoint ?? "",
     dailyPrice: body.dailyPrice != null && body.dailyPrice !== "" ? Number(body.dailyPrice) : null,
     pricingNote: body.pricingNote || null,

@@ -46,6 +46,16 @@ export interface VendorMaster {
 const CAP: Record<VehicleClass, number> = { "14ft": 7, "10ft": 4, others: 7 };
 const EFF: Record<VehicleClass, number> = { "14ft": 7.5, "10ft": 4.2, others: 7.5 };
 
+// Rated (pallet_capacity) + effective for a vendor. For "others" the office picks the class it
+// behaves like — 7 pallets (like a 14ft) or 4 (like a 10ft); we snap to those two so the scheduler's
+// capacity decision is unambiguous. Everything else uses the fixed per-type numbers above.
+function capFor(vt: VehicleClass, palletCapacity?: number | null): { cap: number; eff: number } {
+  if (vt === "others" && palletCapacity != null) {
+    return Number(palletCapacity) <= 5.5 ? { cap: 4, eff: 4.2 } : { cap: 7, eff: 7.5 };
+  }
+  return { cap: CAP[vt], eff: EFF[vt] };
+}
+
 export const usingSupabase = hasDb; // "using the DB" — name kept for compatibility
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -115,6 +125,7 @@ export interface NewVendorInput {
   city: string;
   name: string;
   vehicleType: VehicleClass;
+  palletCapacity?: number | null; // only used for "others": 7 (behaves like 14ft) or 4 (like 10ft)
   startingPoint: string;
   dailyPrice?: number | null;
   pricingNote?: string | null;
@@ -186,7 +197,7 @@ export async function addVendor(input: NewVendorInput): Promise<VendorMaster> {
     const c = await supa();
     const row = {
       city: input.city.trim(), name: input.name.trim(), vehicle_type: vt,
-      pallet_capacity: CAP[vt], effective_capacity: EFF[vt],
+      pallet_capacity: capFor(vt, input.palletCapacity).cap, effective_capacity: capFor(vt, input.palletCapacity).eff,
       tier: input.vehicleType === "others" ? "non_general" : input.tier ?? "general",
       daily_price: input.dailyPrice ?? null, pricing_note: blank(input.pricingNote),
       starting_point: blank(input.startingPoint),
@@ -233,6 +244,11 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
       notes: "notes", priorityGroup: "priority_group", billingCycle: "billing_cycle",
     };
     for (const [k, col] of Object.entries(M)) if (k in patch) row[col] = (patch as any)[k];
+    // "others" capacity edit: snap to the 7- or 4-pallet class and keep effective in sync.
+    if ("palletCapacity" in patch && (patch as any).palletCapacity != null) {
+      const cp = capFor("others", Number((patch as any).palletCapacity));
+      row.pallet_capacity = cp.cap; row.effective_capacity = cp.eff;
+    }
     if ("supervisors" in patch) {
       const sups = (patch.supervisors ?? []).filter((s) => s?.name?.trim() || s?.phone?.trim()).map((s) => ({ name: s.name.trim(), phone: s.phone.trim() })).slice(0, 10);
       row.supervisors = sups.length ? sups : null;
@@ -302,7 +318,7 @@ async function fallbackAdd(input: NewVendorInput): Promise<VendorMaster> {
   const vt = input.vehicleType;
   const v: VendorMaster = {
     id: `${slug(`${input.city}-${input.name}-${vt}`)}-${o.added.length + 1}`,
-    city: input.city.trim(), name: input.name.trim(), vehicleType: vt, palletCapacity: CAP[vt],
+    city: input.city.trim(), name: input.name.trim(), vehicleType: vt, palletCapacity: capFor(vt, input.palletCapacity).cap,
     tier: vt === "others" ? "non_general" : input.tier ?? "general",
     dailyPrice: input.dailyPrice ?? null, pricingNote: blank(input.pricingNote), perTransaction: null,
     startingPoint: (input.startingPoint || "").trim(), isIntercityVendor: !!input.isIntercityVendor,

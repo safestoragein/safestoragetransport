@@ -233,7 +233,7 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
           <span className="mr-1 text-slate-400">{open ? "▾" : "▸"}</span>{v.name}
           {v.source === "panel" && <span className="ml-1.5 rounded bg-blue-50 px-1 text-[10px] text-blue-600">added</span>}
         </td>
-        {showAll && <td className="px-3 py-2.5 text-slate-600">{VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType}</td>}
+        {showAll && <td className="px-3 py-2.5 text-slate-600">{v.vehicleType === "others" ? `Other · ${v.palletCapacity} pallets` : (VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType)}</td>}
         <td className="px-3 py-2.5"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${TIER_BADGE[v.tier] ?? TIER_BADGE.general}`}>{TIER_LABEL[v.tier] ?? v.tier}</span></td>
         <td className="px-3 py-2.5">
           <select value={v.priorityGroup ?? ""} disabled={busy} onChange={(e) => onSetPriority(e.target.value || null)} className={`rounded-md border-0 px-1.5 py-0.5 text-xs font-semibold ${PRIORITY_BADGE[v.priorityGroup ?? ""] ?? "bg-slate-50 text-slate-400"}`}>
@@ -347,6 +347,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
     securityDeposit: v.securityDeposit != null ? String(v.securityDeposit) : "",
     driverName: v.driverName ?? "", driverContact: v.driverContact ?? "",
     packerNames: v.packerNames ?? "", vehicleNo: v.vehicleNo ?? "", systemTeamNo: v.systemTeamNo ?? "",
+    othersCapacity: String(v.palletCapacity ?? 7),
     notes: v.notes ?? "", priorityGroup: v.priorityGroup ?? "", billingCycle: v.billingCycle ?? "", isIntercityVendor: v.isIntercityVendor, doesLocal: v.doesLocal, appPin: v.appPin ?? "",
   });
   const [sups, setSups] = useState<Sup[]>(v.supervisors && v.supervisors.length ? v.supervisors : (v.supervisorName ? [{ name: v.supervisorName, phone: v.supervisorContact || "" }] : [{ name: "", phone: "" }]));
@@ -370,6 +371,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
         securityDeposit: f.securityDeposit === "" ? null : Number(f.securityDeposit),
         driverName: f.driverName.trim() || null, driverContact: f.driverContact.trim() || null,
         packerNames: f.packerNames.trim() || null, vehicleNo: f.vehicleNo.trim() || null, systemTeamNo: f.systemTeamNo.trim() || null,
+        ...(v.vehicleType === "others" ? { palletCapacity: Number(f.othersCapacity) } : {}),
         supervisors: cleanSups,
       };
       const r = await fetch("/api/vendors", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
@@ -423,6 +425,14 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
         {field("Packers", "packerNames")}
         {field("Vehicle no", "vehicleNo")}
         {field("System team", "systemTeamNo")}
+        {v.vehicleType === "others" && (
+          <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Other vehicle capacity</span>
+            <select className={input} value={f.othersCapacity} onChange={(e) => set("othersCapacity", e.target.value)}>
+              <option value="7">7 pallets (behaves like 14ft)</option>
+              <option value="4">4 pallets (behaves like 10ft)</option>
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="mb-1 mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Supervisors (up to 10)</div>
@@ -468,7 +478,7 @@ async function uploadDoc(vendorId: string, kind: "service_agreement" | "gst", fi
 }
 
 const EMPTY = {
-  name: "", vehicleType: "14ft", tier: "general", startingPoint: "", dailyPrice: "", pricingNote: "", securityDeposit: "",
+  name: "", vehicleType: "14ft", othersCapacity: "7", tier: "general", startingPoint: "", dailyPrice: "", pricingNote: "", securityDeposit: "",
   driverName: "", driverContact: "", packerNames: "", vehicleNo: "", vehicleName: "", systemTeamNo: "", remarks: "",
   notes: "", priorityGroup: "", billingCycle: "", isIntercityVendor: false, doesLocal: true, appPin: "",
 };
@@ -491,7 +501,7 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
     setSaving(true); setErr("");
     try {
       const cleanSups = sups.filter((s) => s.name.trim() || s.phone.trim()).map((s) => ({ name: s.name.trim(), phone: s.phone.trim() }));
-      const res = await fetch("/api/vendors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, cities: selCities, supervisors: cleanSups }) });
+      const res = await fetch("/api/vendors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, palletCapacity: f.vehicleType === "others" ? Number(f.othersCapacity) : null, cities: selCities, supervisors: cleanSups }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Could not save vendor");
       const { vendors } = j;
@@ -537,9 +547,17 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
         {field("Vendor name", "name", "text", "e.g. VMS Packers Team 1", true)}
         <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Vehicle <span className="text-red-500">*</span></span>
           <select className={input} value={f.vehicleType} onChange={(e) => { const vt = e.target.value; setF((p) => ({ ...p, vehicleType: vt, tier: vt === "others" ? "non_general" : p.tier })); }}>
-            <option value="14ft">14ft (7 pallets)</option><option value="10ft">10ft (4 pallets)</option><option value="others">Other (7 pallets)</option>
+            <option value="14ft">14ft (7 pallets)</option><option value="10ft">10ft (4 pallets)</option><option value="others">Other</option>
           </select>
         </label>
+        {f.vehicleType === "others" && (
+          <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Other vehicle capacity <span className="text-red-500">*</span></span>
+            <select className={input} value={f.othersCapacity} onChange={(e) => set("othersCapacity", e.target.value)}>
+              <option value="7">7 pallets (behaves like 14ft)</option>
+              <option value="4">4 pallets (behaves like 10ft)</option>
+            </select>
+          </label>
+        )}
         <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Tier</span>
           <select className={input} value={f.tier} onChange={(e) => set("tier", e.target.value)}><option value="general">General (pay daily regardless)</option><option value="non_general">Non-general (premium / on-demand)</option></select>
         </label>

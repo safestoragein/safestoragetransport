@@ -21,8 +21,14 @@ export async function masterVendorsForCity(citySlug: string): Promise<Vendor[]> 
       .filter((r: any) => (r.does_local != null ? flag(r.does_local) : !flag(r.is_intercity_vendor)))
       .map((r: any) => {
         // Assign by the vehicle's real size: a 10ft van is capped at its own (smaller) pallet
-        // capacity, a 14ft at its larger one. Never treat a 10ft as a 14ft.
-        const vt: VehicleType = r.vehicle_type === "10ft" ? "10ft" : "14ft";
+        // capacity, a 14ft at its larger one. Never treat a 10ft as a 14ft. For an "others"/unknown
+        // vehicle type (no 10ft/14ft label) fall back to the vendor's declared RATED pallet capacity:
+        // the small (~4-pallet) class behaves like a 10ft, the large (~7-pallet) class like a 14ft.
+        const rated = Number(r.pallet_capacity) || 0;
+        const vt: VehicleType =
+          r.vehicle_type === "10ft" ? "10ft"
+          : r.vehicle_type === "14ft" ? "14ft"
+          : (rated > 0 && rated <= 5.5 ? "10ft" : "14ft");
         const g = geocodeAddress(r.starting_point || "", citySlug);
         const tier = r.tier === "non_general" ? "non_general" : "general";
         return {
