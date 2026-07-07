@@ -41,8 +41,10 @@ export interface DaySnapshot {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-async function getJson(path: string): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/${path}`, { next: { revalidate: 300 } });
+// `fresh` = bypass the 5-min data cache and hit the source live. Used when an admin explicitly
+// (re)generates or syncs a schedule, so an edit just made in the booking system shows immediately.
+async function getJson(path: string, fresh = false): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/${path}`, fresh ? { cache: "no-store" } : { next: { revalidate: 300 } });
   if (!res.ok) throw new Error(`${path} -> ${res.status}`);
   const json = await res.json();
   return Array.isArray(json) ? json : json.data ?? [];
@@ -123,10 +125,10 @@ export async function loadAllCitiesSummary(date: string): Promise<import("./type
 }
 
 // ---- live snapshot for a city + date ----
-export async function loadLive(citySlug: string, date: string): Promise<DaySnapshot> {
+export async function loadLive(citySlug: string, date: string, fresh = false): Promise<DaySnapshot> {
   const [orders, vehicles] = await Promise.all([
-    getJson("transport_controller_Dev0/get_work_order_list_api_new"),
-    getJson("transport_controller_Dev0/get_vehicle_list_api"),
+    getJson("transport_controller_Dev0/get_work_order_list_api_new", fresh),
+    getJson("transport_controller_Dev0/get_vehicle_list_api", fresh),
   ]);
   const wh: GeoPoint = CITY_WAREHOUSE[citySlug] ?? { ...CITY_CENTER[citySlug], label: `${cap(citySlug)} WH` };
 
@@ -224,8 +226,8 @@ function deriveTeams(vehicles: any[], citySlug: string, wh: GeoPoint): Vendor[] 
 
 // Raw orders for a city + date (unmapped) — used by the Excel export so we can output every
 // original column (contact, charges, notes, floor/lift, timeslot) alongside our recommended team.
-export async function loadLiveRaw(citySlug: string, date: string): Promise<any[]> {
-  const orders = await getJson("transport_controller_Dev0/get_work_order_list_api_new");
+export async function loadLiveRaw(citySlug: string, date: string, fresh = false): Promise<any[]> {
+  const orders = await getJson("transport_controller_Dev0/get_work_order_list_api_new", fresh);
   return orders.filter(
     (o) => (o.customer_local_city || "").toLowerCase().trim() === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date,
   );

@@ -30,7 +30,7 @@ async function osrmEtaMin(aLat: number, aLng: number, bLat: number, bLng: number
 }
 
 export async function generateSchedule(citySlug: string, date: string, trigger: "cron" | "manual" = "manual") {
-  const snap = await loadLive(citySlug, date);
+  const snap = await loadLive(citySlug, date, true); // fresh feed — reflect edits made in the booking system now
   let vendors = await masterVendorsForCity(citySlug);
   const usedMaster = vendors.length > 0;
   if (!usedMaster) vendors = snap.vendors; // fallback to derived teams when no master vendors
@@ -146,7 +146,7 @@ export async function syncNewOrders(citySlug: string, date: string): Promise<{ a
   const run = runs?.[0];
   if (!run) return { added: 0, error: `no schedule run for ${citySlug} on ${date} — generate it first` };
 
-  const snap = await loadLive(citySlug, date);
+  const snap = await loadLive(citySlug, date, true); // fresh feed — pick up reschedules/edits since the run
   const bookings = snap.bookings;
   const orderRows = bookings.map((b) => orderRowOf(b, date, citySlug));
   if (orderRows.length) {
@@ -433,7 +433,7 @@ export async function diffSchedule(date: string): Promise<ScheduleDiff> {
     const persById = new Map<string, any>(persisted.map((o: any) => [baseOrderId(o.order_id), o]));
 
     let live: any[] = [];
-    try { live = await loadLiveRaw(city, date); } catch { live = []; }
+    try { live = await loadLiveRaw(city, date, true); } catch { live = []; } // fresh — detect real changes
     const liveById = new Map(live.map((o: any) => [String(o.order_id), o]));
 
     const newOrders: string[] = [], removed: string[] = [], rescheduled: string[] = [];
