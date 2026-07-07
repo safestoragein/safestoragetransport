@@ -42,6 +42,9 @@ const SIBLING_BONUS_KM = 25;
 // group step: a higher-priority vendor wins only when it's within ~this distance of a nearer lower-
 // priority one. Raise it to make priority stronger, lower it to make proximity even more dominant.
 const PRIORITY_TIEBREAK_KM = 3;
+// Hard cap: never auto-assign more than this many orders (stops) to one vendor in a day. Overflow
+// goes to the "team to assign" bucket rather than piling a 4th stop on someone.
+const MAX_ORDERS_PER_VENDOR = 3;
 const vehicleMismatch = (v: Vendor, b: Booking) =>
   !!b.requiredVehicle && v.tier === "general" && v.vehicle.type !== b.requiredVehicle;
 
@@ -272,6 +275,7 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
       const fitting: { v: Vendor; p: number; opensNew: boolean }[] = [];
       for (const v of [...generals, ...nons]) {
         if (consumed.has(v.id)) continue; // reserved as a big order's 2nd/3rd team
+        if (assignedTo.get(v.id)!.length >= MAX_ORDERS_PER_VENDOR) continue; // hard cap: ≤3 orders/vendor/day
         const p = palletsAt(v.id);
         const opensNew = p < EPS;
         const prospectiveTrips = buildTrips(v, [...assignedTo.get(v.id)!, b]).length;
