@@ -38,6 +38,10 @@ const VEHICLE_PENALTY_SCORE = 200_000;
 // When a SECOND team is needed, prefer another team of the SAME vendor (team rule: a vendor with 2
 // teams sends both). Worth ~this many km of detour so a sibling team wins over a nearer stranger.
 const SIBLING_BONUS_KM = 25;
+// Priority group (A/B/C) is now a SECONDARY tiebreak, below proximity. It's worth this many km per
+// group step: a higher-priority vendor wins only when it's within ~this distance of a nearer lower-
+// priority one. Raise it to make priority stronger, lower it to make proximity even more dominant.
+const PRIORITY_TIEBREAK_KM = 3;
 const vehicleMismatch = (v: Vendor, b: Booking) =>
   !!b.requiredVehicle && v.tier === "general" && v.vehicle.type !== b.requiredVehicle;
 
@@ -274,27 +278,28 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
         const fits = opensNew || (prospectiveTrips <= TRIPS_PER_DAY && p + b.pallets <= v.maxPalletsPerDay + EPS);
         if (fits) fitting.push({ v, p, opensNew });
       }
-      // HARD priority: an order goes to the highest priority group (A→B→C, then unset) that can take
-      // it — every A vendor is exhausted before any B is used, even if a B vendor is nearer.
+      // PROXIMITY FIRST: an order goes to the NEAREST vendor cluster; the A/B/C priority group is only
+      // a secondary tiebreak (worth PRIORITY_TIEBREAK_KM per step). So a nearby B vendor beats a far A
+      // vendor — vendors get the retrievals/pickups closest to their base.
       let bestV: Vendor | null = null;
       let bestScore = Infinity;
       let bestOpensNew = false;
       if (fitting.length) {
-        const minRank = Math.min(...fitting.map(({ v }) => priRank(v)));
         // Families of vendors already on the road — to keep a vendor's 2 teams (e.g. "VMS Team 1/2")
         // working the same job.
         const openFamilies = new Set(vendors.filter((x) => assignedTo.get(x.id)!.length > 0).map((x) => vendorFamily(x.name)));
-        for (const { v, p, opensNew } of fitting.filter(({ v }) => priRank(v) === minRank)) {
+        for (const { v, p, opensNew } of fitting) {
           const wB = slotWindow(b);
           const conflict = !opensNew && !!wB && assignedTo.get(v.id)!.some((x) => windowsOverlap(slotWindow(x), wB));
           // PROXIMITY: distance from this order to the vendor's cluster (depot + the stops it already
           // holds). Filling a vehicle is preferred, but only with orders near its cluster — so a
           // vendor isn't sent to a far locality just to top off its load.
           const clusterKm = Math.min(roadKm(v.depot, b.location), ...assignedTo.get(v.id)!.map((x) => roadKm(x.location, b.location)));
+          const priKm = priRank(v) * PRIORITY_TIEBREAK_KM; // secondary: nudges nearer→higher-priority
           const score =
             (opensNew ? 1 : 0) * 1_000_000_000 + // strongly prefer filling an open vehicle over a new one
             (conflict ? WINDOW_CONFLICT_PENALTY : 0) + // ...unless it clashes with a same-window order here
-            (opensNew ? clusterKm : -p * 1000 + clusterKm * 1000) + // new: nearest depot; fill: top off but stay near the cluster
+            (opensNew ? clusterKm + priKm : -p * 1000 + (clusterKm + priKm) * 1000) + // proximity (+ priority nudge); fill also tops off fuller vehicles
             (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // 2nd team → prefer same vendor's other team
             (v.tier === "non_general" ? 500_000 : 0) + // keep premium/intercity vendors for overflow
             (vehicleMismatch(v, b) ? VEHICLE_PENALTY_SCORE : 0);

@@ -7,8 +7,8 @@ const SECTIONS: { title: string; note?: string; rules: string[] }[] = [
     title: "Which vendor gets an order (allocation)",
     rules: [
       "Only ACTIVE vendors are scheduled — anyone toggled Inactive in the Vendor panel is skipped.",
-      "Hard priority: every priority-A vendor is filled before any B is used, then C, then ungrouped. (Set the group per vendor in the Vendor panel.)",
-      "Proximity: each order goes to the nearest vendor cluster — its start point plus the stops it already holds. A vendor is never sent to a far locality just to top off a load.",
+      "Proximity (primary rule): each order goes to the NEAREST vendor cluster — its start point plus the stops it already holds — so vendors get the retrievals/pickups closest to their base. A vendor is never sent to a far locality just to top off a load.",
+      "Priority group (secondary tiebreak): when two vendors are about equally near, the higher priority group wins — A over B, then C, then ungrouped. It only breaks near-ties; a clearly nearer vendor always wins regardless of group. (Set the group per vendor in the Vendor panel.)",
       "Max 2 trips per vendor per day. A 3rd trip is never auto-assigned — the team adds it manually only when the leftovers are genuinely on the way.",
       "Vehicle capacity: 14ft = 7 pallets (up to ~9 with tolerance), 10ft = 4 (up to ~6). Two customers can share one trip if their combined pallets fit.",
       "Same-window spread: two orders wanting the same time window are pushed onto different vendors so both can be met.",
