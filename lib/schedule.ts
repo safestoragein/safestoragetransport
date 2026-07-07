@@ -29,6 +29,27 @@ async function osrmEtaMin(aLat: number, aLng: number, bLat: number, bLng: number
   }
 }
 
+// Parse the offending column out of a MariaDB/MySQL "Unknown column 'x'" error.
+function unknownColumn(msg: string): string | undefined {
+  return (msg.match(/[Uu]nknown column '([a-z_]+)'/) || msg.match(/column "([a-z_]+)"/) || msg.match(/'([a-z_]+)' column/))?.[1];
+}
+
+// Upsert order rows, tolerant of a column whose migration hasn't run yet: on an "unknown column"
+// error, drop ONLY that column and retry. Critically, it never blindly strips a fixed set — the old
+// fallback dropped `stated_pallets` whenever `floor` was missing, so an edited pallet count silently
+// failed to update (the displayed "actual" stayed stale). Any non-column error is surfaced.
+async function upsertOrders(c: any, rows: any[]): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!rows.length) return;
+  let cur = rows;
+  for (let i = 0; i < 10; i++) {
+    const { error } = await c.from("orders").upsert(cur, { onConflict: "order_id" });
+    if (!error) return;
+    const col = unknownColumn(error.message || "");
+    if (!col || !(col in cur[0])) throw new Error(error.message || "order upsert failed");
+    cur = cur.map(({ [col]: _drop, ...rest }: any) => rest); // eslint-disable-line @typescript-eslint/no-explicit-any
+  }
+}
+
 export async function generateSchedule(citySlug: string, date: string, trigger: "cron" | "manual" = "manual") {
   const snap = await loadLive(citySlug, date, true); // fresh feed — reflect edits made in the booking system now
   let vendors = await masterVendorsForCity(citySlug);
@@ -69,14 +90,7 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
     order_status: b.orderStatus ?? null,
     booking_date: b.bookingDate ?? null,
   }));
-  if (orderRows.length) {
-    const { error } = await c.from("orders").upsert(orderRows, { onConflict: "order_id" });
-    // Resilient to newer columns not existing yet: retry without them.
-    if (error && /(stated_pallets|lift|floor|warehouse_lat|warehouse_lng|is_shifting|booking_date)/.test(error.message || "")) {
-      const stripped = orderRows.map(({ stated_pallets, lift, floor, warehouse_lat, warehouse_lng, is_shifting, booking_date, ...rest }) => rest);
-      await c.from("orders").upsert(stripped, { onConflict: "order_id" });
-    }
-  }
+  await upsertOrders(c, orderRows);
 
   const { data: orders } = await c.from("orders").select("id, order_id").in("order_id", orderRows.map((o) => o.order_id));
   const orderUuidByOrderId = new Map((orders ?? []).map((o: any) => [o.order_id, o.id]));
@@ -149,13 +163,7 @@ export async function syncNewOrders(citySlug: string, date: string): Promise<{ a
   const snap = await loadLive(citySlug, date, true); // fresh feed — pick up reschedules/edits since the run
   const bookings = snap.bookings;
   const orderRows = bookings.map((b) => orderRowOf(b, date, citySlug));
-  if (orderRows.length) {
-    const { error } = await c.from("orders").upsert(orderRows, { onConflict: "order_id" });
-    if (error && /(stated_pallets|lift|floor|warehouse_lat|warehouse_lng|is_shifting|booking_date)/.test(error.message || "")) {
-      const stripped = orderRows.map(({ stated_pallets, lift, floor, warehouse_lat, warehouse_lng, is_shifting, booking_date, ...rest }) => rest);
-      await c.from("orders").upsert(stripped, { onConflict: "order_id" });
-    }
-  }
+  await upsertOrders(c, orderRows);
   const { data: orders } = await c.from("orders").select("id, order_id").in("order_id", orderRows.map((o) => o.order_id));
   const uuidByOrderId = new Map((orders ?? []).map((o: any) => [o.order_id, o.id]));
   const { data: assigns } = await c.from("schedule_assignments").select("order_id").eq("run_id", run.id);
