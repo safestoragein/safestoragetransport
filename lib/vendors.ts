@@ -6,7 +6,9 @@ import seed from "./data/vendor-master.json";
 import { put, list } from "@vercel/blob";
 import { db, hasDb } from "./db";
 
-export type VehicleClass = "14ft" | "10ft" | "others";
+// Local vans are 10ft/14ft/others; intercity trucks range 10ft → 32ft (informational — intercity
+// vendors aren't in the local optimiser pool, so their size doesn't drive local capacity).
+export type VehicleClass = "14ft" | "10ft" | "17ft" | "19ft" | "20ft" | "22ft" | "24ft" | "32ft" | "others";
 
 export interface VendorMaster {
   id: string;
@@ -43,8 +45,10 @@ export interface VendorMaster {
   source: "excel" | "panel";
 }
 
-const CAP: Record<VehicleClass, number> = { "14ft": 7, "10ft": 4, others: 7 };
-const EFF: Record<VehicleClass, number> = { "14ft": 7.5, "10ft": 4.2, others: 7.5 };
+// Rough pallet capacity per truck size (larger intercity trucks hold more). Effective adds a small
+// tolerance. Local scheduling only ever uses 10ft/14ft/others; the bigger sizes are for intercity.
+const CAP: Record<VehicleClass, number> = { "10ft": 4, "14ft": 7, "17ft": 10, "19ft": 12, "20ft": 14, "22ft": 16, "24ft": 18, "32ft": 24, others: 7 };
+const EFF: Record<VehicleClass, number> = { "10ft": 4.2, "14ft": 7.5, "17ft": 10.5, "19ft": 12.5, "20ft": 14.5, "22ft": 16.5, "24ft": 18.5, "32ft": 24.5, others: 7.5 };
 
 // Rated (pallet_capacity) + effective for a vendor. For "others" the office picks the class it
 // behaves like — 7 pallets (like a 14ft) or 4 (like a 10ft); we snap to those two so the scheduler's

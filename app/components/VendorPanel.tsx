@@ -7,7 +7,18 @@ import { Card } from "./ui";
 import { SessionUser } from "@/lib/auth";
 import AppShell from "./AppShell";
 
-const VEHICLE_LABEL: Record<string, string> = { "14ft": "14ft · 7 pallets", "10ft": "10ft · 4 pallets", others: "Other · 7 pallets" };
+// Client-side pallet capacity per size (mirrors CAP in lib/vendors.ts) — for the optimistic UI.
+const VEHICLE_CAP: Record<string, number> = { "10ft": 4, "14ft": 7, "17ft": 10, "19ft": 12, "20ft": 14, "22ft": 16, "24ft": 18, "32ft": 24, others: 7 };
+const VEHICLE_LABEL: Record<string, string> = {
+  "10ft": "10ft · 4 pallets", "14ft": "14ft · 7 pallets", "17ft": "17ft · 10 pallets",
+  "19ft": "19ft · 12 pallets", "20ft": "20ft · 14 pallets", "22ft": "22ft · 16 pallets",
+  "24ft": "24ft · 18 pallets", "32ft": "32ft · 24 pallets", others: "Other · 7 pallets",
+};
+// Vehicle options offered per vendor kind. Local vans: 10/14ft or Other. Intercity trucks: 10→32ft.
+const LOCAL_VEHICLE_OPTS = ["14ft", "10ft", "others"];
+const INTERCITY_VEHICLE_OPTS = ["10ft", "14ft", "17ft", "19ft", "20ft", "22ft", "24ft", "32ft", "others"];
+const vehicleOptsFor = (intercity: boolean) => (intercity ? INTERCITY_VEHICLE_OPTS : LOCAL_VEHICLE_OPTS);
+const vehicleOptLabel = (vt: string) => (vt === "others" ? "Other" : vt);
 const TIER_BADGE: Record<string, string> = { general: "bg-blue-50 text-blue-700 ring-blue-200", non_general: "bg-amber-50 text-amber-700 ring-amber-200" };
 const TIER_LABEL: Record<string, string> = { general: "General", non_general: "Non-general" };
 const PRIORITY_BADGE: Record<string, string> = { A: "bg-emerald-100 text-emerald-700", B: "bg-amber-100 text-amber-700", C: "bg-slate-100 text-slate-600" };
@@ -230,7 +241,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                   onToggleActive={() => patchVendor(v, { active: !(v.active !== false) })}
                   onSetPriority={(g) => patchVendor(v, { priorityGroup: g })}
                   onSetBilling={(c) => patchVendor(v, { billingCycle: c })}
-                  onSetVehicle={(vt) => patchVendor(v, { vehicleType: vt as VendorMaster["vehicleType"], palletCapacity: vt === "14ft" ? 7 : vt === "10ft" ? 4 : v.palletCapacity })}
+                  onSetVehicle={(vt) => patchVendor(v, { vehicleType: vt as VendorMaster["vehicleType"], palletCapacity: vt === "others" ? v.palletCapacity : (VEHICLE_CAP[vt] ?? v.palletCapacity) })}
                   onDetails={() => toggle(v.id, "details")}
                   onEdit={() => toggle(v.id, "edit")} onCancelEdit={() => setExp(null)} onSaved={onSaved} onLocalUpdate={onLocalUpdate} onDelete={() => onDelete(v)}
                 />
@@ -303,11 +314,13 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
         <td className="px-3 py-2.5">
           {canEdit ? (
             <select value={v.vehicleType} disabled={busy} onChange={(e) => onSetVehicle(e.target.value)}
-              title="Vehicle size — change when the vendor swaps vehicles; sets the pallet cap (14ft→7, 10ft→4)"
+              title="Vehicle size — change when the vendor swaps vehicles. Intercity vendors offer 10ft–32ft trucks."
               className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-xs font-medium text-slate-700">
-              <option value="14ft">14ft (7p)</option>
-              <option value="10ft">10ft (4p)</option>
-              <option value="others">Other · {v.palletCapacity}p</option>
+              {vehicleOptsFor(!!v.isIntercityVendor).map((vt) => (
+                <option key={vt} value={vt}>{vt === "others" ? `Other · ${v.palletCapacity}p` : `${vt} (${VEHICLE_CAP[vt]}p)`}</option>
+              ))}
+              {/* keep the current value selectable even if it's outside the offered set */}
+              {!vehicleOptsFor(!!v.isIntercityVendor).includes(v.vehicleType) && <option value={v.vehicleType}>{VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType}</option>}
             </select>
           ) : (
             <span className="text-slate-600">{v.vehicleType === "others" ? `Other · ${v.palletCapacity} pallets` : (VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType)}</span>
@@ -627,8 +640,9 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
         {field("Vendor name", "name", "text", "e.g. VMS Packers Team 1", true)}
         <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Vehicle <span className="text-red-500">*</span></span>
           <select className={input} value={f.vehicleType} onChange={(e) => { const vt = e.target.value; setF((p) => ({ ...p, vehicleType: vt, tier: vt === "others" ? "non_general" : p.tier })); }}>
-            <option value="14ft">14ft (7 pallets)</option><option value="10ft">10ft (4 pallets)</option><option value="others">Other</option>
+            {vehicleOptsFor(f.isIntercityVendor).map((vt) => <option key={vt} value={vt}>{VEHICLE_LABEL[vt] ?? vt}</option>)}
           </select>
+          {f.isIntercityVendor && <span className="mt-1 block text-[10px] text-slate-400">Intercity trucks: 10ft–32ft</span>}
         </label>
         {f.vehicleType === "others" && (
           <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Other vehicle capacity <span className="text-red-500">*</span></span>
