@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { VendorMaster } from "@/lib/vendors";
 import { money } from "@/lib/format";
 import { Card } from "./ui";
@@ -26,6 +26,8 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
     setExp((e) => (e && e.id === id && e.mode === mode ? null : { id, mode }));
   const canEdit = user?.role === "admin";
   const onSaved = (u: VendorMaster) => { setVendors((arr) => arr.map((x) => (x.id === u.id ? u : x))); setExp(null); };
+  // Update a vendor in place WITHOUT collapsing its expanded panel (used by inline doc replace).
+  const onLocalUpdate = (u: VendorMaster) => setVendors((arr) => arr.map((x) => (x.id === u.id ? u : x)));
 
   const cities = [...new Set(vendors.map((v) => v.city))].sort();
   const [cityFilter, setCityFilter] = useState("All");
@@ -199,7 +201,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
                   onSetBilling={(c) => patchVendor(v, { billingCycle: c })}
                   onSetVehicle={(vt) => patchVendor(v, { vehicleType: vt as VendorMaster["vehicleType"], palletCapacity: vt === "14ft" ? 7 : vt === "10ft" ? 4 : v.palletCapacity })}
                   onDetails={() => toggle(v.id, "details")}
-                  onEdit={() => toggle(v.id, "edit")} onCancelEdit={() => setExp(null)} onSaved={onSaved} onDelete={() => onDelete(v)}
+                  onEdit={() => toggle(v.id, "edit")} onCancelEdit={() => setExp(null)} onSaved={onSaved} onLocalUpdate={onLocalUpdate} onDelete={() => onDelete(v)}
                 />
               ))}
             </tbody>
@@ -211,24 +213,49 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
   );
 }
 
-function DocLink({ label, url }: { label: string; url?: string | null }) {
+function DocLink({ label, url, vendorId, kind, canEdit, onReplaced }: {
+  label: string; url?: string | null; vendorId: string;
+  kind: "service_agreement" | "gst"; canEdit: boolean; onReplaced: (url: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  async function pick(f: File | null) {
+    if (!f) return;
+    setBusy(true); setErr("");
+    try { onReplaced(await uploadDoc(vendorId, kind, f)); }
+    catch (e) { setErr((e as Error).message || "Upload failed"); }
+    finally { setBusy(false); if (inputRef.current) inputRef.current.value = ""; }
+  }
   return (
     <div>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
-      {url ? (
-        <a href={url} target="_blank" rel="noreferrer" title="View document" className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4"><path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8z" /><circle cx="12" cy="12" r="3" /></svg>
-          View document
-        </a>
-      ) : <div className="text-sm text-slate-400">Not uploaded</div>}
+      <div className="flex flex-wrap items-center gap-3">
+        {url ? (
+          <a href={url} target="_blank" rel="noreferrer" title="View document" className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4"><path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8z" /><circle cx="12" cy="12" r="3" /></svg>
+            View document
+          </a>
+        ) : <div className="text-sm text-slate-400">Not uploaded</div>}
+        {canEdit && (
+          <>
+            <button type="button" disabled={busy} onClick={() => inputRef.current?.click()}
+              className="text-xs font-medium text-indigo-600 hover:underline disabled:opacity-50">
+              {busy ? "Uploading…" : url ? "Replace" : "Upload"}
+            </button>
+            <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden" onChange={(e) => pick(e.target.files?.[0] ?? null)} />
+          </>
+        )}
+      </div>
+      {err && <div className="mt-0.5 text-[11px] text-red-500">{err}</div>}
     </div>
   );
 }
 
-function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal, onToggleActive, onSetPriority, onSetBilling, onSetVehicle, onDetails, onEdit, onCancelEdit, onSaved, onDelete }: {
+function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal, onToggleActive, onSetPriority, onSetBilling, onSetVehicle, onDetails, onEdit, onCancelEdit, onSaved, onLocalUpdate, onDelete }: {
   v: VendorMaster; showAll: boolean; mode: "details" | "edit" | null; busy: boolean; canEdit: boolean;
   onToggleIntercity: () => void; onToggleLocal: () => void; onToggleActive: () => void; onSetPriority: (g: string | null) => void; onSetBilling: (c: string | null) => void; onSetVehicle: (vt: string) => void;
-  onDetails: () => void; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void; onDelete: () => void;
+  onDetails: () => void; onEdit: () => void; onCancelEdit: () => void; onSaved: (v: VendorMaster) => void; onLocalUpdate: (v: VendorMaster) => void; onDelete: () => void;
 }) {
   const open = mode !== null;
   const isActive = v.active !== false;
@@ -316,8 +343,8 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
                 <Detail label="Pallet capacity" value={`${v.palletCapacity} pallets`} />
                 <Detail label="Security deposit" value={v.securityDeposit != null ? money(v.securityDeposit) : null} />
                 <Detail label="Mobile app PIN" value={v.appPin || "— not set —"} sub={v.appPin ? "vendor logs in with their phone + this PIN" : null} />
-                <DocLink label="Service agreement" url={v.serviceAgreementUrl} />
-                <DocLink label="GST document" url={v.gstDocumentUrl} />
+                <DocLink label="Service agreement" url={v.serviceAgreementUrl} vendorId={v.id} kind="service_agreement" canEdit={canEdit} onReplaced={(url) => onLocalUpdate({ ...v, serviceAgreementUrl: url })} />
+                <DocLink label="GST document" url={v.gstDocumentUrl} vendorId={v.id} kind="gst" canEdit={canEdit} onReplaced={(url) => onLocalUpdate({ ...v, gstDocumentUrl: url })} />
                 {v.notes && <div className="sm:col-span-2 lg:col-span-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Notes</div><div className="text-slate-700">{v.notes}</div></div>}
               </div>
             )}
