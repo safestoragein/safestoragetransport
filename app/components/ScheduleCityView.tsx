@@ -144,6 +144,15 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
     setPending(null);
   }
 
+  // Team interchanges a vendor's stop order: send the UUIDs in the new 1..N order.
+  async function reorderStops(orderUuids: string[]) {
+    setPending(`seq:${orderUuids.join(",")}`);
+    const r = await fetch("/api/schedule/assignment", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, action: "sequence", orderUuids }) }).then((x) => x.json()).catch(() => null);
+    if (r && r.ok === false) alert(r.error || "Could not save the new stop order.");
+    await reload();
+    setPending(null);
+  }
+
   // Filter what shows per tab. Intercity + shifting orders live in the "to assign" bucket; the
   // regular Schedule tab hides them, and the Intercity/Shifting tabs show only those.
   const isShift = (o: any) => !!o.is_shifting;
@@ -292,12 +301,37 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
           {!v.isUnassigned && plan && openPlan === (v.vendorId ?? v.vendorName) && <VendorDetails v={v} />}
 
           <div className="divide-y divide-slate-100">
-            {(v.isUnassigned ? v.orders : [...v.orders].sort((a: any, b: any) => (plan?.byOrder?.[a.customer_unique_id]?.arrive ?? 1e9) - (plan?.byOrder?.[b.customer_unique_id]?.arrive ?? 1e9))).map((o: any, idx: number) => {
+            {(() => {
+            // Display order: the team's manual sequence wins; otherwise the day-plan arrival time.
+            const hasManual = v.orders.some((o: any) => o.manual_seq != null);
+            const ordered = v.isUnassigned ? v.orders : [...v.orders].sort((a: any, b: any) =>
+              hasManual
+                ? (a.manual_seq ?? 1e9) - (b.manual_seq ?? 1e9)
+                : (plan?.byOrder?.[a.customer_unique_id]?.arrive ?? 1e9) - (plan?.byOrder?.[b.customer_unique_id]?.arrive ?? 1e9));
+            const canReorder = !readOnly && !v.isUnassigned && !v.isCoTeam && ordered.length > 1;
+            const move = (idx: number, dir: -1 | 1) => {
+              const arr = ordered.map((x: any) => x.id);
+              const j = idx + dir; if (j < 0 || j >= arr.length) return;
+              [arr[idx], arr[j]] = [arr[j], arr[idx]];
+              reorderStops(arr);
+            };
+            return ordered.map((o: any, idx: number) => {
               const t = TYPE[o.order_type] ?? TYPE.pickup;
+              const seqPending = pending?.startsWith("seq:");
               return (
                 <div key={o.id ?? o.order_id} className={`border-l-4 px-4 py-2.5 ${t.cls}`}>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    {!v.isUnassigned && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">{idx + 1}</span>}
+                    {!v.isUnassigned && (
+                      <span className="flex shrink-0 items-center gap-1">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">{idx + 1}</span>
+                        {canReorder && (
+                          <span className="flex flex-col leading-none">
+                            <button type="button" title="Move this stop earlier" disabled={idx === 0 || seqPending} onClick={() => move(idx, -1)} className="px-0.5 text-[9px] text-slate-400 hover:text-slate-800 disabled:opacity-20">▲</button>
+                            <button type="button" title="Move this stop later" disabled={idx === ordered.length - 1 || seqPending} onClick={() => move(idx, 1)} className="px-0.5 text-[9px] text-slate-400 hover:text-slate-800 disabled:opacity-20">▼</button>
+                          </span>
+                        )}
+                      </span>
+                    )}
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${t.dot}`}>{t.label}{o.is_shifting ? " · shifting" : o.is_intercity ? " · intercity" : ""}</span>
                     <span className="text-sm font-medium text-slate-800">{o.customer_unique_id}</span>
                     {/* actual + assumed pallets, right after the booking id */}
@@ -431,7 +465,8 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                   )}
                 </div>
               );
-            })}
+            });
+            })()}
           </div>
         </Card>
         );

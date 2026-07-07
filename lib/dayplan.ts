@@ -80,12 +80,17 @@ export async function buildVendorPlan(v: any): Promise<VendorPlan> {
     if (o) byOrder[o.customer_unique_id] = { arrive, depart: clock, late };
   };
 
-  // Order every stop by when it should happen (customer request → else retrieval-morning / pickup-
-  // afternoon), tie-break retrieval before pickup, then the optimiser's stop sequence.
-  const seq = [...v.orders].sort((a: any, b: any) =>
-    sortKey(a) - sortKey(b) ||
-    (a.order_type === "pickup" ? 1 : 0) - (b.order_type === "pickup" ? 1 : 0) ||
-    (a.stop_seq || 0) - (b.stop_seq || 0));
+  // If the team manually interchanged this vendor's stops, that fixed 1..N order wins outright —
+  // sequence and recomputed ETAs both follow it. Otherwise order by when a stop should happen
+  // (customer request → else retrieval-morning / pickup-afternoon), tie-break retrieval before
+  // pickup, then the optimiser's stop sequence.
+  const hasManual = v.orders.some((o: any) => o.manual_seq != null);
+  const seq = hasManual
+    ? [...v.orders].sort((a: any, b: any) => (a.manual_seq ?? 1e9) - (b.manual_seq ?? 1e9))
+    : [...v.orders].sort((a: any, b: any) =>
+        sortKey(a) - sortKey(b) ||
+        (a.order_type === "pickup" ? 1 : 0) - (b.order_type === "pickup" ? 1 : 0) ||
+        (a.stop_seq || 0) - (b.stop_seq || 0));
   const retrCount = v.orders.filter((o: any) => o.order_type !== "pickup").length;
   const pickCount = v.orders.filter((o: any) => o.order_type === "pickup").length;
   const whPt = whOf(v.orders.find((o: any) => whOf(o)) ?? {});

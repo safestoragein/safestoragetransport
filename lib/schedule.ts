@@ -174,7 +174,7 @@ export interface ScheduleOrder {
   id: string; // orders.id (UUID) — used to reassign / set resources
   order_id: string; customer_unique_id: string; customer_name: string; contact: string | null;
   order_type: string; is_intercity: boolean; is_shifting?: boolean; intercity_profit?: number | null; pallets: number | null; stated_pallets: number | null; transport_charge: number | null;
-  locality: string | null; lat?: number | null; lng?: number | null; time_slot: string | null; required_time: string | null; team_notes: string | null; lift: string | null; floor?: string | null;
+  locality: string | null; lat?: number | null; lng?: number | null; time_slot: string | null; required_time: string | null; team_notes: string | null; lift: string | null; floor?: string | null; manual_seq?: number | null;
   booking_date: string | null; // order_created_at — when the customer booked
   trip_no: number; stop_seq: number; resources: number;
   live_status?: string | null; live_status_at?: string | null; // vendor app: en_route/arrived/packing/loaded/delivered
@@ -294,7 +294,7 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
         vendorNotifiedAt: a.vendor_id ? vendorNotified.get(a.vendor_id) ?? null : null,
       };
     });
-    sv.orders.push({ ...o, trip_no: a.trip_no, stop_seq: a.stop_seq, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null, coTeams: coByOrder.get(a.order_id) ?? null } as any);
+    sv.orders.push({ ...o, trip_no: a.trip_no, stop_seq: a.stop_seq, manual_seq: a.manual_seq ?? null, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null, coTeams: coByOrder.get(a.order_id) ?? null } as any);
     sv.pallets += Number(o.pallets) || 0;
     sv.actualPallets += Number(o.stated_pallets ?? o.pallets) || 0;
     sv.revenue += Number(o.transport_charge) || 0;

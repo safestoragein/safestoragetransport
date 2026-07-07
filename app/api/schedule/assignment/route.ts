@@ -7,6 +7,8 @@
 //        - set the optional 3rd-trip count on a vendor (₹1,500 each)
 //   PATCH /api/schedule/assignment { runId, orderUuid, action: "timeslot", timeSlot }
 //        - change the customer time window on an order (admin can shift morning <-> afternoon)
+//   PATCH /api/schedule/assignment { runId, action: "sequence", orderUuids: [uuid, …] }
+//        - set a vendor's manual stop order (the team interchanges stops); 1..N in array order
 import { NextRequest, NextResponse } from "next/server";
 import { db, isUuid } from "@/lib/db";
 
@@ -17,6 +19,24 @@ export async function PATCH(req: NextRequest) {
   if (!b?.runId) return NextResponse.json({ ok: false, error: "runId required" }, { status: 400 });
   try {
     const c = db();
+
+    // Manual stop order for a vendor: the client sends the order UUIDs in the new 1..N order and we
+    // stamp manual_seq on each assignment row. Honoured by the day plan (badges + ETAs) on reload.
+    if (b.action === "sequence") {
+      const ids: string[] = Array.isArray(b.orderUuids) ? b.orderUuids.filter(Boolean) : [];
+      if (!ids.length) return NextResponse.json({ ok: false, error: "orderUuids required" }, { status: 400 });
+      try {
+        for (let i = 0; i < ids.length; i++) {
+          const { error } = await c.from("schedule_assignments").update({ manual_seq: i + 1 }).eq("run_id", b.runId).eq("order_id", ids[i]);
+          if (error) throw new Error(error.message);
+        }
+      } catch (e) {
+        const msg = (e as Error).message || "";
+        if (/manual_seq/i.test(msg)) return NextResponse.json({ ok: false, error: "Run the 2026-07-07-assignment-manual-seq.sql migration to enable manual stop ordering." }, { status: 400 });
+        throw e;
+      }
+      return NextResponse.json({ ok: true, order: ids });
+    }
 
     // per-vendor add-ons (whole day): extra 3rd trip (+₹1,500) and labour resource (+₹800)
     if (b.action === "trips" || b.action === "resources") {
