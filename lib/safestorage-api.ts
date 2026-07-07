@@ -163,6 +163,7 @@ export async function loadLive(citySlug: string, date: string): Promise<DaySnaps
       statedPallets: stated ?? undefined,
       requiredVehicle: isPickup && stated != null ? requiredVehicleFor(stated) : undefined,
       lift: o.lift ?? o.lift_available ?? null,
+      floor: o.floor ?? null,
       city: cap(citySlug),
       timeSlot: o.order_timeslot || undefined,
       orderStatus: o.order_status || undefined,

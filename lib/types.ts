@@ -58,6 +58,7 @@ export interface Booking {
   statedPallets?: number; // the count the customer stated (pickups), before the buffer — for display
   requiredVehicle?: VehicleType; // vehicle sized off the stated count (pickups): 14ft (>=5) or 10ft
   lift?: string | null; // lift available at the pickup/drop site? raw value (yes/no/NA) — drives a resource
+  floor?: string | null; // which floor the goods are on (raw value from the feed: "1", "9", "NA" …)
   city: string;
   timeSlot?: string; // raw slot text from the order, e.g. "10:00 AM - 11:00 AM" / "9am_11am"
   orderStatus?: string; // pending | scheduled | reschedule | request_raise | completed

@@ -5,6 +5,8 @@
 //        - set the labour-resource count on the order (₹800 each); requires an assigned vendor
 //   PATCH /api/schedule/assignment { runId, action: "trips", vendorName, extraTrips }
 //        - set the optional 3rd-trip count on a vendor (₹1,500 each)
+//   PATCH /api/schedule/assignment { runId, orderUuid, action: "timeslot", timeSlot }
+//        - change the customer time window on an order (admin can shift morning <-> afternoon)
 import { NextRequest, NextResponse } from "next/server";
 import { db, isUuid } from "@/lib/db";
 
@@ -27,6 +29,16 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (!b.orderUuid) return NextResponse.json({ ok: false, error: "orderUuid required" }, { status: 400 });
+
+    // Manually change the customer time window on an order (e.g. shift an afternoon stop to morning).
+    // Persisted on the order itself; the day plan re-sequences on the next reload.
+    if (b.action === "timeslot") {
+      const slot = b.timeSlot === "" || b.timeSlot == null ? null : String(b.timeSlot).trim();
+      const { error } = await c.from("orders").update({ time_slot: slot }).eq("id", b.orderUuid);
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ ok: true, timeSlot: slot });
+    }
+
     const { data: existing } = await c.from("schedule_assignments").select("*").eq("run_id", b.runId).eq("order_id", b.orderUuid).maybeSingle();
 
     // manual intercity profit on an order

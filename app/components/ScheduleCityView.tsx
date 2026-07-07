@@ -136,6 +136,14 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
     setPending(null);
   }
 
+  // Admin shifts an order's customer time window (e.g. move an afternoon stop into the morning).
+  async function setTimeslot(orderUuid: string, val: string) {
+    setPending(`slot:${orderUuid}`);
+    await fetch("/api/schedule/assignment", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, orderUuid, action: "timeslot", timeSlot: val || null }) });
+    await reload();
+    setPending(null);
+  }
+
   // Filter what shows per tab. Intercity + shifting orders live in the "to assign" bucket; the
   // regular Schedule tab hides them, and the Intercity/Shifting tabs show only those.
   const isShift = (o: any) => !!o.is_shifting;
@@ -292,6 +300,12 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     {!v.isUnassigned && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">{idx + 1}</span>}
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${t.dot}`}>{t.label}{o.is_shifting ? " · shifting" : o.is_intercity ? " · intercity" : ""}</span>
                     <span className="text-sm font-medium text-slate-800">{o.customer_unique_id}</span>
+                    {/* actual + assumed pallets, right after the booking id */}
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600" title="Actual pallets (customer-stated / warehouse). Pickups add an assumed buffer.">
+                      <b className="font-semibold">{(o.stated_pallets ?? o.pallets) ?? "—"}p</b> actual
+                      {o.order_type === "pickup" && o.stated_pallets != null && Number(o.stated_pallets) !== Number(o.pallets)
+                        ? <span className="text-slate-400"> → {o.pallets}p assumed</span> : null}
+                    </span>
                     {v.isCoTeam ? (
                       <span className="rounded bg-fuchsia-100 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700" title={`2nd team on this big order — main team is ${v.coTeamOf ?? ""}`}>
                         🚚 2nd team{v.vehicleType ? ` (${v.vehicleType})` : ""} · with {v.coTeamOf}
@@ -318,13 +332,6 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     {o.locality && (
                       <a href={mapsUrl(o.lat, o.lng, o.locality)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline" title="Open customer location in Google Maps">📍 {o.locality}</a>
                     )}
-                    {/* pallets: ACTUAL (as booked) first, ASSUMED (buffered for pickups) in brackets */}
-                    <span className="text-xs text-slate-600">
-                      <b className="font-semibold">{(o.stated_pallets ?? o.pallets) ?? "—"}p</b> <span className="text-slate-400">actual</span>
-                      {o.order_type === "pickup" && o.stated_pallets != null && Number(o.stated_pallets) !== Number(o.pallets) && (
-                        <span className="ml-1 text-slate-400">({o.pallets}p assumed)</span>
-                      )}
-                    </span>
                     <span className="text-xs text-slate-500">{o.transport_charge != null ? money(o.transport_charge) : "—"}</span>
                     {/* PLANNED arrival (from the day plan) vs the customer's REQUESTED window */}
                     {plan?.byOrder?.[o.customer_unique_id] && (
@@ -333,6 +340,9 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     {o.time_slot && <span className={`text-xs ${plan?.byOrder?.[o.customer_unique_id]?.late ? "text-red-500" : "text-slate-400"}`}>wants {o.time_slot.replace(/:00/g, "")}</span>}
                     {o.required_time && <span className="rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800">⏰ {o.required_time}</span>}
                     {(() => { const lb = liftBadge(o.lift); return lb ? <span className={`rounded px-1 text-[10px] font-medium ${lb.ok === false ? "bg-orange-100 text-orange-700" : lb.ok ? "bg-slate-100 text-slate-500" : "bg-slate-100 text-slate-500"}`}>{lb.text}</span> : null; })()}
+                    {o.floor != null && String(o.floor).trim() !== "" && !/^na$/i.test(String(o.floor).trim()) && (
+                      <span className="rounded bg-slate-100 px-1 text-[10px] font-medium text-slate-500" title="Floor the goods are on">🏢 Floor {String(o.floor).trim()}</span>
+                    )}
                     {o.schedule_date && <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600" title="Scheduled service date">service {fmtBooked(o.schedule_date)}</span>}
                     {fmtBooked(o.booking_date) && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500" title="When the customer booked this order">booked {fmtBooked(o.booking_date)}</span>}
                   </div>
@@ -343,6 +353,21 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     <div className="mt-1.5 text-[11px] text-fuchsia-600">Shared big order — assign / notify from {v.coTeamOf}&apos;s card.</div>
                   ) : (
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    {/* editable customer time window — admin can shift morning ⇄ afternoon */}
+                    {!readOnly && (
+                      <label className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 text-[11px] text-slate-600 ring-1 ring-slate-200" title="Change the customer time window (e.g. 2-3pm → 10-11am)">
+                        🕑
+                        <input
+                          key={o.time_slot ?? ""}
+                          defaultValue={o.time_slot ?? ""}
+                          placeholder="e.g. 2-3pm"
+                          disabled={pending === `slot:${o.id}`}
+                          onBlur={(e) => { const val = e.target.value.trim(); if (val !== String(o.time_slot ?? "")) setTimeslot(o.id, val); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                          className="w-24 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-800"
+                        />
+                      </label>
+                    )}
                     {teamsNeeded(Number(o.pallets) || 0) > 1 ? (
                       // Big order = 2 teams of one vendor. Show BOTH allocated teams, ticked (auto-assigned).
                       <span className="inline-flex flex-wrap items-center gap-1" title="Big order — 2 teams of this vendor are allocated (auto)">

@@ -43,19 +43,18 @@ export interface RegionConfig {
   extraTripCost: number; // 1500 for an optional, feasible 3rd trip on a vendor (manual)
 }
 
-// Max pallets ONE vendor team can be allocated (team rule, incl. the assumed buffer):
-//   14ft → 10 pallets, 10ft → 5 pallets.
+// Max pallets ONE vendor team can be allocated (team rule, INCLUDING the assumed buffer):
+//   14ft → 9.5 pallets, 10ft → 5.5 pallets. A load above that must go to a SECOND team.
 export const VEHICLE_CAPACITY: Record<VehicleType, number> = {
-  "14ft": 10,
-  "10ft": 5,
+  "14ft": 9.5,
+  "10ft": 5.5,
 };
 
-// Effective cap with the accepted floor-tolerance: a load still fits ONE team while it floors to the
-// rated max — 10.95 → 10 (ok on a 14ft), 11 → split; 5.9 → 5 (ok on a 10ft), 6 → split. Used for the
-// fit check, trip packing and "overload" detection.
+// The whole-day ceiling (assumed pallets included). Same numbers — the cap IS 9.5 / 5.5, there is no
+// extra floor-tolerance any more. Used for the fit check, trip packing and "overload" detection.
 export const VEHICLE_EFFECTIVE_CAPACITY: Record<VehicleType, number> = {
-  "14ft": 10.95,
-  "10ft": 5.9,
+  "14ft": 9.5,
+  "10ft": 5.5,
 };
 
 export function effectiveCapacity(type: VehicleType): number {
@@ -67,10 +66,10 @@ export function effectiveCapacity(type: VehicleType): number {
 // second team of the same vendor (see optimizer sibling-team preference).
 export const TRIPS_PER_DAY = 2;
 export function vendorDailyCap(type: VehicleType): number {
-  return VEHICLE_EFFECTIVE_CAPACITY[type]; // 14ft -> 10.95, 10ft -> 5.9
+  return VEHICLE_EFFECTIVE_CAPACITY[type]; // 14ft -> 9.5, 10ft -> 5.5
 }
 
-// How many teams ONE order needs. Anything a single 14ft team can carry (≤10.95, floor-tolerant) = 1
+// How many teams ONE order needs. Anything a single 14ft team can carry (≤9.5 incl. assumed) = 1
 // team; a bigger order needs 2 (or more) teams — which must all come from the SAME vendor. The order
 // itself is NEVER split; the teams share the one job.
 export function teamsNeeded(pallets: number): number {
@@ -101,10 +100,17 @@ export const REGION: RegionConfig = {
   extraTripCost: 1500,
 };
 
-// Pickup-only: bump the stated pallet count — +2 at/above the threshold, +1 below it.
+// Assumed extra pallets (customers under-state pickups). Rule: nothing extra below 3.5 pallets; at or
+// above 3.5 assume +1 for every whole 3.5 pallets. So 3.5–6.9 → +1, 7–10.4 → +2, 10.5+ → +3 …
+//   assumedExtra = floor(actual / 3.5), and 0 while actual < 3.5.
+export function assumedExtra(actual: number): number {
+  if (!actual || actual < 3.5) return 0;
+  return Math.floor(actual / 3.5 + 1e-9);
+}
+
+// Pickup-only: the count we schedule/size the vehicle off = stated + the assumed buffer above.
 export function bufferedPickupPallets(stated: number): number {
-  const add = stated >= REGION.largeVehicleThreshold ? 2 : 1;
-  return Math.round((stated + add) * 10) / 10;
+  return Math.round((stated + assumedExtra(stated)) * 10) / 10;
 }
 
 // Vehicle sizing off the STATED count: >= threshold means a 14ft, otherwise a 10ft.
