@@ -307,7 +307,6 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
                 <Detail label="Driver" value={v.driverName} sub={v.driverContact} />
                 <Detail label="Packers" value={v.packerNames} />
                 <Detail label="Vehicle no" value={v.vehicleNo} />
-                <Detail label="System team" value={v.systemTeamNo} />
                 <Detail label="Starting point" value={v.startingPoint} />
                 <Detail label="Vehicle" value={v.vehicleType === "others" ? `Other · ${v.palletCapacity} pallets` : (VEHICLE_LABEL[v.vehicleType] ?? v.vehicleType)} />
                 <Detail label="Tier" value={TIER_LABEL[v.tier] ?? v.tier} />
@@ -448,7 +447,6 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
         {field("Driver contact", "driverContact")}
         {field("Packers", "packerNames")}
         {field("Vehicle no", "vehicleNo")}
-        {field("System team", "systemTeamNo")}
         {v.vehicleType === "others" && (
           <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Other vehicle capacity</span>
             <select className={input} value={f.othersCapacity} onChange={(e) => set("othersCapacity", e.target.value)}>
@@ -607,7 +605,6 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
         {field("Packers", "packerNames", "text", "comma-separated")}
         {field("Vehicle no", "vehicleNo", "text", "e.g. KA51AJ4776")}
         {field("Vehicle name", "vehicleName")}
-        {field("System team", "systemTeamNo")}
       </div>
 
       <label className="mt-4 block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Vendor notes</span>
