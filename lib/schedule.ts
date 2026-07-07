@@ -78,6 +78,7 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
     floor: b.floor ?? null,
     transport_charge: b.transportCharge ?? null,
     packing_charge: b.packingCharge ?? null,
+    storage_charges: b.storageCharges ?? null,
     locality: b.location.label ?? null,
     lat: b.location.lat,
     lng: b.location.lng,
@@ -142,7 +143,7 @@ function orderRowOf(b: Booking, date: string, citySlug: string) {
     schedule_date: date, city: citySlug, order_id: b.orderId!, customer_unique_id: b.refNo,
     customer_name: b.customerName, contact: b.contact ?? null, order_type: b.category ?? b.type,
     is_intercity: !!b.isIntercity, is_shifting: !!b.isShifting, pallets: b.pallets, stated_pallets: b.statedPallets ?? null,
-    lift: b.lift ?? null, floor: b.floor ?? null, transport_charge: b.transportCharge ?? null, packing_charge: b.packingCharge ?? null,
+    lift: b.lift ?? null, floor: b.floor ?? null, transport_charge: b.transportCharge ?? null, packing_charge: b.packingCharge ?? null, storage_charges: b.storageCharges ?? null,
     locality: b.location.label ?? null, lat: b.location.lat, lng: b.location.lng,
     warehouse_name: b.warehouse.label ?? null, warehouse_lat: b.warehouse.lat ?? null, warehouse_lng: b.warehouse.lng ?? null,
     time_slot: b.timeSlot ?? null, required_time: b.requiredTimeText ?? null, team_notes: b.teamNotes ?? null, order_status: b.orderStatus ?? null,
@@ -181,7 +182,7 @@ export async function syncNewOrders(citySlug: string, date: string): Promise<{ a
 export interface ScheduleOrder {
   id: string; // orders.id (UUID) — used to reassign / set resources
   order_id: string; customer_unique_id: string; customer_name: string; contact: string | null;
-  order_type: string; is_intercity: boolean; is_shifting?: boolean; intercity_profit?: number | null; pallets: number | null; stated_pallets: number | null; transport_charge: number | null;
+  order_type: string; is_intercity: boolean; is_shifting?: boolean; intercity_profit?: number | null; pallets: number | null; stated_pallets: number | null; transport_charge: number | null; storage_charges?: number | null;
   locality: string | null; lat?: number | null; lng?: number | null; time_slot: string | null; required_time: string | null; team_notes: string | null; lift: string | null; floor?: string | null; manual_seq?: number | null;
   booking_date: string | null; // order_created_at — when the customer booked
   trip_no: number; stop_seq: number; resources: number;

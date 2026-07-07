@@ -366,7 +366,10 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     {o.locality && (
                       <a href={mapsUrl(o.lat, o.lng, o.locality)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline" title="Open customer location in Google Maps">📍 {o.locality}</a>
                     )}
-                    <span className="text-xs text-slate-500">{o.transport_charge != null ? money(o.transport_charge) : "—"}</span>
+                    <span className="text-xs text-slate-500" title="Transport charge">{o.transport_charge != null ? money(o.transport_charge) : "—"}</span>
+                    {o.storage_charges != null && Number(o.storage_charges) > 0 && (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500" title="Customer storage charges">🏬 {money(Number(o.storage_charges))} storage</span>
+                    )}
                     {/* PLANNED arrival (from the day plan) vs the customer's REQUESTED window */}
                     {plan?.byOrder?.[o.customer_unique_id] && (
                       <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold text-white ${plan.byOrder[o.customer_unique_id].late ? "bg-red-600" : "bg-slate-900"}`}>~{fmtClock(plan.byOrder[o.customer_unique_id].arrive)}</span>

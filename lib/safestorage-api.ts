@@ -179,6 +179,7 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
         ? parseFloat(o.retrieval_transport_charges) || 0
         : parseFloat(o.transport_cost) || parseFloat(o.total_pickup_charges_with_gst) || 0,
       packingCharge: parseFloat(o.item_packing_charges) || 0,
+      storageCharges: parseFloat(o.storage_charges) || null,
       teamNotes: (o.customer_notes || "").trim() || undefined,
       ...timeFromNotes(o.customer_notes),
       currentVendorId: null, // live orders carry only a generic supervisor; no reliable manual team

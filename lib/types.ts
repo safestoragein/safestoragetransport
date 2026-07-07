@@ -66,6 +66,7 @@ export interface Booking {
   contact?: string;
   transportCharge?: number; // revenue charged to the customer (pickup_charges_with_gst / retrieval_transport_charges)
   packingCharge?: number; // packing charge (item_packing_charges) — kept for reference
+  storageCharges?: number | null; // customer's storage fee (storage_charges) — populated for pickups
   teamNotes?: string; // customer_notes — operator notes incl. customer time requests
   requiredTimeText?: string; // a customer-requested time pulled from the notes, if any (e.g. "morning slot")
   requiredSlot?: { start: number; end: number }; // parsed required window (minutes from midnight) — schedule here
