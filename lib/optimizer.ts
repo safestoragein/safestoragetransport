@@ -281,7 +281,11 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
         const p = palletsAt(v.id);
         const opensNew = p < EPS;
         const prospectiveTrips = buildTrips(v, [...assignedTo.get(v.id)!, b]).length;
-        const fits = opensNew || (prospectiveTrips <= TRIPS_PER_DAY && p + b.pallets <= v.maxPalletsPerDay + EPS);
+        // HARD capacity: the order (assumed for pickups / actual for retrievals) plus the load already
+        // on the vendor must fit the VEHICLE — a 10ft never exceeds 5, a 14ft never 9, even when empty.
+        // Anything too big for one team is handled as a 2-team order; if no fitting vehicle is free it
+        // stays unassigned rather than overloading a small van.
+        const fits = p + b.pallets <= v.maxPalletsPerDay + EPS && (opensNew || prospectiveTrips <= TRIPS_PER_DAY);
         if (fits) fitting.push({ v, p, opensNew });
       }
       // PROXIMITY FIRST: an order goes to the NEAREST vendor cluster; the A/B/C priority group is only

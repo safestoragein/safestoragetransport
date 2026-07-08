@@ -43,18 +43,18 @@ export interface RegionConfig {
   extraTripCost: number; // 1500 for an optional, feasible 3rd trip on a vendor (manual)
 }
 
-// Max pallets ONE vendor team can be allocated (team rule, INCLUDING the assumed buffer):
-//   14ft → 9.5 pallets, 10ft → 5.5 pallets. A load above that must go to a SECOND team.
+// Max pallets ONE vendor team can be allocated — HARD cap, measured on the assumed count (pickups)
+// or the actual count (retrievals): a 14ft never exceeds 9 pallets, a 10ft never 5.
 export const VEHICLE_CAPACITY: Record<VehicleType, number> = {
-  "14ft": 9.5,
-  "10ft": 5.5,
+  "14ft": 9,
+  "10ft": 5,
 };
 
-// The whole-day ceiling (assumed pallets included). Same numbers — the cap IS 9.5 / 5.5, there is no
-// extra floor-tolerance any more. Used for the fit check, trip packing and "overload" detection.
+// The whole-day ceiling (assumed pallets included). Same numbers — the cap IS 9 / 5, hard. Used for
+// the fit check, trip packing and "overload" detection.
 export const VEHICLE_EFFECTIVE_CAPACITY: Record<VehicleType, number> = {
-  "14ft": 9.5,
-  "10ft": 5.5,
+  "14ft": 9,
+  "10ft": 5,
 };
 
 export function effectiveCapacity(type: VehicleType): number {
