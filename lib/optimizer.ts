@@ -45,6 +45,9 @@ const PRIORITY_TIEBREAK_KM = 3;
 // Hard cap: never auto-assign more than this many orders (stops) to one vendor in a day. Overflow
 // goes to the "team to assign" bucket rather than piling a 4th stop on someone.
 const MAX_ORDERS_PER_VENDOR = 3;
+// A vehicle with spare pallet capacity may reach up to this many extra km to fill up (distance costs
+// nothing; a half-empty truck or an extra vehicle does). Bounded so no route crosses the city.
+const FILL_REACH_KM = 10;
 const vehicleMismatch = (v: Vendor, b: Booking) =>
   !!b.requiredVehicle && v.tier === "general" && v.vehicle.type !== b.requiredVehicle;
 
@@ -301,11 +304,18 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
           // holds). Filling a vehicle is preferred, but only with orders near its cluster — so a
           // vendor isn't sent to a far locality just to top off its load.
           const clusterKm = Math.min(roadKm(v.depot, b.location), ...assignedTo.get(v.id)!.map((x) => roadKm(x.location, b.location)));
+          // FILL REACH: a vehicle with spare pallet capacity may reach a bit farther to fill up —
+          // distance is not a cost, but a half-empty truck (or a whole extra vehicle) is. The reach
+          // scales with the room left and is capped at FILL_REACH_KM (10km), so a full/small vehicle
+          // stays local and nothing crosses the city.
+          const spare = Math.max(0, v.maxPalletsPerDay - p); // room this vehicle currently has
+          const reachKm = Math.min(FILL_REACH_KM, spare * 1.5);
+          const effKm = Math.max(0, clusterKm - reachKm);
           const priKm = priRank(v) * PRIORITY_TIEBREAK_KM; // secondary: nudges nearer→higher-priority
           const score =
             (opensNew ? 1 : 0) * 1_000_000_000 + // strongly prefer filling an open vehicle over a new one
             (conflict ? WINDOW_CONFLICT_PENALTY : 0) + // ...unless it clashes with a same-window order here
-            (opensNew ? clusterKm + priKm : -p * 1000 + (clusterKm + priKm) * 1000) + // proximity (+ priority nudge); fill also tops off fuller vehicles
+            (opensNew ? effKm + priKm : -p * 1000 + (effKm + priKm) * 1000) + // proximity (spare-capacity reach + priority nudge); fill also tops off fuller vehicles
             (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // 2nd team → prefer same vendor's other team
             (v.tier === "non_general" ? 500_000 : 0) + // keep premium/intercity vendors for overflow
             (vehicleMismatch(v, b) ? VEHICLE_PENALTY_SCORE : 0);
