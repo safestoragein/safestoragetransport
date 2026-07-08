@@ -2,9 +2,14 @@
 // Reads the SAME tables the web dashboard uses (schedule_runs -> schedule_assignments -> orders),
 // so the vendor app and Today's schedule are always the same source of truth.
 import { db, hasDb } from "./db";
+import { allLiveOrders } from "./safestorage-api";
 
 export interface VendorJob {
   orderId: string;            // sst_orders.id (use this for status updates)
+  systemOrderId: string | null; // WMS numeric order_id (for WMS inventory/kyc/lift-floor calls)
+  customerId: string | null;  // WMS customer_id — needed by the WMS inventory/KYC/lift-floor endpoints
+  quotationId: string | null; // WMS quotation_id — needed by the WMS inventory endpoints (pickups)
+  supervisorId: string | null;// WMS supervisor_id for this order
   refNo: string;              // customer_unique_id (e.g. BH46789)
   customerName: string;
   contact: string | null;
@@ -56,13 +61,24 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
   const orderIds = [...new Set(rows.map((a: any) => a.order_id))];
   const { data: orders } = await c.from("orders").select("*").in("id", orderIds);
   const byId = new Map((orders ?? []).map((o: any) => [o.id, o]));
+  // Resolve the WMS ids (customer_id / quotation_id / supervisor_id) the mobile app needs to call the
+  // WMS inventory / KYC / lift-floor endpoints directly. Keyed by the system order_id. Best-effort.
+  const feedById = new Map<string, any>();
+  try {
+    for (const f of await allLiveOrders()) { const id = String(f.order_id ?? ""); if (id) feedById.set(id, f); }
+  } catch { /* feed down → ids stay null; the app falls back gracefully */ }
   const jobs = rows
     .sort((a: any, b: any) => a.trip_no - b.trip_no || a.stop_seq - b.stop_seq)
     .map((a: any) => {
       const o: any = byId.get(a.order_id) || {};
       const isRet = /retriev/i.test(o.order_type || "");
+      const f: any = feedById.get(String(o.order_id ?? "")) || {};
       return {
         orderId: a.order_id,
+        systemOrderId: o.order_id != null ? String(o.order_id) : null,
+        customerId: f.customer_id != null ? String(f.customer_id) : null,
+        quotationId: f.quotation_id != null ? String(f.quotation_id) : null,
+        supervisorId: f.supervisor_id != null ? String(f.supervisor_id) : null,
         refNo: o.customer_unique_id ?? o.order_id,
         customerName: o.customer_name ?? "Customer",
         contact: o.contact ?? null,
