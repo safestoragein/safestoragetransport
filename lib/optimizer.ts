@@ -45,15 +45,6 @@ const PRIORITY_TIEBREAK_KM = 3;
 // Hard cap: never auto-assign more than this many orders (stops) to one vendor in a day. Overflow
 // goes to the "team to assign" bucket rather than piling a 4th stop on someone.
 const MAX_ORDERS_PER_VENDOR = 3;
-// A vehicle with spare pallet capacity may reach up to this many extra km to fill up (distance costs
-// nothing; a half-empty truck or an extra vehicle does). Bounded so no route crosses the city.
-const FILL_REACH_KM = 10;
-// Keep a vendor's whole-day route sane. This is the OPTIMISER estimate (haversine×1.3, no evening
-// warehouse-collection leg); the displayed OSRM total runs ~35-40km higher, so ~70 est ≈ ~100 shown.
-const MAX_ROUTE_KM = 70;
-// A small order (fits a 10ft) prefers a 10ft vehicle over a 14ft, worth this many km — so a lone/
-// small order rides a cheaper small van instead of tying up a big truck, unless a 14ft is much nearer.
-const SMALL_ON_10FT_KM = 8;
 const vehicleMismatch = (v: Vendor, b: Booking) =>
   !!b.requiredVehicle && v.tier === "general" && v.vehicle.type !== b.requiredVehicle;
 
@@ -280,24 +271,18 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
     const order = [...remaining].map((id) => byId.get(id)!).filter((b) => teamsNeeded(b.pallets) < 2).sort((a, b) => b.pallets - a.pallets);
     for (const b of order) {
       if (!remaining.has(b.id)) continue;
-      // Which vendors can take this order. HARD limit: the order (assumed pallets for pickups, actual
-      // for retrievals) plus whatever the vendor already holds must fit the VEHICLE'S capacity — a
-      // 10ft never exceeds 5 pallets, a 14ft never 9, even when empty. (Orders too big for one team
-      // are already handled in Phase 1c, so everything here fits a 14ft; if none is free it stays
-      // unassigned rather than overloading a small van.) Also ≤2 trips/day.
+      // Which vendors can take this order at all (capacity + the 2-trip/day cap). A vendor does at
+      // most 2 trips/day; a 3rd trip is added by the team manually, not here. An empty vendor always
+      // fits a single (even oversize) order — it can't be split.
       const fitting: { v: Vendor; p: number; opensNew: boolean }[] = [];
       for (const v of [...generals, ...nons]) {
         if (consumed.has(v.id)) continue; // reserved as a big order's 2nd/3rd team
         if (assignedTo.get(v.id)!.length >= MAX_ORDERS_PER_VENDOR) continue; // hard cap: ≤3 orders/vendor/day
         const p = palletsAt(v.id);
         const opensNew = p < EPS;
-        const withB = [...assignedTo.get(v.id)!, b];
-        const capOk = p + b.pallets <= v.maxPalletsPerDay + EPS;
-        const tripsOk = opensNew || buildTrips(v, withB).length <= TRIPS_PER_DAY;
-        // Route stays under the cap — unless this is a brand-new vehicle for a single order (a lone
-        // far order can't be helped; it still gets served, just on its own).
-        const routeOk = opensNew || evaluate(v, withB).totalKm <= MAX_ROUTE_KM;
-        if (capOk && tripsOk && routeOk) fitting.push({ v, p, opensNew });
+        const prospectiveTrips = buildTrips(v, [...assignedTo.get(v.id)!, b]).length;
+        const fits = opensNew || (prospectiveTrips <= TRIPS_PER_DAY && p + b.pallets <= v.maxPalletsPerDay + EPS);
+        if (fits) fitting.push({ v, p, opensNew });
       }
       // PROXIMITY FIRST: an order goes to the NEAREST vendor cluster; the A/B/C priority group is only
       // a secondary tiebreak (worth PRIORITY_TIEBREAK_KM per step). So a nearby B vendor beats a far A
@@ -316,21 +301,11 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
           // holds). Filling a vehicle is preferred, but only with orders near its cluster — so a
           // vendor isn't sent to a far locality just to top off its load.
           const clusterKm = Math.min(roadKm(v.depot, b.location), ...assignedTo.get(v.id)!.map((x) => roadKm(x.location, b.location)));
-          // FILL REACH: a vehicle with spare pallet capacity may reach a bit farther to fill up —
-          // distance is not a cost, but a half-empty truck (or a whole extra vehicle) is. The reach
-          // scales with the room left and is capped at FILL_REACH_KM (10km), so a full/small vehicle
-          // stays local and nothing crosses the city.
-          const spare = Math.max(0, v.maxPalletsPerDay - p); // room this vehicle currently has
-          const reachKm = Math.min(FILL_REACH_KM, spare * 1.5);
-          const effKm = Math.max(0, clusterKm - reachKm);
           const priKm = priRank(v) * PRIORITY_TIEBREAK_KM; // secondary: nudges nearer→higher-priority
-          // Small order (fits a 10ft) opening a fresh vehicle → prefer a 10ft van over a big 14ft,
-          // unless the 14ft is much nearer. Keeps big trucks free for big loads.
-          const oversizeKm = opensNew && v.vehicle.type === "14ft" && b.pallets <= effectiveCapacity("10ft") + EPS ? SMALL_ON_10FT_KM : 0;
           const score =
             (opensNew ? 1 : 0) * 1_000_000_000 + // strongly prefer filling an open vehicle over a new one
             (conflict ? WINDOW_CONFLICT_PENALTY : 0) + // ...unless it clashes with a same-window order here
-            (opensNew ? effKm + priKm + oversizeKm : -p * 1000 + (effKm + priKm) * 1000) + // proximity (spare-capacity reach + priority nudge); fill also tops off fuller vehicles
+            (opensNew ? clusterKm + priKm : -p * 1000 + (clusterKm + priKm) * 1000) + // proximity (+ priority nudge); fill also tops off fuller vehicles
             (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // 2nd team → prefer same vendor's other team
             (v.tier === "non_general" ? 500_000 : 0) + // keep premium/intercity vendors for overflow
             (vehicleMismatch(v, b) ? VEHICLE_PENALTY_SCORE : 0);
@@ -345,43 +320,6 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
         progressed = true;
       }
     }
-  }
-
-  // ---------- consolidate ----------
-  // Cut vehicle count: an under-filled vendor's whole load is merged onto ANOTHER vendor whenever it
-  // still fits every rule (≤3 stops, pallet capacity, ≤2 trips, route ≤ cap, vehicle size). We empty
-  // the smallest vendors first and pick the host that gives the tightest combined route, so a vendor
-  // is left with a single order only when nothing can legally absorb it (no capacity / route room).
-  for (let guard = 0; guard < vendors.length + 5; guard++) {
-    const active = vendors.filter((v) => assignedTo.get(v.id)!.length > 0).sort((a, b) => assignedTo.get(a.id)!.length - assignedTo.get(b.id)!.length);
-    let didMerge = false;
-    for (const v of active) {
-      const bs = assignedTo.get(v.id)!;
-      if (!bs.length || bs.some((b) => teamsNeeded(b.pallets) > 1)) continue; // skip big 2-team orders
-      let bestH: Vendor | null = null, bestKm = Infinity;
-      for (const h of active) {
-        if (h.id === v.id || consumed.has(h.id)) continue;
-        const hbs = assignedTo.get(h.id)!;
-        if (!hbs.length) continue;
-        if (h.tier === "non_general" && v.tier === "general") continue; // don't push work onto premium vendors
-        const combined = [...hbs, ...bs];
-        if (combined.length > MAX_ORDERS_PER_VENDOR) continue;
-        if (palletsOf(combined) > h.maxPalletsPerDay + EPS) continue;
-        if (buildTrips(h, combined).length > TRIPS_PER_DAY) continue;
-        if (bs.some((b) => vehicleMismatch(h, b))) continue;
-        const km = evaluate(h, combined).totalKm;
-        if (km > MAX_ROUTE_KM || km >= bestKm) continue;
-        bestKm = km; bestH = h;
-      }
-      if (bestH) {
-        assignedTo.get(bestH.id)!.push(...bs);
-        bs.forEach((b) => reasoning.get(bestH!.id)!.push(`Merged ${b.refNo} (${b.pallets}p) from ${v.name} to save a vehicle — combined route ${round1(bestKm)}km est.`));
-        assignedTo.set(v.id, []);
-        didMerge = true;
-        break;
-      }
-    }
-    if (!didMerge) break;
   }
 
   // ---------- assemble ----------
