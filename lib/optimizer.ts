@@ -347,6 +347,43 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
     }
   }
 
+  // ---------- consolidate ----------
+  // Cut vehicle count: an under-filled vendor's whole load is merged onto ANOTHER vendor whenever it
+  // still fits every rule (≤3 stops, pallet capacity, ≤2 trips, route ≤ cap, vehicle size). We empty
+  // the smallest vendors first and pick the host that gives the tightest combined route, so a vendor
+  // is left with a single order only when nothing can legally absorb it (no capacity / route room).
+  for (let guard = 0; guard < vendors.length + 5; guard++) {
+    const active = vendors.filter((v) => assignedTo.get(v.id)!.length > 0).sort((a, b) => assignedTo.get(a.id)!.length - assignedTo.get(b.id)!.length);
+    let didMerge = false;
+    for (const v of active) {
+      const bs = assignedTo.get(v.id)!;
+      if (!bs.length || bs.some((b) => teamsNeeded(b.pallets) > 1)) continue; // skip big 2-team orders
+      let bestH: Vendor | null = null, bestKm = Infinity;
+      for (const h of active) {
+        if (h.id === v.id || consumed.has(h.id)) continue;
+        const hbs = assignedTo.get(h.id)!;
+        if (!hbs.length) continue;
+        if (h.tier === "non_general" && v.tier === "general") continue; // don't push work onto premium vendors
+        const combined = [...hbs, ...bs];
+        if (combined.length > MAX_ORDERS_PER_VENDOR) continue;
+        if (palletsOf(combined) > h.maxPalletsPerDay + EPS) continue;
+        if (buildTrips(h, combined).length > TRIPS_PER_DAY) continue;
+        if (bs.some((b) => vehicleMismatch(h, b))) continue;
+        const km = evaluate(h, combined).totalKm;
+        if (km > MAX_ROUTE_KM || km >= bestKm) continue;
+        bestKm = km; bestH = h;
+      }
+      if (bestH) {
+        assignedTo.get(bestH.id)!.push(...bs);
+        bs.forEach((b) => reasoning.get(bestH!.id)!.push(`Merged ${b.refNo} (${b.pallets}p) from ${v.name} to save a vehicle — combined route ${round1(bestKm)}km est.`));
+        assignedTo.set(v.id, []);
+        didMerge = true;
+        break;
+      }
+    }
+    if (!didMerge) break;
+  }
+
   // ---------- assemble ----------
   const assignments: Assignment[] = [];
   for (const v of vendors) {
