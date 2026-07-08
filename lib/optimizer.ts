@@ -274,9 +274,11 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
     const order = [...remaining].map((id) => byId.get(id)!).filter((b) => teamsNeeded(b.pallets) < 2).sort((a, b) => b.pallets - a.pallets);
     for (const b of order) {
       if (!remaining.has(b.id)) continue;
-      // Which vendors can take this order at all (capacity + the 2-trip/day cap). A vendor does at
-      // most 2 trips/day; a 3rd trip is added by the team manually, not here. An empty vendor always
-      // fits a single (even oversize) order — it can't be split.
+      // Which vendors can take this order. HARD limit: the order (assumed pallets for pickups, actual
+      // for retrievals) plus whatever the vendor already holds must fit the VEHICLE'S capacity — a
+      // 10ft never exceeds 5 pallets, a 14ft never 9, even when empty. (Orders too big for one team
+      // are already handled in Phase 1c, so everything here fits a 14ft; if none is free it stays
+      // unassigned rather than overloading a small van.) Also ≤2 trips/day.
       const fitting: { v: Vendor; p: number; opensNew: boolean }[] = [];
       for (const v of [...generals, ...nons]) {
         if (consumed.has(v.id)) continue; // reserved as a big order's 2nd/3rd team
@@ -284,7 +286,7 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
         const p = palletsAt(v.id);
         const opensNew = p < EPS;
         const prospectiveTrips = buildTrips(v, [...assignedTo.get(v.id)!, b]).length;
-        const fits = opensNew || (prospectiveTrips <= TRIPS_PER_DAY && p + b.pallets <= v.maxPalletsPerDay + EPS);
+        const fits = p + b.pallets <= v.maxPalletsPerDay + EPS && (opensNew || prospectiveTrips <= TRIPS_PER_DAY);
         if (fits) fitting.push({ v, p, opensNew });
       }
       // PROXIMITY FIRST: an order goes to the NEAREST vendor cluster; the A/B/C priority group is only

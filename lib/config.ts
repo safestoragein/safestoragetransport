@@ -43,18 +43,19 @@ export interface RegionConfig {
   extraTripCost: number; // 1500 for an optional, feasible 3rd trip on a vendor (manual)
 }
 
-// Max pallets ONE vendor team can be allocated (team rule, INCLUDING the assumed buffer):
-//   14ft → 9.5 pallets, 10ft → 5.5 pallets. A load above that must go to a SECOND team.
+// Max pallets ONE vendor team can be allocated (team rule). The cap is on the ASSUMED count for
+// pickups, or the ACTUAL count for retrievals (no assumption): a 14ft never exceeds 9 pallets, a
+// 10ft never 5. A load above that must go to a bigger vehicle / a SECOND team.
 export const VEHICLE_CAPACITY: Record<VehicleType, number> = {
-  "14ft": 9.5,
-  "10ft": 5.5,
+  "14ft": 9,
+  "10ft": 5,
 };
 
-// The whole-day ceiling (assumed pallets included). Same numbers — the cap IS 9.5 / 5.5, there is no
-// extra floor-tolerance any more. Used for the fit check, trip packing and "overload" detection.
+// The whole-day ceiling (assumed pallets included). Same numbers — the cap IS 9 / 5, hard. Used for
+// the fit check, trip packing and "overload" detection.
 export const VEHICLE_EFFECTIVE_CAPACITY: Record<VehicleType, number> = {
-  "14ft": 9.5,
-  "10ft": 5.5,
+  "14ft": 9,
+  "10ft": 5,
 };
 
 export function effectiveCapacity(type: VehicleType): number {
@@ -66,12 +67,12 @@ export function effectiveCapacity(type: VehicleType): number {
 // second team of the same vendor (see optimizer sibling-team preference).
 export const TRIPS_PER_DAY = 2;
 export function vendorDailyCap(type: VehicleType): number {
-  return VEHICLE_EFFECTIVE_CAPACITY[type]; // 14ft -> 9.5, 10ft -> 5.5
+  return VEHICLE_EFFECTIVE_CAPACITY[type]; // 14ft -> 9, 10ft -> 5
 }
 
-// How many teams ONE order needs. Anything a single 14ft team can carry (≤9.5 incl. assumed) = 1
-// team; a bigger order needs 2 (or more) teams — which must all come from the SAME vendor. The order
-// itself is NEVER split; the teams share the one job.
+// How many teams ONE order needs. Anything a single 14ft team can carry (≤9 incl. assumed) = 1 team;
+// a bigger order needs 2 (or more) teams — which must all come from the SAME vendor. The order itself
+// is NEVER split; the teams share the one job.
 export function teamsNeeded(pallets: number): number {
   const cap = VEHICLE_EFFECTIVE_CAPACITY["14ft"];
   return pallets > cap + 1e-9 ? Math.ceil(pallets / cap) : 1;
