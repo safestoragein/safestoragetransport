@@ -7,7 +7,7 @@ import { vendorOwnsOrder, saveOrderPhoto, listOrderPhotos } from "@/lib/vendor-m
 
 export const dynamic = "force-dynamic";
 
-const KINDS = ["kyc", "pickup", "delivery", "damage"];
+const KINDS = ["team", "kyc", "pickup", "delivery", "damage"];
 
 export async function POST(req: NextRequest) {
   const v = verifyVendor(req);
