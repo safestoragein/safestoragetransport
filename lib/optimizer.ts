@@ -334,6 +334,36 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
     }
   }
 
+  // ---------- rescue lone orders ----------
+  // A vendor left with a SINGLE order wastes a whole ₹7,000 vehicle. If a nearby already-open vendor
+  // can absorb that order, move it there — the ONLY case where a vendor may take a 4th stop (the
+  // normal cap stays a hard 3). Merges only when a host is within RESCUE_MAX_KM and has pallet/trip
+  // room, so it never creates a long detour and never overloads the vehicle.
+  const RESCUE_MAX_KM = 25;
+  for (const v of vendors) {
+    const bs = assignedTo.get(v.id)!;
+    if (bs.length !== 1) continue;
+    const b = bs[0];
+    if (teamsNeeded(b.pallets) > 1) continue; // big orders are meant to run their own vehicle(s)
+    let bestHost: Vendor | null = null, bestKm = Infinity;
+    for (const h of vendors) {
+      if (h.id === v.id || consumed.has(h.id)) continue;
+      const hbs = assignedTo.get(h.id)!;
+      if (hbs.length === 0 || hbs.length >= MAX_ORDERS_PER_VENDOR + 1) continue; // host is open; allow up to 4
+      if (h.tier === "non_general" && v.tier === "general") continue; // don't push work onto premium vendors
+      if (palletsOf(hbs) + b.pallets > h.maxPalletsPerDay + EPS) continue; // must still fit the host's vehicle
+      if (buildTrips(h, [...hbs, b]).length > TRIPS_PER_DAY) continue;
+      if (vehicleMismatch(h, b)) continue;
+      const km = Math.min(roadKm(h.depot, b.location), ...hbs.map((x) => roadKm(x.location, b.location)));
+      if (km < bestKm) { bestKm = km; bestHost = h; }
+    }
+    if (bestHost && bestKm <= RESCUE_MAX_KM) {
+      assignedTo.get(bestHost.id)!.push(b);
+      assignedTo.set(v.id, []);
+      reasoning.get(bestHost.id)!.push(`Absorbed ${b.refNo} (${b.pallets}p) — was a solo vehicle; nearest open vendor (${round1(bestKm)}km), 4th stop as an exception.`);
+    }
+  }
+
   // ---------- assemble ----------
   const assignments: Assignment[] = [];
   for (const v of vendors) {
