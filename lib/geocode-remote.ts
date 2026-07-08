@@ -47,6 +47,30 @@ function nominatim(query: string): Promise<{ lat: number; lng: number } | null> 
 
 export interface Geo { lat: number; lng: number; precise: boolean; locality?: string | null }
 
+// Bump this when the query strategy changes so already-cached MISSES get re-tried once.
+const GEOCODE_PROVIDER = "nominatim-v2";
+
+// Nominatim can't parse full Indian apartment strings ("Eden Park @ The Prestige City, …"), so it
+// used to miss ~70% of orders → they all fell back to the city centre and the optimiser couldn't
+// cluster them. We now try progressively simpler queries and take the first that resolves:
+//   1. the full address           (most specific; often fails for apartments)
+//   2. locality + city            (e.g. "Sarjapura, Bengaluru" — usually resolves)
+//   3. the 6-digit PINCODE        (very reliable, ~2 km accuracy — best for clustering)
+//   4. just the locality
+function geocodeQueries(address: string, citySlug: string): string[] {
+  const a = address.trim();
+  const city = cap(citySlug);
+  const out: string[] = [`${a}, ${city}, India`];
+  const parts = a.split(",").map((s) => s.trim()).filter(Boolean);
+  const named = parts.filter((p) => /[a-z]/i.test(p) && !/^\d/.test(p) && !/karnataka|tamil ?nadu|telangana|maharashtra|delhi|india|bengaluru|bangalore/i.test(p));
+  const locality = named[named.length - 1]; // last named segment before city/state = the area
+  if (locality) out.push(`${locality}, ${city}, India`);
+  const pin = a.match(/\b(\d{6})\b/);
+  if (pin) out.push(`${pin[1]}, India`);
+  if (locality) out.push(`${locality}, India`);
+  return [...new Set(out)].slice(0, 4);
+}
+
 export async function geocodeCached(address: string, citySlug: string): Promise<Geo> {
   const local = geocodeAddress(address || "", citySlug); // approximate fallback (+ city centre)
   const q = (address || "").trim();
@@ -57,14 +81,20 @@ export async function geocodeCached(address: string, citySlug: string): Promise<
     const { data } = await db().from("geocode_cache").select("*").eq("q", key).maybeSingle();
     if (data) {
       if (data.lat != null && data.lng != null) return { lat: Number(data.lat), lng: Number(data.lng), precise: !!data.precise, locality: local.locality };
-      return local; // cached miss → local fallback
+      if (data.provider === GEOCODE_PROVIDER) return local; // already tried with the new strategy → still a miss
+      // else: an OLD cached miss — fall through and re-try with the improved query cascade.
     }
   } catch { /* cache read failed — carry on to live lookup */ }
 
-  const hit = await throttled(() => nominatim(`${q}, ${cap(citySlug)}, India`));
+  // Try the queries in order; first hit wins.
+  let hit: { lat: number; lng: number } | null = null;
+  for (const cand of geocodeQueries(q, citySlug)) {
+    hit = await throttled(() => nominatim(cand));
+    if (hit) break;
+  }
   try {
     await db().from("geocode_cache").upsert(
-      { q: key, lat: hit ? hit.lat : null, lng: hit ? hit.lng : null, precise: hit ? 1 : 0, provider: "nominatim" },
+      { q: key, lat: hit ? hit.lat : null, lng: hit ? hit.lng : null, precise: hit ? 1 : 0, provider: GEOCODE_PROVIDER },
       { onConflict: "q" },
     );
   } catch { /* cache write failed — non-fatal */ }

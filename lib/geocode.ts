@@ -49,6 +49,12 @@ const GAZ: Record<string, [number, number]> = {
   jayanagar: [12.93, 77.583], koramangala: [12.935, 77.626], indiranagar: [12.971, 77.641],
   hebbal: [13.035, 77.597], banashankari: [12.925, 77.546], hsr: [12.911, 77.638],
   bellandur: [12.926, 77.676], "hennur": [13.04, 77.64], rajajinagar: [12.991, 77.552],
+  // SE / East Bangalore (Sarjapur Rd & Whitefield corridor) — common in apartment addresses
+  sarjapura: [12.86, 77.786], carmelaram: [12.905, 77.703], chikkakannalli: [12.888, 77.69],
+  kadugodi: [12.997, 77.76], varthur: [12.94, 77.74], hoodi: [12.992, 77.716],
+  kundalahalli: [12.959, 77.716], brookefield: [12.966, 77.717], nagondanahalli: [12.99, 77.73],
+  hoskote: [13.07, 77.79], panathur: [12.936, 77.696], harlur: [12.905, 77.655], haralur: [12.9, 77.66],
+  gunjur: [12.92, 77.74], "ramamurthy nagar": [13.018, 77.677],
   // Hyderabad
   puppalaguda: [17.412, 78.366], kondapur: [17.4615, 78.364], "mahendra hills": [17.45, 78.53],
   malkajgiri: [17.45, 78.53], secunderabad: [17.44, 78.5], gachibowli: [17.44, 78.348],
