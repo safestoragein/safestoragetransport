@@ -35,14 +35,16 @@ export interface VendorJob {
 // upcoming one the office published the evening before — date-agnostic on purpose). Empty/`published:
 // false` until the office has actually sent this vendor their notification. `_date` is accepted for
 // backwards-compat but ignored — the notification is the source of truth.
-export async function vendorJobs(vendorId: string, date?: string | null): Promise<{ published: boolean; notifiedAt: string | null; date: string | null; jobs: VendorJob[] }> {
-  const empty = { published: false, notifiedAt: null as string | null, date: null as string | null, jobs: [] as VendorJob[] };
+export async function vendorJobs(vendorId: string, date?: string | null): Promise<{ published: boolean; tentative: boolean; notifiedAt: string | null; date: string | null; jobs: VendorJob[] }> {
+  const empty = { published: false, tentative: false, notifiedAt: null as string | null, date: null as string | null, jobs: [] as VendorJob[] };
   if (!hasDb) return empty;
   const c = db();
   // The vendor's notifications point at the runs they can see. Without a date → the latest one
   // (their current schedule). With a date → that specific day's run (history/date filter).
   const { data: notifs } = await c.from("notifications").select("run_id, sent_at").eq("vendor_id", vendorId).eq("kind", "vendor").order("sent_at", { ascending: false });
-  if (!notifs?.length) return empty;
+  // Not notified yet? For a specific date (the Tomorrow tab) show a TENTATIVE, masked preview if a
+  // schedule already exists; for Today (no date) just wait.
+  if (!notifs?.length) return date ? tentativeJobs(c, vendorId, date) : empty;
   let runId = notifs[0].run_id as string;
   let notifiedAt = notifs[0].sent_at as string;
   if (date) {
@@ -50,14 +52,14 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
     const { data: runs } = await c.from("schedule_runs").select("id, schedule_date").in("id", runIds);
     const dateByRun = new Map((runs ?? []).map((r: any) => [r.id, String(r.schedule_date).slice(0, 10)]));
     const match = notifs.find((n: any) => dateByRun.get(n.run_id) === date);
-    if (!match) return empty; // that date has nothing for this vendor
+    if (!match) return tentativeJobs(c, vendorId, date); // no notification for that date → tentative preview
     runId = match.run_id; notifiedAt = match.sent_at;
   }
   const { data: runRow } = await c.from("schedule_runs").select("schedule_date").eq("id", runId).limit(1);
   const runDate = runRow?.[0]?.schedule_date ? String(runRow[0].schedule_date).slice(0, 10) : null;
   const { data: assigns } = await c.from("schedule_assignments").select("*").eq("run_id", runId).eq("vendor_id", vendorId);
   const rows = assigns ?? [];
-  if (!rows.length) return { published: true, notifiedAt, date: runDate, jobs: [] };
+  if (!rows.length) return { published: true, tentative: false, notifiedAt, date: runDate, jobs: [] };
   const orderIds = [...new Set(rows.map((a: any) => a.order_id))];
   const { data: orders } = await c.from("orders").select("*").in("id", orderIds);
   const byId = new Map((orders ?? []).map((o: any) => [o.id, o]));
@@ -101,7 +103,47 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
         liveStatusAt: o.live_status_at ?? null,
       } as VendorJob;
     });
-  return { published: true, notifiedAt, date: runDate, jobs };
+  return { published: true, tentative: false, notifiedAt, date: runDate, jobs };
+}
+
+// A TENTATIVE preview of a day's schedule that exists but hasn't been sent to the vendor yet. The
+// office finalises after the ~6 PM cut-off; until then the vendor sees masked stops (no customer
+// name / phone / exact pin) just so they can plan. Confirmed details unlock on "Notify vendor".
+async function tentativeJobs(c: any, vendorId: string, date: string): Promise<{ published: boolean; tentative: boolean; notifiedAt: string | null; date: string | null; jobs: VendorJob[] }> {
+  const none = { published: false, tentative: false, notifiedAt: null as string | null, date, jobs: [] as VendorJob[] };
+  const { data: runs } = await c.from("schedule_runs").select("id").eq("schedule_date", date).order("generated_at", { ascending: false });
+  for (const run of runs ?? []) {
+    const { data: assigns } = await c.from("schedule_assignments").select("*").eq("run_id", run.id).eq("vendor_id", vendorId);
+    const rows = (assigns ?? []).filter((a: any) => a.stop_seq !== -1);
+    if (!rows.length) continue;
+    const orderIds = [...new Set(rows.map((a: any) => a.order_id))];
+    const { data: orders } = await c.from("orders").select("*").in("id", orderIds);
+    const byId = new Map((orders ?? []).map((o: any) => [o.id, o]));
+    const jobs = rows
+      .sort((a: any, b: any) => a.trip_no - b.trip_no || a.stop_seq - b.stop_seq)
+      .map((a: any) => {
+        const o: any = byId.get(a.order_id) || {};
+        const isRet = /retriev/i.test(o.order_type || "");
+        return {
+          orderId: a.order_id, systemOrderId: null, customerId: null, quotationId: null, supervisorId: null,
+          refNo: "", // masked
+          customerName: "Tentative booking",
+          contact: null, // masked
+          orderType: o.order_type ?? "pickup",
+          isRetrieval: isRet,
+          address: o.locality ?? null, // area only, to help planning
+          lat: null, lng: null, // exact pin masked
+          warehouseName: null, warehouseLat: null, warehouseLng: null,
+          pallets: o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : null),
+          timeSlot: o.time_slot ?? null,
+          lift: null, teamNotes: null,
+          tripNo: a.trip_no ?? 0, stopSeq: a.stop_seq ?? 0,
+          liveStatus: null, liveStatusAt: null,
+        } as VendorJob;
+      });
+    return { published: false, tentative: true, notifiedAt: null, date, jobs };
+  }
+  return none;
 }
 
 // Distinct service dates this vendor has (notified) schedules for — powers the app's date filter.

@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get("date");
   try {
     const r = await vendorJobs(v.vendorId, date);
-    return NextResponse.json({ ok: true, published: r.published, notifiedAt: r.notifiedAt, date: r.date, vendor: { id: v.vendorId, name: v.name }, jobs: r.jobs });
+    return NextResponse.json({ ok: true, published: r.published, tentative: r.tentative, notifiedAt: r.notifiedAt, date: r.date, vendor: { id: v.vendorId, name: v.name }, jobs: r.jobs });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }
