@@ -24,6 +24,7 @@ export interface VendorJob {
   pallets: number | null;
   timeSlot: string | null;
   lift: string | null;
+  floor: string | null;
   teamNotes: string | null;
   tripNo: number;
   stopSeq: number;
@@ -96,6 +97,7 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
         pallets: o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : null),
         timeSlot: o.time_slot ?? null,
         lift: o.lift ?? null,
+        floor: o.floor ?? null,
         teamNotes: o.team_notes ?? null,
         tripNo: a.trip_no ?? 0,
         stopSeq: a.stop_seq ?? 0,
@@ -136,7 +138,7 @@ async function tentativeJobs(c: any, vendorId: string, date: string): Promise<{ 
           warehouseName: null, warehouseLat: null, warehouseLng: null,
           pallets: o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : null),
           timeSlot: o.time_slot ?? null,
-          lift: null, teamNotes: null,
+          lift: null, floor: o.floor ?? null, teamNotes: null,
           tripNo: a.trip_no ?? 0, stopSeq: a.stop_seq ?? 0,
           liveStatus: null, liveStatusAt: null,
         } as VendorJob;
