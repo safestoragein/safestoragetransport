@@ -144,6 +144,17 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
     setPending(null);
   }
 
+  // Lazy inventory item list per order — only hits the backend when the office expands it.
+  const [inv, setInv] = useState<Record<string, { open: boolean; loading: boolean; items?: any[]; error?: string }>>({}); // eslint-disable-line @typescript-eslint/no-explicit-any
+  async function toggleInventory(orderUuid: string) {
+    const cur = inv[orderUuid];
+    if (cur?.open) { setInv((s) => ({ ...s, [orderUuid]: { ...cur, open: false } })); return; }
+    if (cur?.items) { setInv((s) => ({ ...s, [orderUuid]: { ...cur, open: true } })); return; }
+    setInv((s) => ({ ...s, [orderUuid]: { open: true, loading: true } }));
+    const r = await fetch(`/api/schedule/inventory?orderUuid=${orderUuid}`).then((x) => x.json()).catch(() => ({ ok: false, error: "network error" }));
+    setInv((s) => ({ ...s, [orderUuid]: { open: true, loading: false, items: r.items ?? [], error: r.ok ? undefined : (r.error || "could not load") } }));
+  }
+
   // Team interchanges a vendor's stop order: send the UUIDs in the new 1..N order.
   async function reorderStops(orderUuids: string[]) {
     setPending(`seq:${orderUuids.join(",")}`);
@@ -433,6 +444,15 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                       </select>
                     )}
 
+                    {/* Inventory — lazily fetched from the WMS on click */}
+                    <button
+                      onClick={() => toggleInventory(o.id)}
+                      className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                      title="Show this booking's inventory items"
+                    >
+                      🧾 {inv[o.id]?.open ? "Hide inventory" : "Inventory"}{inv[o.id]?.loading ? " …" : inv[o.id]?.items ? ` (${inv[o.id]!.items!.length})` : ""}
+                    </button>
+
                     {/* intercity profit is recorded manually (negotiated per trip) */}
                     {o.is_intercity && (
                       <span className="flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200">
@@ -465,6 +485,31 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                       )
                     )}
                   </div>
+                  )}
+
+                  {/* Inventory item list (lazy) */}
+                  {inv[o.id]?.open && (
+                    <div className="mt-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px]">
+                      {inv[o.id]?.loading ? (
+                        <span className="text-slate-500">Loading inventory…</span>
+                      ) : inv[o.id]?.error ? (
+                        <span className="text-red-500">Couldn&apos;t load inventory: {inv[o.id]!.error}</span>
+                      ) : (inv[o.id]?.items?.length ?? 0) === 0 ? (
+                        <span className="text-slate-400">No inventory items found for this booking.</span>
+                      ) : (
+                        <div>
+                          <div className="mb-1 font-semibold text-slate-600">Inventory · {inv[o.id]!.items!.length} item{inv[o.id]!.items!.length > 1 ? "s" : ""}</div>
+                          <ul className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-3">
+                            {inv[o.id]!.items!.map((it: any, i: number) => (
+                              <li key={i} className="flex items-center justify-between gap-2 text-slate-700">
+                                <span className="truncate">{it.name}</span>
+                                {it.qty != null && <span className="shrink-0 text-slate-400">×{it.qty}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               );
