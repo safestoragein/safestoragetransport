@@ -13,7 +13,7 @@ import { allLiveOrders } from "./safestorage-api";
 // per-city monitoring board. WMS feed is the fallback when the vendor app hasn't reported.
 type Wms = { wms: string | null; status: string | null };
 const appStatus = (o: any) => String(o.live_status ?? "").toLowerCase();
-const appStarted = (o: any) => ["en_route", "arrived", "packing", "loaded", "delivered"].includes(appStatus(o));
+const appStarted = (o: any) => ["collected", "en_route", "arrived", "packing", "loaded", "delivered"].includes(appStatus(o));
 const MID_WMS = ["GATE_PASS", "READY_TO_OUTBOUND", "READY_FOR_PICKLIST"];
 const isPickup = (o: any) => String(o.order_type ?? "").toLowerCase().includes("pickup") && !String(o.order_type ?? "").toLowerCase().includes("retriev");
 

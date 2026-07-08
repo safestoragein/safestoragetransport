@@ -21,9 +21,9 @@ const wmsOf = (o: any, m: LiveMap) => (liveOf(o, m)?.wms ?? "").toUpperCase();
 // The vendor app's live status (what the SUPERVISOR taps in the phone) is the PRIMARY signal — the
 // WMS feed is the fallback. Flow: assigned → en_route → arrived → packing → loaded → delivered.
 const appStatus = (o: any) => String(o.live_status ?? "").toLowerCase();
-const appStarted = (o: any) => ["en_route", "arrived", "packing", "loaded", "delivered"].includes(appStatus(o));
-const APP_ORDER = ["assigned", "en_route", "arrived", "packing", "loaded", "delivered"];
-const APP_LABEL: Record<string, string> = { en_route: "🚚 on the way", arrived: "📍 reached", packing: "📦 packing", loaded: "✅ loaded", delivered: "🏁 delivered" };
+const appStarted = (o: any) => ["collected", "en_route", "arrived", "packing", "loaded", "delivered"].includes(appStatus(o));
+const APP_ORDER = ["assigned", "collected", "en_route", "arrived", "packing", "loaded", "delivered"];
+const APP_LABEL: Record<string, string> = { collected: "📦 collected", en_route: "🚚 on the way", arrived: "📍 reached", packing: "📦 packing", loaded: "✅ loaded", delivered: "🏁 delivered" };
 
 // Map the vendor-app status (or the WMS feed as fallback) to the on-ground milestones.
 const collected = (o: any, m: LiveMap) => appStarted(o) || (() => { const n = wmsOf(o, m); return n === "GATE_PASS" || n === "RETRIEVAL_COMPLETD" || statusOf(o, m) === "completed"; })();
