@@ -60,9 +60,11 @@ function slotWindow(b: Booking): { s: number; e: number } | null {
   return ts.length ? { s: ts[0], e: ts[ts.length - 1] || ts[0] } : null;
 }
 const windowsOverlap = (a: { s: number; e: number } | null, b: { s: number; e: number } | null) => !!a && !!b && a.s < b.e && b.s < a.e;
-// Bigger than the "open a new vehicle" term, so a windowed order that would CLASH with one already
-// on this vendor prefers a fresh vendor instead — two 9-11am orders end up on different vehicles.
-const WINDOW_CONFLICT_PENALTY = 2_000_000_000;
+// A same-window clash is only a GENTLE nudge (worth ~this many km), NOT a reason to put another
+// ₹7,000 vehicle on the road. Most morning retrievals softly "want 9-11am"; one vendor does several
+// back-to-back and the day plan sequences them. So filling a vehicle always beats spreading — the
+// clash only tips the choice AMONG already-open vehicles toward one without a same-window stop.
+const WINDOW_CONFLICT_PENALTY = 20_000;
 
 interface WorkingTrip {
   bookings: Booking[];
