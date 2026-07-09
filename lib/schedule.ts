@@ -10,6 +10,7 @@ import { computePnL } from "./economics";
 import { getPackingPerPallet } from "./settings";
 import { REGION } from "./config";
 import { buildVendorPlan, VendorPlan } from "./dayplan";
+import { TRAFFIC_FACTOR } from "./routing";
 import { baseOrderId } from "./split";
 import { Booking } from "./types";
 
@@ -22,8 +23,8 @@ async function osrmEtaMin(aLat: number, aLng: number, bLat: number, bLng: number
     const to = setTimeout(() => ctrl.abort(), 4000);
     const r: any = await fetch(`https://router.project-osrm.org/route/v1/driving/${aLng},${aLat};${bLng},${bLat}?overview=false`, { signal: ctrl.signal }).then((x) => x.json());
     clearTimeout(to);
-    const dur = r?.routes?.[0]?.duration; // seconds
-    return dur != null ? Math.max(1, Math.round(dur / 60)) : null;
+    const dur = r?.routes?.[0]?.duration; // seconds (free-flow → scale for real traffic)
+    return dur != null ? Math.max(1, Math.round((dur / 60) * TRAFFIC_FACTOR)) : null;
   } catch {
     return null;
   }

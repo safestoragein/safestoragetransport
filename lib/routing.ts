@@ -9,6 +9,10 @@ const cache = new Map<string, { m: RoadMatrix; ok: boolean; ts: number }>();
 const FAIL_TTL = 120_000;
 const OSRM_TIMEOUT = 3000;
 
+// OSRM returns FREE-FLOW driving times; Indian metro traffic runs ~1.7x that (Google: Yeshwanthapur ->
+// Kanakapura Rd 53km in ~80min ~= 40km/h average). Applied to every duration we plan/show with.
+export const TRAFFIC_FACTOR = 1.7;
+
 function haversineKm(a: Pt, b: Pt): number {
   const R = 6371, toR = (d: number) => (d * Math.PI) / 180;
   const dLat = toR(b.lat - a.lat), dLng = toR(b.lng - a.lng);
@@ -37,7 +41,7 @@ export async function roadMatrix(points: Pt[]): Promise<RoadMatrix> {
     const j: any = await r.json(); // eslint-disable-line @typescript-eslint/no-explicit-any
     if (j?.code === "Ok" && Array.isArray(j.durations) && Array.isArray(j.distances)) {
       const m: RoadMatrix = {
-        dur: j.durations.map((row: number[]) => row.map((s) => (s == null ? null : Math.max(5, Math.round(s / 60))))),
+        dur: j.durations.map((row: number[]) => row.map((s) => (s == null ? null : Math.max(5, Math.round((s / 60) * TRAFFIC_FACTOR))))),
         dist: j.distances.map((row: number[]) => row.map((d) => (d == null ? null : Math.round((d / 1000) * 10) / 10))),
       };
       cache.set(key, { m, ok: true, ts: Date.now() });

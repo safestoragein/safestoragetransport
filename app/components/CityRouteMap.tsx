@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import { Card } from "./ui";
 
@@ -20,6 +20,8 @@ function legKm(a: { lat: number; lng: number }, b: { lat: number; lng: number })
 /// each leg written on the line. Rendered only when a single city is selected.
 export default function CityRouteMap({ city, vendors }: { city: string; vendors: any[] }) {
   const elRef = useRef<HTMLDivElement>(null);
+  // Click a vendor in the legend to spotlight ONLY their route; click again (or another) to switch.
+  const [sel, setSel] = useState<string | null>(null);
 
   // Assigned, real (non co-team) vendors that have at least one located stop.
   const usable = (vendors ?? [])
@@ -64,13 +66,16 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
 
       usable.forEach(({ v, stops }, vi) => {
         const color = PALETTE[vi % PALETTE.length];
+        const key = String(v.vendorId ?? v.vendorName);
+        const dim = sel != null && sel !== key; // spotlight mode: everyone else fades
+        const alpha = dim ? 0.15 : 1;
         const pts: [number, number][] = [];
         // Depot start.
         if (v.depotLat != null && v.depotLng != null) {
           const d: [number, number] = [Number(v.depotLat), Number(v.depotLng)];
           pts.push(d);
           L.marker(d, {
-            icon: L.divIcon({ className: "", html: `<div style="background:${color};color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transform:translate(-50%,-140%)">▶ ${v.vendorName}</div>`, iconSize: [0, 0] }),
+            icon: L.divIcon({ className: "", html: `<div style="opacity:${alpha};background:${color};color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transform:translate(-50%,-140%)">▶ ${v.vendorName}</div>`, iconSize: [0, 0] }),
           }).addTo(map).bindPopup(`<b>${v.vendorName}</b><br>starts: ${v.startingPoint ?? ""}`);
         }
         // Numbered stops.
@@ -78,26 +83,28 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
           const p: [number, number] = [Number(o.lat), Number(o.lng)];
           pts.push(p);
           L.marker(p, {
-            icon: L.divIcon({ className: "", html: `<div style="background:${color};color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${i + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }),
+            icon: L.divIcon({ className: "", html: `<div style="opacity:${alpha};background:${color};color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${i + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }),
           }).addTo(map).bindPopup(`<b>${o.customer_unique_id}</b> — ${v.vendorName}<br>${o.locality ?? ""} · ${o.order_type ?? ""}${o.pallets != null ? ` · ${o.stated_pallets ?? o.pallets}p` : ""}`);
         });
         // Route line + leg distances.
         if (pts.length >= 2) {
-          L.polyline(pts, { color, weight: 4, opacity: 0.8 }).addTo(map);
-          for (let i = 0; i < pts.length - 1; i++) {
-            const a = { lat: pts[i][0], lng: pts[i][1] }, b = { lat: pts[i + 1][0], lng: pts[i + 1][1] };
-            const km = legKm(a, b);
-            if (km >= 0.5) kmLabel([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], km, color);
+          L.polyline(pts, { color, weight: dim ? 2 : 4, opacity: dim ? 0.15 : 0.85 }).addTo(map);
+          if (!dim) {
+            for (let i = 0; i < pts.length - 1; i++) {
+              const a = { lat: pts[i][0], lng: pts[i][1] }, b = { lat: pts[i + 1][0], lng: pts[i + 1][1] };
+              const km = legKm(a, b);
+              if (km >= 0.5) kmLabel([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], km, color);
+            }
           }
         }
-        all.push(...pts);
+        if (!dim) all.push(...pts);
       });
 
       if (all.length) map.fitBounds(L.latLngBounds(all).pad(0.15));
     })();
     return () => { disposed = true; try { map?.remove(); } catch { /* noop */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [city, vendors]);
+  }, [city, vendors, sel]);
 
   if (usable.length === 0) return null;
 
@@ -115,12 +122,20 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
             ];
             let tot = 0;
             for (let i = 0; i < pts.length - 1; i++) tot += legKm(pts[i], pts[i + 1]);
+            const key = String(v.vendorId ?? v.vendorName);
+            const active = sel === key;
             return (
-              <span key={v.vendorId ?? v.vendorName} className="inline-flex items-center gap-1.5">
+              <button
+                key={key}
+                onClick={() => setSel(active ? null : key)}
+                title={active ? "Show all vendors" : "Show only this vendor"}
+                className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 transition-colors ${active ? "ring-2 ring-offset-1" : sel != null ? "opacity-40 hover:opacity-80" : "hover:bg-slate-50"}`}
+                style={active ? ({ ["--tw-ring-color" as any]: color } as any) : undefined}
+              >
                 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} />
                 <span className="text-slate-600">{v.vendorName}</span>
                 <span className="text-slate-400">({stops.length} stops · ~{Math.round(tot)} km)</span>
-              </span>
+              </button>
             );
           })}
         </div>

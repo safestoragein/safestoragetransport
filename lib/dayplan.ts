@@ -9,7 +9,7 @@ const MORNING = 9 * 60;     // 9:00 AM — day start
 const PICKUP_WORK = 240;    // pickup = packing + loading ~4h
 const RETR_DELIVER = 60;    // retrieval = deliver/unload ~1h
 const WH_UNLOAD = 30;       // unload pickups at the warehouse
-const FLAT_TRAVEL = 30;     // fallback when a point has no coordinates
+const FLAT_TRAVEL = 45;     // fallback when a point has no coordinates (traffic-realistic)
 
 type Pt = { lat: number; lng: number } | null;
 
@@ -111,6 +111,15 @@ export async function buildVendorPlan(v: any): Promise<VendorPlan> {
     prev = p;
   }
   if (pickCount) { push("wh", `Drop pickups at warehouse${whName}`, travel(prev, whPt), km(prev, whPt), WH_UNLOAD); prev = whPt; }
+  // The "Start" row shows the ACTUAL departure: arrival at the first stop minus its travel time —
+  // not a meaningless "9:00–9:00". If the first window forces a later arrival, departure moves too
+  // ("leave by 9:35 to reach at 10:00" instead of pretending they idle at the depot from 9).
+  const startIdx = steps.findIndex((s) => s.kind === "start");
+  const firstStop = steps.find((s) => s.kind === "pickup" || s.kind === "deliver");
+  if (startIdx >= 0 && firstStop) {
+    const leave = Math.max(0, firstStop.arrive - firstStop.travel);
+    steps[startIdx] = { ...steps[startIdx], arrive: leave, depart: leave, label: steps[startIdx].label.replace(/^Start from/, "Leave") + ` — ${firstStop.travel}m drive to first stop` };
+  }
   return { steps, end: clock, totalKm: Math.round(totalKm * 10) / 10, byOrder };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

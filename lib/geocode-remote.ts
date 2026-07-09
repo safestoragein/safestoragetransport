@@ -47,8 +47,19 @@ function nominatim(query: string): Promise<{ lat: number; lng: number } | null> 
 
 export interface Geo { lat: number; lng: number; precise: boolean; locality?: string | null }
 
-// Bump this when the query strategy changes so already-cached MISSES get re-tried once.
-const GEOCODE_PROVIDER = "nominatim-v2";
+// Bump this when the query strategy changes so already-cached results get re-validated once.
+const GEOCODE_PROVIDER = "nominatim-v3";
+
+// A candidate hit must land within this distance of the address's PINCODE centroid — otherwise it's
+// a wrong match (e.g. "Jain International Residential School" fuzzy-matching a city campus 35km from
+// the real Kanakapura Rd one). If nothing passes, the pincode centroid itself is used (~2km accuracy).
+const PIN_SANITY_KM = 25;
+function kmBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371, toR = (d: number) => (d * Math.PI) / 180;
+  const dLat = toR(b.lat - a.lat), dLng = toR(b.lng - a.lng);
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
 
 // Nominatim can't parse full Indian apartment strings ("Eden Park @ The Prestige City, …"), so it
 // used to miss ~70% of orders → they all fell back to the city centre and the optimiser couldn't
@@ -79,19 +90,25 @@ export async function geocodeCached(address: string, citySlug: string): Promise<
 
   try {
     const { data } = await db().from("geocode_cache").select("*").eq("q", key).maybeSingle();
-    if (data) {
+    if (data && data.provider === GEOCODE_PROVIDER) {
+      // Only trust entries from the CURRENT strategy — older hits may be pre-pincode-validation
+      // mismatches (35km off), so anything older is re-looked-up once and re-cached.
       if (data.lat != null && data.lng != null) return { lat: Number(data.lat), lng: Number(data.lng), precise: !!data.precise, locality: local.locality };
-      if (data.provider === GEOCODE_PROVIDER) return local; // already tried with the new strategy → still a miss
-      // else: an OLD cached miss — fall through and re-try with the improved query cascade.
+      return local; // cached miss under the current strategy
     }
   } catch { /* cache read failed — carry on to live lookup */ }
 
-  // Try the queries in order; first hit wins.
+  // The pincode centroid anchors the search: any candidate landing far from it is a wrong match.
+  const pinM = q.match(/\b(\d{6})\b/);
+  const pinPt = pinM ? await throttled(() => nominatim(`${pinM[1]}, India`)) : null;
+
+  // Try the queries in order; first hit that agrees with the pincode wins.
   let hit: { lat: number; lng: number } | null = null;
   for (const cand of geocodeQueries(q, citySlug)) {
-    hit = await throttled(() => nominatim(cand));
-    if (hit) break;
+    const h = await throttled(() => nominatim(cand));
+    if (h && (!pinPt || kmBetween(h, pinPt) <= PIN_SANITY_KM)) { hit = h; break; }
   }
+  if (!hit && pinPt) hit = pinPt; // nothing sane matched → the pincode area is still ~2km accurate
   try {
     await db().from("geocode_cache").upsert(
       { q: key, lat: hit ? hit.lat : null, lng: hit ? hit.lng : null, precise: hit ? 1 : 0, provider: GEOCODE_PROVIDER },
