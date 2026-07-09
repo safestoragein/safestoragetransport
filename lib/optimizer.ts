@@ -89,6 +89,10 @@ const NON_GENERAL_BULK_BONUS_KM = -12;
 //   - small-load→small-van: a load that fits a 10ft doesn't OPEN a fresh 14ft general (+6 km nudge).
 const PRICE_KM_PER_1K = 2;
 const SMALL_ON_14FT_KM = 6;
+// Tiny-order exception to A-first: an order below this many pallets may still RIDE ALONG on an
+// already-running A vehicle, but never OPENS a fresh A truck (₹7.5k for 0.6p makes no sense) — it
+// falls through to the overflow pass, where price-aware scoring opens the cheapest small van instead.
+const TINY_ORDER_PALLETS = 2;
 
 interface WorkingTrip {
   bookings: Booking[];
@@ -315,6 +319,8 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
           if (assignedTo.get(v.id)!.length >= (v.maxOrdersPerDay ?? MAX_ORDERS_PER_VENDOR)) continue;
           const p = palletsAt(v.id);
           const opensNew = p < EPS;
+          // A-pass only: a tiny order may fill an open A vehicle but never opens a fresh one.
+          if (!overflowPass && opensNew && b.pallets < TINY_ORDER_PALLETS) continue;
           const prospectiveTrips = buildTrips(v, [...assignedTo.get(v.id)!, b]).length;
           // HARD capacity: the order (assumed for pickups / actual for retrievals) plus the load already
           // on the vendor must fit the vendor's DAY — vehicle cap for generals (10ft 5 / 14ft 9), the
