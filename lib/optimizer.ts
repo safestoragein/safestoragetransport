@@ -319,8 +319,10 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
           if (assignedTo.get(v.id)!.length >= (v.maxOrdersPerDay ?? MAX_ORDERS_PER_VENDOR)) continue;
           const p = palletsAt(v.id);
           const opensNew = p < EPS;
-          // A-pass only: a tiny order may fill an open A vehicle but never opens a fresh one.
-          if (!overflowPass && opensNew && b.pallets < TINY_ORDER_PALLETS) continue;
+          // A tiny order NEVER gets a dedicated vehicle (₹5-7.5k for 0.6p makes no sense in any
+          // tier). It may ride along on a vehicle already on the road; if none has room it stays in
+          // "team to assign" — the team books a Porter/mini (~₹2-3k), exactly their manual practice.
+          if (opensNew && b.pallets < TINY_ORDER_PALLETS) continue;
           const prospectiveTrips = buildTrips(v, [...assignedTo.get(v.id)!, b]).length;
           // HARD capacity: the order (assumed for pickups / actual for retrievals) plus the load already
           // on the vendor must fit the vendor's DAY — vehicle cap for generals (10ft 5 / 14ft 9), the
