@@ -59,8 +59,11 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
       const all: [number, number][] = [];
       const kmLabel = (mid: [number, number], km: number, color: string) =>
         L.marker(mid, {
-          icon: L.divIcon({ className: "", html: `<div style="background:#ffffff;color:#0f172a;font-size:12.5px;font-weight:800;padding:3px 9px;border-radius:7px;border:2px solid ${color};white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.4);transform:translate(-50%,-50%)">${km} km</div>`, iconSize: [0, 0] }),
+          // Floated ABOVE the line (not on it) and forced on top of every marker, so a chip is never
+          // hidden behind the start pill / stop circles or clipped by them.
+          icon: L.divIcon({ className: "", html: `<div style="background:#ffffff;color:#0f172a;font-size:13px;font-weight:800;padding:3px 10px;border-radius:8px;border:2px solid ${color};white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.45);transform:translate(-50%,-170%)">${km} km</div>`, iconSize: [0, 0] }),
           interactive: false,
+          zIndexOffset: 2000,
         }).addTo(map);
 
       usable.forEach(({ v, stops }, vi) => {
