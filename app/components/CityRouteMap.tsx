@@ -38,11 +38,19 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
     })
     .filter((x) => x.stops.length > 0);
 
+  // Unassigned orders with coordinates — shown in grey so the map still tells the story when a
+  // city's orders are all (or partly) in the "team to assign" bucket.
+  const unassignedStops = (vendors ?? [])
+    .filter((v) => v.isUnassigned)
+    .flatMap((v) => (v.orders ?? []).filter((o: any) => o.lat != null && o.lng != null));
+  // Orders with NO coordinates at all (not yet geocoded — needs a Generate).
+  const unlocated = (vendors ?? []).flatMap((v) => (v.orders ?? []).filter((o: any) => o.lat == null || o.lng == null)).length;
+
   useEffect(() => {
     let map: any;
     let disposed = false;
     (async () => {
-      if (!elRef.current || usable.length === 0) return;
+      if (!elRef.current || (usable.length === 0 && unassignedStops.length === 0)) return;
       const L = (await import("leaflet")).default;
       if (disposed || !elRef.current) return;
       map = L.map(elRef.current, { zoomControl: true, attributionControl: false, scrollWheelZoom: false });
@@ -91,19 +99,44 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
         if (!dim) all.push(...pts);
       });
 
+      // Grey pins for unassigned orders — visible on every city, routes or not.
+      unassignedStops.forEach((o: any) => {
+        const p: [number, number] = [Number(o.lat), Number(o.lng)];
+        L.marker(p, {
+          icon: L.divIcon({ className: "", html: `<div style="background:#64748b;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">?</div>`, iconSize: [22, 22], iconAnchor: [11, 11] }),
+        }).addTo(map).bindPopup(`<b>${o.customer_unique_id}</b> — team to assign<br>${o.locality ?? ""} · ${o.order_type ?? ""}`);
+        all.push(p);
+      });
+
       if (all.length) map.fitBounds(L.latLngBounds(all).pad(0.15));
     })();
     return () => { disposed = true; try { map?.remove(); } catch { /* noop */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [city, vendors, sel]);
 
-  if (usable.length === 0) return null;
+  if (usable.length === 0 && unassignedStops.length === 0) {
+    return (
+      <Card className="mb-5 p-4 text-sm text-slate-500">
+        <b className="text-slate-700">Route map — {city}:</b>{" "}
+        {unlocated > 0
+          ? `${unlocated} order${unlocated > 1 ? "s" : ""} have no map coordinates yet — press Generate / refresh so their addresses get geocoded, then the map will appear.`
+          : "no orders to map for this day."}
+      </Card>
+    );
+  }
 
   return (
     <Card className="mb-5 overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-100 px-4 py-2.5">
         <h3 className="text-sm font-semibold text-slate-700">Route map — {city}</h3>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          {unassignedStops.length > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-500" />
+              <span className="text-slate-600">Team to assign</span>
+              <span className="text-slate-400">({unassignedStops.length})</span>
+            </span>
+          )}
           {usable.map(({ v, stops }, vi) => {
             const color = PALETTE[vi % PALETTE.length];
             // Total = depot→stop1→…→stopN.
