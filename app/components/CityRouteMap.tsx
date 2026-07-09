@@ -55,15 +55,6 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
           interactive: false,
         }).addTo(map);
 
-      // One warehouse pin (shared).
-      const whO = usable.flatMap((x) => x.stops).find((o: any) => o.warehouse_lat != null && o.warehouse_lng != null);
-      if (whO) {
-        L.marker([Number(whO.warehouse_lat), Number(whO.warehouse_lng)], {
-          icon: L.divIcon({ className: "", html: `<div style="background:#0f172a;color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.35);transform:translate(-50%,-140%)">⌂ ${String(whO.warehouse_name ?? "Warehouse").split("·")[0].trim()}</div>`, iconSize: [0, 0] }),
-        }).addTo(map);
-        all.push([Number(whO.warehouse_lat), Number(whO.warehouse_lng)]);
-      }
-
       usable.forEach(({ v, stops }, vi) => {
         const color = PALETTE[vi % PALETTE.length];
         const key = String(v.vendorId ?? v.vendorName);

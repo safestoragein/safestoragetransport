@@ -4,7 +4,7 @@
 // calls are serialized + throttled. Cached addresses return instantly.
 import https from "node:https";
 import { db, hasDb } from "./db";
-import { geocodeAddress } from "./geocode";
+import { geocodeAddress, CITY_CENTER } from "./geocode";
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 255);
@@ -48,7 +48,7 @@ function nominatim(query: string): Promise<{ lat: number; lng: number } | null> 
 export interface Geo { lat: number; lng: number; precise: boolean; locality?: string | null }
 
 // Bump this when the query strategy changes so already-cached results get re-validated once.
-const GEOCODE_PROVIDER = "nominatim-v3";
+const GEOCODE_PROVIDER = "nominatim-v4";
 
 // A candidate hit must land within this distance of the address's PINCODE centroid — otherwise it's
 // a wrong match (e.g. "Jain International Residential School" fuzzy-matching a city campus 35km from
@@ -68,18 +68,32 @@ function kmBetween(a: { lat: number; lng: number }, b: { lat: number; lng: numbe
 //   2. locality + city            (e.g. "Sarjapura, Bengaluru" — usually resolves)
 //   3. the 6-digit PINCODE        (very reliable, ~2 km accuracy — best for clustering)
 //   4. just the locality
+const NON_LOCALITY = /karnataka|tamil ?nadu|telangana|maharashtra|west bengal|uttar pradesh|haryana|delhi|india|bengaluru|bangalore|hyderabad|chennai|mumbai|pune|kolkata|noida|gurgaon|coimbatore|ahmedabad/i;
+
 function geocodeQueries(address: string, citySlug: string): string[] {
-  const a = address.trim();
+  // Parentheticals — "(JIRS)", "(opp. temple)" — break Nominatim matching outright. Strip them.
+  const a = address.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").replace(/\s,/g, ",").trim().replace(/,$/, "");
   const city = cap(citySlug);
-  const out: string[] = [`${a}, ${city}, India`];
+  const out: string[] = [];
+  // 1. The address AS-IS (most already end "…, Karnataka, India" — appending the city CORRUPTS them:
+  //    "…, Karnataka, India, Bangalore, India" misses where the raw string hits).
+  out.push(/india\s*$/i.test(a) ? a : `${a}, India`);
+  // 2. With the city, only when the address doesn't mention it.
+  const cityRe = new RegExp(citySlug === "bangalore" ? "bangalore|bengaluru" : citySlug, "i");
+  if (!cityRe.test(a)) out.push(`${a}, ${city}, India`);
   const parts = a.split(",").map((s) => s.trim()).filter(Boolean);
-  const named = parts.filter((p) => /[a-z]/i.test(p) && !/^\d/.test(p) && !/karnataka|tamil ?nadu|telangana|maharashtra|delhi|india|bengaluru|bangalore/i.test(p));
-  const locality = named[named.length - 1]; // last named segment before city/state = the area
-  if (locality) out.push(`${locality}, ${city}, India`);
+  const named = parts.filter((p) => /[a-z]/i.test(p) && !/^\d+$/.test(p) && !NON_LOCALITY.test(p));
+  // 3. The POI by NAME (first segment — school/society/building): Nominatim knows many of these
+  //    even when the full string misses. Guarded downstream by the pincode/city sanity checks.
+  const poi = named[0];
+  if (poi && poi.length > 8) out.push(`${poi}, India`);
+  // 4. Locality (+city), 5. pincode, 6. bare locality.
+  const locality = named[named.length - 1];
+  if (locality && locality !== poi) out.push(`${locality}, ${city}, India`);
   const pin = a.match(/\b(\d{6})\b/);
   if (pin) out.push(`${pin[1]}, India`);
-  if (locality) out.push(`${locality}, India`);
-  return [...new Set(out)].slice(0, 4);
+  if (locality && locality !== poi) out.push(`${locality}, India`);
+  return [...new Set(out)].slice(0, 6);
 }
 
 export async function geocodeCached(address: string, citySlug: string): Promise<Geo> {
@@ -101,14 +115,20 @@ export async function geocodeCached(address: string, citySlug: string): Promise<
   // The pincode centroid anchors the search: any candidate landing far from it is a wrong match.
   const pinM = q.match(/\b(\d{6})\b/);
   const pinPt = pinM ? await throttled(() => nominatim(`${pinM[1]}, India`)) : null;
+  // Second anchor: the CITY. Our orders are city-local, so a hit 100+ km away (a same-named
+  // building/locality in another district) is always wrong.
+  const centre = CITY_CENTER[citySlug] ?? null;
 
-  // Try the queries in order; first hit that agrees with the pincode wins.
+  // Try the queries in order; first hit that agrees with the pincode AND the city wins.
   let hit: { lat: number; lng: number } | null = null;
   for (const cand of geocodeQueries(q, citySlug)) {
     const h = await throttled(() => nominatim(cand));
-    if (h && (!pinPt || kmBetween(h, pinPt) <= PIN_SANITY_KM)) { hit = h; break; }
+    if (!h) continue;
+    if (pinPt && kmBetween(h, pinPt) > PIN_SANITY_KM) continue;
+    if (centre && kmBetween(h, centre) > 90) continue;
+    hit = h; break;
   }
-  if (!hit && pinPt) hit = pinPt; // nothing sane matched → the pincode area is still ~2km accurate
+  if (!hit && pinPt && (!centre || kmBetween(pinPt, centre) <= 90)) hit = pinPt; // pincode area ≈ 2km accurate
   try {
     await db().from("geocode_cache").upsert(
       { q: key, lat: hit ? hit.lat : null, lng: hit ? hit.lng : null, precise: hit ? 1 : 0, provider: GEOCODE_PROVIDER },
