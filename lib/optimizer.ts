@@ -34,7 +34,6 @@ const EPS = 0.001;
 // them on a matching-vehicle GENERAL vendor; non_general/intercity vendors are flexible. This is a
 // soft preference (a penalty, not a hard block) so an order still schedules if only one class is free.
 const VEHICLE_PENALTY_KM = 1000;
-const VEHICLE_PENALTY_SCORE = 200_000;
 // When a SECOND team is needed, prefer another team of the SAME vendor (team rule: a vendor with 2
 // teams sends both). Worth ~this many km of detour so a sibling team wins over a nearer stranger.
 const SIBLING_BONUS_KM = 25;
@@ -60,11 +59,19 @@ function slotWindow(b: Booking): { s: number; e: number } | null {
   return ts.length ? { s: ts[0], e: ts[ts.length - 1] || ts[0] } : null;
 }
 const windowsOverlap = (a: { s: number; e: number } | null, b: { s: number; e: number } | null) => !!a && !!b && a.s < b.e && b.s < a.e;
-// A same-window clash is only a GENTLE nudge (worth ~this many km), NOT a reason to put another
-// ₹7,000 vehicle on the road. Most morning retrievals softly "want 9-11am"; one vendor does several
-// back-to-back and the day plan sequences them. So filling a vehicle always beats spreading — the
-// clash only tips the choice AMONG already-open vehicles toward one without a same-window stop.
-const WINDOW_CONFLICT_PENALTY = 20_000;
+
+// ---- Phase-2 scoring, ALL in km-equivalents (lower = better) ----
+// Opening another vehicle costs ~₹5-7.5k, which we price as this many km of detour: an order joins an
+// already-running vehicle only while that vehicle's cluster is within ~this distance advantage of the
+// nearest FREE vendor. Beyond it, the order opens the nearer free vendor instead — so a vendor is
+// NEVER dragged across the city (Kasavanahalli → Yelahanka) just to top a truck off.
+const NEW_VEHICLE_KM = 15;
+// A same-window clash is a gentle nudge among near-equal open vehicles, never a reason for a new one.
+const WINDOW_CONFLICT_KM = 8;
+// Premium (non-general, per-transaction) vendors are kept for overflow unless they're clearly nearest.
+const NON_GENERAL_KM = 40;
+// Wrong vehicle size for the order's stated class — soft, so the order still schedules if it must.
+const VEHICLE_MISMATCH_KM = 60;
 
 interface WorkingTrip {
   bookings: Booking[];
@@ -306,13 +313,17 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
           // vendor isn't sent to a far locality just to top off its load.
           const clusterKm = Math.min(roadKm(v.depot, b.location), ...assignedTo.get(v.id)!.map((x) => roadKm(x.location, b.location)));
           const priKm = priRank(v) * PRIORITY_TIEBREAK_KM; // secondary: nudges nearer→higher-priority
+          // Everything in km-equivalents. Filling an open vehicle carries no surcharge; opening a new
+          // one costs NEW_VEHICLE_KM — so nearby orders still consolidate onto one truck, but an order
+          // whose nearest open vehicle is far opens the free vendor next to it instead.
           const score =
-            (opensNew ? 1 : 0) * 1_000_000_000 + // strongly prefer filling an open vehicle over a new one
-            (conflict ? WINDOW_CONFLICT_PENALTY : 0) + // ...unless it clashes with a same-window order here
-            (opensNew ? clusterKm + priKm : -p * 1000 + (clusterKm + priKm) * 1000) + // proximity (+ priority nudge); fill also tops off fuller vehicles
-            (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // 2nd team → prefer same vendor's other team
-            (v.tier === "non_general" ? 500_000 : 0) + // keep premium/intercity vendors for overflow
-            (vehicleMismatch(v, b) ? VEHICLE_PENALTY_SCORE : 0);
+            clusterKm + priKm +
+            (opensNew ? NEW_VEHICLE_KM : 0) +
+            (conflict ? WINDOW_CONFLICT_KM : 0) + // nudge clashing windows onto a different NEAR vehicle
+            (!opensNew ? -0.2 * p : 0) + // tiny tiebreak: top off the fuller of two equal vehicles
+            (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // prefer a working vendor's sibling team
+            (v.tier === "non_general" ? NON_GENERAL_KM : 0) + // premium vendors are overflow, not first choice
+            (vehicleMismatch(v, b) ? VEHICLE_MISMATCH_KM : 0);
           if (score < bestScore) { bestScore = score; bestV = v; bestOpensNew = opensNew; }
         }
       }

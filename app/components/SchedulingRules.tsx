@@ -7,7 +7,8 @@ const SECTIONS: { title: string; note?: string; rules: string[] }[] = [
     title: "Which vendor gets an order (allocation)",
     rules: [
       "Only ACTIVE vendors are scheduled — anyone toggled Inactive in the Vendor panel is skipped.",
-      "Proximity (primary rule): each order goes to the NEAREST vendor cluster — its start point plus the stops it already holds — so vendors get the retrievals/pickups closest to their base. A vendor is never sent to a far locality just to top off a load.",
+      "Proximity (primary rule): each order goes to the NEAREST vendor cluster — its start point plus the stops it already holds — so vendors get the retrievals/pickups closest to their base.",
+      "Fill vs new vehicle: an order joins an already-running vehicle only while that vehicle is within ~15 km of it. If the nearest running vehicle is farther, the order opens the nearest FREE vendor instead — a vendor is never dragged across the city just to top off a load.",
       "Priority group (secondary tiebreak): when two vendors are about equally near, the higher priority group wins — A over B, then C, then ungrouped. It only breaks near-ties; a clearly nearer vendor always wins regardless of group. (Set the group per vendor in the Vendor panel.)",
       "Max 3 orders per vendor per day — a 4th order is never auto-assigned; the overflow goes to the “team to assign” bucket instead of piling onto one vendor.",
       "Max 2 trips per vendor per day. A 3rd trip is never auto-assigned — the team adds it manually only when the leftovers are genuinely on the way.",
