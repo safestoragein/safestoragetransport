@@ -7,6 +7,7 @@ import { SessionUser } from "@/lib/auth";
 import { withBase } from "@/lib/base";
 import AppShell from "./AppShell";
 import ScheduleCityView from "./ScheduleCityView";
+import CityRouteMap from "./CityRouteMap";
 import MonitoringView from "./MonitoringView";
 import { Card } from "./ui";
 
@@ -398,6 +399,12 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
               </button>
             ))}
           </div>
+        )}
+
+        {/* City route map — every vendor's day route colour-coded with per-leg km. Only when a
+            single city is selected (an all-cities map would be unreadable). */}
+        {!loading && cityFilter !== "All" && shown.length === 1 && cityTab !== "intercity" && cityTab !== "shifting" && (
+          <CityRouteMap city={shown[0].city} vendors={(shown[0] as any).vendors ?? []} />
         )}
 
         {/* Financial summary cards — Tomorrow + Old schedules only. Today's live monitoring cards are
