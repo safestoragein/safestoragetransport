@@ -82,6 +82,13 @@ const A_PASS_MAX_KM = 20;
 // general B vehicle (₹5-7.5k/day) is cheaper and the non-general keeps its penalty.
 const NON_GENERAL_BULK_THRESHOLD = 4;
 const NON_GENERAL_BULK_BONUS_KM = -12;
+// LAST tiebreaks (below A-first and the Daksh volume rule), applied only when OPENING a vehicle —
+// once a vehicle is on the road its daily price is sunk, so filling it stays free:
+//   - price-aware: every ₹1k/day above the cheapest available vendor costs ~2 km, so a ₹5k 10ft
+//     beats a ₹7.5k 14ft (+5 km) for the same order unless the pricier one is clearly nearer;
+//   - small-load→small-van: a load that fits a 10ft doesn't OPEN a fresh 14ft general (+6 km nudge).
+const PRICE_KM_PER_1K = 2;
+const SMALL_ON_14FT_KM = 6;
 
 interface WorkingTrip {
   bookings: Booking[];
@@ -284,7 +291,14 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
   //           non-general (Daksh: 6 transactions / 14 pallets / ₹15k) becomes as attractive as a
   //           general — great per-transaction value at volume. If only a few remain, generals stay
   //           cheaper (₹5-7.5k/day) and the non-general keeps its penalty.
-  const runPass = (pool: Vendor[], nonGeneralKm: number, maxClusterKm: number) => {
+  const runPass = (pool: Vendor[], overflowPass: boolean, maxClusterKm: number) => {
+    // Baseline for the price tiebreak: the cheapest priced vendor available in this pass.
+    const prices = pool.map((v) => v.dailyPrice).filter((p): p is number => p != null && p > 0);
+    const minPrice = prices.length ? Math.min(...prices) : 0;
+    // Bulk mode is DYNAMIC: while ≥ threshold orders still wait, the 6-transaction vendor is
+    // preferred; once the pool shrinks below it, the remaining few go to cheaper general Bs.
+    const bulkNow = () =>
+      overflowPass && [...remaining].filter((id) => teamsNeeded(byId.get(id)!.pallets) < 2).length >= NON_GENERAL_BULK_THRESHOLD;
     let progressed = true;
     while (remaining.size && progressed) {
       progressed = false;
@@ -293,6 +307,7 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
       const order = [...remaining].map((id) => byId.get(id)!).filter((b) => teamsNeeded(b.pallets) < 2).sort((a, b) => b.pallets - a.pallets);
       for (const b of order) {
         if (!remaining.has(b.id)) continue;
+        const nonGeneralKm = bulkNow() ? NON_GENERAL_BULK_BONUS_KM : NON_GENERAL_KM;
         const fitting: { v: Vendor; p: number; opensNew: boolean }[] = [];
         for (const v of pool) {
           if (consumed.has(v.id)) continue; // reserved as a big order's 2nd/3rd team
@@ -329,7 +344,10 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
               (!opensNew ? -0.2 * p : 0) + // tiny tiebreak: top off the fuller of two equal vehicles
               (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // prefer a working vendor's sibling team
               (v.tier === "non_general" ? nonGeneralKm : 0) + // volume decides how attractive the bulk vendor is
-              (vehicleMismatch(v, b) ? VEHICLE_MISMATCH_KM : 0);
+              (vehicleMismatch(v, b) ? VEHICLE_MISMATCH_KM : 0) +
+              // LAST tiebreaks — only when opening a fresh vehicle (a running vehicle's cost is sunk):
+              (opensNew && v.dailyPrice ? ((v.dailyPrice - minPrice) / 1000) * PRICE_KM_PER_1K : 0) + // cheaper vendor first
+              (opensNew && v.tier === "general" && v.vehicle.type === "14ft" && b.pallets <= effectiveCapacity("10ft") + EPS ? SMALL_ON_14FT_KM : 0); // small load → small van
             if (score < bestScore) { bestScore = score; bestV = v; bestOpensNew = opensNew; }
           }
         }
@@ -346,10 +364,9 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
 
   // Pass 1 — the contracted priority-A generals take everything within reach first.
   const aGenerals = generals.filter((v) => String(v.priorityGroup ?? "").toUpperCase() === "A");
-  if (aGenerals.length) runPass(aGenerals, NON_GENERAL_KM, A_PASS_MAX_KM);
-  // Pass 2 — overflow. Volume decides the bulk non-general's attractiveness (Daksh at ≥4 leftovers).
-  const leftover = [...remaining].filter((id) => teamsNeeded(byId.get(id)!.pallets) < 2).length;
-  runPass([...generals, ...nons], leftover >= NON_GENERAL_BULK_THRESHOLD ? NON_GENERAL_BULK_BONUS_KM : NON_GENERAL_KM, Infinity);
+  if (aGenerals.length) runPass(aGenerals, false, A_PASS_MAX_KM);
+  // Pass 2 — overflow. Volume (re-checked as orders place) decides the bulk vendor's attractiveness.
+  runPass([...generals, ...nons], true, Infinity);
 
   // ---------- assemble ----------
   const assignments: Assignment[] = [];

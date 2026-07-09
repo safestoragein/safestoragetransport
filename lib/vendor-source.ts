@@ -45,6 +45,7 @@ export async function masterVendorsForCity(citySlug: string): Promise<Vendor[]> 
           palletObligation: 0, // no obligation: a vendor is paid only if used, nothing if idle
           maxPalletsPerDay: tier === "non_general" ? 2 * (rated > 0 ? rated : 7) : vendorDailyCap(vt),
           maxOrdersPerDay: txn != null ? Number(txn) : undefined,
+          dailyPrice: r.daily_price != null ? Number(r.daily_price) : null,
           obligated: false,
           priorityGroup: r.priority_group ?? null,
         } as Vendor;

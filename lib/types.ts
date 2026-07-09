@@ -43,6 +43,9 @@ export interface Vendor {
   // Per-vendor daily transaction cap. Generals default to the global 3; a bulk non-general like
   // Daksh Cargo ("6 transactions / ₹15,000", 14 pallets) carries 6 here.
   maxOrdersPerDay?: number;
+  // Flat daily price (generals). Used as the LAST allocation tiebreak: among near-equal choices the
+  // cheaper vehicle is opened first (₹5k 10ft over ₹7.5k 14ft for a small load).
+  dailyPrice?: number | null;
 }
 
 export interface Booking {
