@@ -51,7 +51,7 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
       const all: [number, number][] = [];
       const kmLabel = (mid: [number, number], km: number, color: string) =>
         L.marker(mid, {
-          icon: L.divIcon({ className: "", html: `<div style="background:#fff;color:${color};font-size:10px;font-weight:700;padding:1px 5px;border-radius:5px;border:1.5px solid ${color};white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.25);transform:translate(-50%,-50%)">${km} km</div>`, iconSize: [0, 0] }),
+          icon: L.divIcon({ className: "", html: `<div style="background:#ffffff;color:#0f172a;font-size:12.5px;font-weight:800;padding:3px 9px;border-radius:7px;border:2px solid ${color};white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.4);transform:translate(-50%,-50%)">${km} km</div>`, iconSize: [0, 0] }),
           interactive: false,
         }).addTo(map);
 
