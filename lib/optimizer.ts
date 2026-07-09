@@ -72,6 +72,16 @@ const WINDOW_CONFLICT_KM = 8;
 const NON_GENERAL_KM = 40;
 // Wrong vehicle size for the order's stated class — soft, so the order still schedules if it must.
 const VEHICLE_MISMATCH_KM = 60;
+// Pass 1 (priority-A generals) never reaches beyond this — a far-flung order waits for pass 2, where
+// a nearer B/non-general vendor may exist, instead of being dragged onto an A vendor across the city.
+const A_PASS_MAX_KM = 20;
+// With at least this many orders left after the A pass, the bulk non-general (Daksh: 6 transactions /
+// 14 pallets / ₹15k) flips from penalised overflow to PREFERRED (worth ~BULK_BONUS km closer) — at
+// volume one 6-transaction vendor beats opening 2+ general vehicles. Distance still vetoes: a
+// leftover far from Daksh with a general B nearby goes to the B. Below the threshold, a single
+// general B vehicle (₹5-7.5k/day) is cheaper and the non-general keeps its penalty.
+const NON_GENERAL_BULK_THRESHOLD = 4;
+const NON_GENERAL_BULK_BONUS_KM = -12;
 
 interface WorkingTrip {
   bookings: Booking[];
@@ -266,76 +276,80 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
     // else: leave in `remaining` → ends up in the "team to assign" bucket. Never split.
   }
 
-  // Phase 2 — assign every order to a vendor. One vendor = one vehicle (flat ₹7,000) carrying up to
-  // its daily cap (rated + tolerance). We FILL an already-open vehicle before opening a new one (a
-  // half-empty extra vehicle just wastes ₹7,000), and only when none has room do we put the next
-  // vendor's vehicle on the road — which naturally spreads the work across vendors as volume grows.
-  let progressed = true;
-  while (remaining.size && progressed) {
-    progressed = false;
-    // Big multi-team orders are only ever placed in Phase 1c; if one is still here, no vendor had
-    // enough free teams, so leave it for the team (never force it onto a single overloaded vendor).
-    const order = [...remaining].map((id) => byId.get(id)!).filter((b) => teamsNeeded(b.pallets) < 2).sort((a, b) => b.pallets - a.pallets);
-    for (const b of order) {
-      if (!remaining.has(b.id)) continue;
-      // Which vendors can take this order at all (capacity + the 2-trip/day cap). A vendor does at
-      // most 2 trips/day; a 3rd trip is added by the team manually, not here. An empty vendor always
-      // fits a single (even oversize) order — it can't be split.
-      const fitting: { v: Vendor; p: number; opensNew: boolean }[] = [];
-      for (const v of [...generals, ...nons]) {
-        if (consumed.has(v.id)) continue; // reserved as a big order's 2nd/3rd team
-        if (assignedTo.get(v.id)!.length >= MAX_ORDERS_PER_VENDOR) continue; // hard cap: ≤3 orders/vendor/day
-        const p = palletsAt(v.id);
-        const opensNew = p < EPS;
-        const prospectiveTrips = buildTrips(v, [...assignedTo.get(v.id)!, b]).length;
-        // HARD capacity: the order (assumed for pickups / actual for retrievals) plus the load already
-        // on the vendor must fit the VEHICLE — a 10ft never exceeds 5, a 14ft never 9, even when empty.
-        // Anything too big for one team is handled as a 2-team order; if no fitting vehicle is free it
-        // stays unassigned rather than overloading a small van.
-        const fits = p + b.pallets <= v.maxPalletsPerDay + EPS && (opensNew || prospectiveTrips <= TRIPS_PER_DAY);
-        if (fits) fitting.push({ v, p, opensNew });
-      }
-      // PROXIMITY FIRST: an order goes to the NEAREST vendor cluster; the A/B/C priority group is only
-      // a secondary tiebreak (worth PRIORITY_TIEBREAK_KM per step). So a nearby B vendor beats a far A
-      // vendor — vendors get the retrievals/pickups closest to their base.
-      let bestV: Vendor | null = null;
-      let bestScore = Infinity;
-      let bestOpensNew = false;
-      if (fitting.length) {
-        // Families of vendors already on the road — to keep a vendor's 2 teams (e.g. "VMS Team 1/2")
-        // working the same job.
-        const openFamilies = new Set(vendors.filter((x) => assignedTo.get(x.id)!.length > 0).map((x) => vendorFamily(x.name)));
-        for (const { v, p, opensNew } of fitting) {
-          const wB = slotWindow(b);
-          const conflict = !opensNew && !!wB && assignedTo.get(v.id)!.some((x) => windowsOverlap(slotWindow(x), wB));
-          // PROXIMITY: distance from this order to the vendor's cluster (depot + the stops it already
-          // holds). Filling a vehicle is preferred, but only with orders near its cluster — so a
-          // vendor isn't sent to a far locality just to top off its load.
-          const clusterKm = Math.min(roadKm(v.depot, b.location), ...assignedTo.get(v.id)!.map((x) => roadKm(x.location, b.location)));
-          const priKm = priRank(v) * PRIORITY_TIEBREAK_KM; // secondary: nudges nearer→higher-priority
-          // Everything in km-equivalents. Filling an open vehicle carries no surcharge; opening a new
-          // one costs NEW_VEHICLE_KM — so nearby orders still consolidate onto one truck, but an order
-          // whose nearest open vehicle is far opens the free vendor next to it instead.
-          const score =
-            clusterKm + priKm +
-            (opensNew ? NEW_VEHICLE_KM : 0) +
-            (conflict ? WINDOW_CONFLICT_KM : 0) + // nudge clashing windows onto a different NEAR vehicle
-            (!opensNew ? -0.2 * p : 0) + // tiny tiebreak: top off the fuller of two equal vehicles
-            (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // prefer a working vendor's sibling team
-            (v.tier === "non_general" ? NON_GENERAL_KM : 0) + // premium vendors are overflow, not first choice
-            (vehicleMismatch(v, b) ? VEHICLE_MISMATCH_KM : 0);
-          if (score < bestScore) { bestScore = score; bestV = v; bestOpensNew = opensNew; }
+  // Phase 2 — assign every order to a vendor, in TWO passes (the team's tiering policy):
+  //   Pass 1: priority-A GENERAL vendors only — the contracted first line, filled to their capacity
+  //           (proximity decides which A vendor takes which order; an order >A_PASS_MAX_KM from every
+  //           A cluster waits for pass 2 rather than being dragged).
+  //   Pass 2: everyone else. If MANY orders remain (≥ NON_GENERAL_BULK_THRESHOLD) the bulk
+  //           non-general (Daksh: 6 transactions / 14 pallets / ₹15k) becomes as attractive as a
+  //           general — great per-transaction value at volume. If only a few remain, generals stay
+  //           cheaper (₹5-7.5k/day) and the non-general keeps its penalty.
+  const runPass = (pool: Vendor[], nonGeneralKm: number, maxClusterKm: number) => {
+    let progressed = true;
+    while (remaining.size && progressed) {
+      progressed = false;
+      // Big multi-team orders are only ever placed in Phase 1c; if one is still here, no vendor had
+      // enough free teams, so leave it for the team (never force it onto a single overloaded vendor).
+      const order = [...remaining].map((id) => byId.get(id)!).filter((b) => teamsNeeded(b.pallets) < 2).sort((a, b) => b.pallets - a.pallets);
+      for (const b of order) {
+        if (!remaining.has(b.id)) continue;
+        const fitting: { v: Vendor; p: number; opensNew: boolean }[] = [];
+        for (const v of pool) {
+          if (consumed.has(v.id)) continue; // reserved as a big order's 2nd/3rd team
+          // Per-vendor daily transaction cap: generals 3; a bulk non-general carries its own (Daksh: 6).
+          if (assignedTo.get(v.id)!.length >= (v.maxOrdersPerDay ?? MAX_ORDERS_PER_VENDOR)) continue;
+          const p = palletsAt(v.id);
+          const opensNew = p < EPS;
+          const prospectiveTrips = buildTrips(v, [...assignedTo.get(v.id)!, b]).length;
+          // HARD capacity: the order (assumed for pickups / actual for retrievals) plus the load already
+          // on the vendor must fit the vendor's DAY — vehicle cap for generals (10ft 5 / 14ft 9), the
+          // contracted day for a bulk non-general (Daksh 14 across 2 trips). Never overload.
+          const fits = p + b.pallets <= v.maxPalletsPerDay + EPS && (opensNew || prospectiveTrips <= TRIPS_PER_DAY);
+          if (fits) fitting.push({ v, p, opensNew });
+        }
+        let bestV: Vendor | null = null;
+        let bestScore = Infinity;
+        let bestOpensNew = false;
+        if (fitting.length) {
+          // Families of vendors already on the road — to keep a vendor's 2 teams working the same job.
+          const openFamilies = new Set(vendors.filter((x) => assignedTo.get(x.id)!.length > 0).map((x) => vendorFamily(x.name)));
+          for (const { v, p, opensNew } of fitting) {
+            const wB = slotWindow(b);
+            const conflict = !opensNew && !!wB && assignedTo.get(v.id)!.some((x) => windowsOverlap(slotWindow(x), wB));
+            const clusterKm = Math.min(roadKm(v.depot, b.location), ...assignedTo.get(v.id)!.map((x) => roadKm(x.location, b.location)));
+            if (clusterKm > maxClusterKm) continue; // too far for this pass — leave for the next one
+            const priKm = priRank(v) * PRIORITY_TIEBREAK_KM; // secondary: nudges nearer→higher-priority
+            // Everything in km-equivalents. Filling an open vehicle carries no surcharge; opening a new
+            // one costs NEW_VEHICLE_KM — nearby orders consolidate, far orders open the free vendor next
+            // to them instead of being dragged across the city.
+            const score =
+              clusterKm + priKm +
+              (opensNew ? NEW_VEHICLE_KM : 0) +
+              (conflict ? WINDOW_CONFLICT_KM : 0) + // nudge clashing windows onto a different NEAR vehicle
+              (!opensNew ? -0.2 * p : 0) + // tiny tiebreak: top off the fuller of two equal vehicles
+              (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // prefer a working vendor's sibling team
+              (v.tier === "non_general" ? nonGeneralKm : 0) + // volume decides how attractive the bulk vendor is
+              (vehicleMismatch(v, b) ? VEHICLE_MISMATCH_KM : 0);
+            if (score < bestScore) { bestScore = score; bestV = v; bestOpensNew = opensNew; }
+          }
+        }
+        if (bestV) {
+          const why = bestOpensNew
+            ? `New vehicle for ${bestV.name} (${money(REGION.transportPerBlock)}/day) — nearest free vendor to ${b.location.label}.`
+            : `Shares ${bestV.name}'s vehicle (already on the road, no extra ${money(REGION.transportPerBlock)}).`;
+          take(bestV.id, b, why);
+          progressed = true;
         }
       }
-      if (bestV) {
-        const why = bestOpensNew
-          ? `New vehicle for ${bestV.name} (${money(REGION.transportPerBlock)}/day) — nearest free vendor to ${b.location.label}.`
-          : `Shares ${bestV.name}'s vehicle (already on the road, no extra ${money(REGION.transportPerBlock)}).`;
-        take(bestV.id, b, why);
-        progressed = true;
-      }
     }
-  }
+  };
+
+  // Pass 1 — the contracted priority-A generals take everything within reach first.
+  const aGenerals = generals.filter((v) => String(v.priorityGroup ?? "").toUpperCase() === "A");
+  if (aGenerals.length) runPass(aGenerals, NON_GENERAL_KM, A_PASS_MAX_KM);
+  // Pass 2 — overflow. Volume decides the bulk non-general's attractiveness (Daksh at ≥4 leftovers).
+  const leftover = [...remaining].filter((id) => teamsNeeded(byId.get(id)!.pallets) < 2).length;
+  runPass([...generals, ...nons], leftover >= NON_GENERAL_BULK_THRESHOLD ? NON_GENERAL_BULK_BONUS_KM : NON_GENERAL_KM, Infinity);
 
   // ---------- assemble ----------
   const assignments: Assignment[] = [];

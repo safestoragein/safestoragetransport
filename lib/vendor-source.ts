@@ -31,6 +31,10 @@ export async function masterVendorsForCity(citySlug: string): Promise<Vendor[]> 
           : (rated > 0 && rated <= 5.5 ? "10ft" : "14ft");
         const g = geocodeAddress(r.starting_point || "", citySlug);
         const tier = r.tier === "non_general" ? "non_general" : "general";
+        // Bulk non-generals (e.g. Daksh Cargo "6 transactions / ₹15,000") work per-transaction with a
+        // bigger day: N transactions (from the pricing note, default 6) across 2 trips — up to
+        // 2 × rated pallets (Daksh: 2 × 7 = 14). Generals stay at the standard 3-orders/vehicle-cap day.
+        const txn = tier === "non_general" ? (String(r.pricing_note || "").match(/(\d+)\s*transaction/i)?.[1] ?? "6") : null;
         return {
           id: r.id,
           name: r.name,
@@ -39,7 +43,8 @@ export async function masterVendorsForCity(citySlug: string): Promise<Vendor[]> 
           depot: { lat: r.starting_lat ?? g.lat, lng: r.starting_lng ?? g.lng, label: r.starting_point || r.name },
           vehicle: { id: `${r.id}-VH`, type: vt, palletCapacity: VEHICLE_CAPACITY[vt] },
           palletObligation: 0, // no obligation: a vendor is paid only if used, nothing if idle
-          maxPalletsPerDay: vendorDailyCap(vt), // ONE vehicle/day (rated + tolerance): 14ft 9, 10ft 6
+          maxPalletsPerDay: tier === "non_general" ? 2 * (rated > 0 ? rated : 7) : vendorDailyCap(vt),
+          maxOrdersPerDay: txn != null ? Number(txn) : undefined,
           obligated: false,
           priorityGroup: r.priority_group ?? null,
         } as Vendor;

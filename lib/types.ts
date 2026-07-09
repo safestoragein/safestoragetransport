@@ -40,6 +40,9 @@ export interface Vendor {
   obligated: boolean; // A under contract -> base block is paid even if left idle
   phone?: string;
   priorityGroup?: string | null; // 'A' | 'B' | 'C' allocation preference (A preferred)
+  // Per-vendor daily transaction cap. Generals default to the global 3; a bulk non-general like
+  // Daksh Cargo ("6 transactions / ₹15,000", 14 pallets) carries 6 here.
+  maxOrdersPerDay?: number;
 }
 
 export interface Booking {
