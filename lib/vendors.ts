@@ -48,6 +48,19 @@ export interface VendorMaster {
 const CAP: Record<VehicleClass, number> = { "14ft": 7, "10ft": 4, others: 7 };
 const EFF: Record<VehicleClass, number> = { "14ft": 7.5, "10ft": 4.2, others: 7.5 };
 
+// Resolve a starting point ("Kasavanahalli") to depot coordinates at SAVE time. Best-effort: on a
+// miss/failure returns {} so the save never blocks; the optimiser self-heals it at the next generate.
+async function geoCols(startingPoint?: string | null, city?: string | null): Promise<Record<string, number>> {
+  const sp = (startingPoint || "").trim();
+  if (!sp || !city) return {};
+  try {
+    const { geocodeCached } = await import("./geocode-remote");
+    const g = await geocodeCached(sp, city.toLowerCase().trim());
+    if (g.precise) return { starting_lat: g.lat, starting_lng: g.lng };
+  } catch { /* non-fatal */ }
+  return {};
+}
+
 // Rated (pallet_capacity) + effective for a vendor. For "others" the office picks the class it
 // behaves like — 7 pallets (like a 14ft) or 4 (like a 10ft); we snap to those two so the scheduler's
 // capacity decision is unambiguous. Everything else uses the fixed per-type numbers above.
@@ -203,6 +216,9 @@ export async function addVendor(input: NewVendorInput): Promise<VendorMaster> {
       tier: input.vehicleType === "others" ? "non_general" : input.tier ?? "general",
       daily_price: input.dailyPrice ?? null, pricing_note: blank(input.pricingNote),
       starting_point: blank(input.startingPoint),
+      // Geocode the starting point at save time — the day plan and the optimiser need real depot
+      // coordinates (a panel-added vendor otherwise has none → "0 km" plans, city-centre allocation).
+      ...(await geoCols(input.startingPoint, input.city)),
       is_intercity_vendor: !!input.isIntercityVendor,
       does_local: input.doesLocal != null ? !!input.doesLocal : !input.isIntercityVendor,
       app_pin: blank(input.appPin),
@@ -246,6 +262,13 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
       notes: "notes", priorityGroup: "priority_group", billingCycle: "billing_cycle",
     };
     for (const [k, col] of Object.entries(M)) if (k in patch) row[col] = (patch as any)[k];
+    // Starting point changed → re-geocode the depot so day plans / allocation stay correct.
+    if ("startingPoint" in patch) {
+      try {
+        const { data: cr } = await c.from(TABLE).select("city").eq("id", id).limit(1);
+        Object.assign(row, await geoCols(patch.startingPoint as string, cr?.[0]?.city ?? null));
+      } catch { /* keep existing coords */ }
+    }
     // Vehicle-type change (team swaps a 10ft ⇄ 14ft, or picks "others"): set the type AND recompute
     // rated + effective capacity so the scheduler caps it correctly. "others" honours an explicit
     // palletCapacity; 14ft/10ft use their fixed numbers.

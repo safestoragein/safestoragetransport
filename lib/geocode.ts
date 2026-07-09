@@ -54,7 +54,7 @@ const GAZ: Record<string, [number, number]> = {
   kadugodi: [12.997, 77.76], varthur: [12.94, 77.74], hoodi: [12.992, 77.716],
   kundalahalli: [12.959, 77.716], brookefield: [12.966, 77.717], nagondanahalli: [12.99, 77.73],
   hoskote: [13.07, 77.79], panathur: [12.936, 77.696], harlur: [12.905, 77.655], haralur: [12.9, 77.66],
-  gunjur: [12.92, 77.74], "ramamurthy nagar": [13.018, 77.677],
+  gunjur: [12.92, 77.74], "ramamurthy nagar": [13.018, 77.677], kasavanahalli: [12.9, 77.68],
   // Hyderabad
   puppalaguda: [17.412, 78.366], kondapur: [17.4615, 78.364], "mahendra hills": [17.45, 78.53],
   malkajgiri: [17.45, 78.53], secunderabad: [17.44, 78.5], gachibowli: [17.44, 78.348],

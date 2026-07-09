@@ -13,6 +13,21 @@ export async function masterVendorsForCity(citySlug: string): Promise<Vendor[]> 
   try {
     const { data, error } = await db().from("vendors").select("*").eq("active", true).ilike("city", citySlug);
     if (error || !data) return [];
+    // Self-heal panel-added vendors that have a starting point but no coordinates (the panel saves
+    // text only): geocode once (cached) and persist, so day plans get real km and allocation gets a
+    // real depot instead of the city centre.
+    for (const r of data as any[]) {
+      if ((r.starting_lat == null || r.starting_lng == null) && r.starting_point) {
+        try {
+          const { geocodeCached } = await import("./geocode-remote");
+          const remote = await geocodeCached(r.starting_point, citySlug);
+          if (remote.precise) {
+            r.starting_lat = remote.lat; r.starting_lng = remote.lng;
+            await db().from("vendors").update({ starting_lat: remote.lat, starting_lng: remote.lng }).eq("id", r.id);
+          }
+        } catch { /* offline fallback below still applies */ }
+      }
+    }
     return data
       // The optimiser pool = every vendor that does LOCAL pickup/retrieval — including an intercity
       // vendor that also runs local. A vendor is excluded only if it does NOT do local work.
