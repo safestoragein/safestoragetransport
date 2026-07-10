@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ScheduleData } from "@/lib/schedule";
 import { teamsNeeded } from "@/lib/config";
-import Lifecycle, { LifeStep } from "./Lifecycle";
+import { LifeStep } from "./Lifecycle";
 
 const cityName = (slug: string) => slug.replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
 
@@ -88,23 +88,43 @@ function OrderFlow({ o, live }: { o: any; live: LiveMap }) {
   const flow = pk ? PICKUP_FLOW : RETR_FLOW;
   const appIdx = APP_ORDER.indexOf(String(o.live_status ?? "assigned"));
   const blendDone = pk ? pickedUp(o, live) : delivered(o, live); // WMS says finished (vendor may not have used the app)
-  const steps: LifeStep[] = flow.map(([st, label], i) => {
-    const done = appIdx >= APP_ORDER.indexOf(st) || (blendDone && appIdx <= 0);
-    const at = o.app_events?.[st]
-      ? `done ${shortClock(o.app_events[st])}`
-      : (blendDone && appIdx <= 0 && i === flow.length - 1 ? "via WMS" : undefined);
-    return { label, done, at: at ?? null };
-  });
+  const activeIdx = flow.findIndex(([st]) => APP_ORDER.indexOf(st) === appIdx + 1);
+  const floorOk = o.floor != null && String(o.floor).trim() !== "" && !/^na$/i.test(String(o.floor).trim());
   return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 pt-2.5 pb-1">
-      <div className="mb-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
-        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white ${pk ? "bg-blue-600" : "bg-emerald-600"}`}>{pk ? "Pickup" : "Retrieval"}</span>
-        <span className="text-sm font-bold text-slate-900">{o.customer_unique_id}</span>
-        <span className="text-xs text-slate-600">{o.customer_name}</span>
-        {o.locality && <span className="text-xs text-slate-400">📍 {o.locality}</span>}
-        {o.contact && <a className="text-xs font-medium text-blue-600 hover:underline" href={`tel:${String(o.contact).split(/[/,]/)[0].trim()}`}>📞 {o.contact}</a>}
+    <div className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+      {/* header: ref + customer + the order facts the office needs at a glance */}
+      <div className="mb-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+        <span className={`rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-white ${pk ? "bg-blue-600" : "bg-emerald-600"}`}>{pk ? "Pickup" : "Retrieval"}</span>
+        <span className="text-[13px] font-bold text-slate-900">{o.customer_unique_id}</span>
+        <span className="text-slate-600">{o.customer_name}</span>
+        {o.locality && <span className="text-slate-400">📍 {o.locality}</span>}
+        {o.contact && <a className="font-medium text-blue-600 hover:underline" href={`tel:${String(o.contact).split(/[/,]/)[0].trim()}`}>📞 {String(o.contact).split(/[/,]/)[0].trim()}</a>}
+        {(o.stated_pallets ?? o.pallets) != null && <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200"><b>{o.stated_pallets ?? o.pallets}p</b></span>}
+        {o.transport_charge != null && Number(o.transport_charge) > 0 && <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200">₹{Number(o.transport_charge).toLocaleString("en-IN")} transport</span>}
+        {o.lift != null && String(o.lift).trim() !== "" && <span className={`rounded px-1.5 py-0.5 text-[11px] ring-1 ${/^(n|no|false|0|na)$/i.test(String(o.lift).trim()) ? "bg-orange-50 text-orange-700 ring-orange-200" : "bg-white text-slate-600 ring-slate-200"}`}>{/^(n|no|false|0|na)$/i.test(String(o.lift).trim()) ? "⚠ no lift" : "lift ✓"}</span>}
+        {floorOk && <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200">🏢 floor {String(o.floor).trim()}</span>}
+        {o.time_slot && <span className="text-[11px] text-slate-400">wants {String(o.time_slot).replace(/:00/g, "")}</span>}
       </div>
-      <Lifecycle steps={steps} />
+      {/* compact stepper: small circles, one tight row */}
+      <div className="flex items-center gap-0 overflow-x-auto pb-0.5">
+        {flow.map(([st, label], i) => {
+          const done = appIdx >= APP_ORDER.indexOf(st) || (blendDone && appIdx <= 0);
+          const active = !done && i === (activeIdx === -1 ? 0 : activeIdx) && !blendDone && appIdx >= 0;
+          const at = o.app_events?.[st] ? shortClock(o.app_events[st]) : (blendDone && appIdx <= 0 && i === flow.length - 1 ? "WMS" : undefined);
+          return (
+            <div key={st} className="flex items-center">
+              {i > 0 && <div className={`h-0.5 w-5 shrink-0 sm:w-8 ${done ? "bg-emerald-400" : "bg-slate-200"}`} />}
+              <div className="flex w-[64px] shrink-0 flex-col items-center">
+                <div className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${done ? "bg-emerald-500 text-white" : active ? "bg-amber-400 text-white ring-2 ring-amber-200" : "bg-slate-200 text-slate-500"}`}>
+                  {done ? "✓" : i + 1}
+                </div>
+                <span className={`mt-0.5 text-[10px] font-semibold leading-tight ${done ? "text-emerald-700" : active ? "text-amber-700" : "text-slate-400"}`}>{label}</span>
+                <span className="h-3 text-[9px] leading-tight text-slate-400">{at ?? ""}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -179,7 +199,7 @@ function vendorRisk(v: any, m: LiveMap, now: number) {
 
 const behindLabel = (min: number) => (min >= 60 ? `${Math.floor(min / 60)}h ${min % 60}m` : `${min}m`);
 
-export default function MonitoringView({ cities }: { cities: ScheduleData[] }) {
+export default function MonitoringView({ cities, vendorFilter = "All" }: { cities: ScheduleData[]; vendorFilter?: string }) {
   const [live, setLive] = useState<LiveMap>({});
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
@@ -242,6 +262,7 @@ export default function MonitoringView({ cities }: { cities: ScheduleData[] }) {
         // Worst-first: teams running late float to the top, on-track teams sink, finished ones last.
         const assigned = c.vendors
           .filter((v: any) => !v.isUnassigned && v.orders.length)
+          .filter((v: any) => vendorFilter === "All" || v.vendorName === vendorFilter)
           .map((v: any) => ({ v, risk: vendorRisk(v, live, now) }))
           .sort((a, b) => b.risk.score - a.risk.score || b.risk.overdue - a.risk.overdue)
           .map((x) => x.v);

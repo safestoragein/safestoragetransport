@@ -54,6 +54,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [cityFilter, setCityFilter] = useState("All");
+  const [vendorFilter, setVendorFilter] = useState("All");
   const [pnl, setPnl] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [pnlBusy, setPnlBusy] = useState(false);
   // post-cutoff changes (from the booking webhook)
@@ -318,6 +319,13 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                 <option key={c.city} value={c.city}>{cityName(c.city)} ({ordersIn(c)})</option>
               ))}
             </select>
+            <label className="text-xs font-medium text-slate-500">Vendor</label>
+            <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="max-w-[180px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700">
+              <option value="All">All vendors</option>
+              {[...new Set(shown.flatMap((c: any) => (c.vendors ?? []).filter((v: any) => !v.isUnassigned && v.vendorName).map((v: any) => v.vendorName)))].sort().map((n: any) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
           </div>
           {!isToday && (
             <div className="flex items-center gap-2">
@@ -460,7 +468,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
           </Card>
         ) : isToday ? (
           // Monitoring: one lifecycle tracker per booking (no editing / generating here).
-          <MonitoringView cities={shown} />
+          <MonitoringView cities={shown} vendorFilter={vendorFilter} />
         ) : (() => {
           const matchN = (c: ScheduleData) =>
             cityTab === "intercity" ? c.vendors.reduce((s, v) => s + (v.orders as any[]).filter((o) => o.is_intercity && !o.is_shifting).length, 0)
