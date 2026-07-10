@@ -188,6 +188,7 @@ export interface ScheduleOrder {
   booking_date: string | null; // order_created_at — when the customer booked
   trip_no: number; stop_seq: number; resources: number;
   live_status?: string | null; live_status_at?: string | null; // vendor app: en_route/arrived/packing/loaded/delivered
+  app_events?: Record<string, string> | null; // event -> tap time (from order_events)
   coTeams?: CoTeam[] | null; // big order: the reserved 2nd/3rd teams (same vendor) working it
 }
 export interface CoTeam {
@@ -233,6 +234,21 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
   const orderIds = [...new Set((assigns ?? []).map((a: any) => a.order_id))];
   const { data: orders } = await c.from("orders").select("*").in("id", orderIds.length ? orderIds : ["00000000-0000-0000-0000-000000000000"]);
   const orderById = new Map((orders ?? []).map((o: any) => [o.id, o]));
+
+  // Per-order app-tap history (vendor pressed "Reached customer" at 10:05, …) — every tap the app
+  // sends is an order_events row; the LATEST tap per event wins. Powers the per-order step flow on
+  // Today's schedule.
+  const eventsByOrder = new Map<string, Record<string, string>>();
+  try {
+    const { data: evts } = await c.from("order_events").select("order_id, event, created_at")
+      .in("order_id", orderIds.length ? orderIds : ["00000000-0000-0000-0000-000000000000"])
+      .order("created_at", { ascending: true });
+    for (const e of evts ?? []) {
+      const m = eventsByOrder.get(e.order_id) ?? {};
+      m[String(e.event)] = String(e.created_at);
+      eventsByOrder.set(e.order_id, m);
+    }
+  } catch { /* events table missing → flows render without times */ }
 
   // active vendors in this city — for the reassignment dropdown
   const { data: avRows } = await c.from("vendors").select("id, name, vehicle_type, tier, is_intercity_vendor, daily_price, per_transaction, pricing_note, supervisor_name, supervisor_contact, driver_name, driver_contact, vehicle_no, starting_point, starting_lat, starting_lng").ilike("city", citySlug).eq("active", true);
@@ -304,7 +320,7 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
         vendorNotifiedAt: a.vendor_id ? vendorNotified.get(a.vendor_id) ?? null : null,
       };
     });
-    sv.orders.push({ ...o, trip_no: a.trip_no, stop_seq: a.stop_seq, manual_seq: a.manual_seq ?? null, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null, coTeams: coByOrder.get(a.order_id) ?? null } as any);
+    sv.orders.push({ ...o, trip_no: a.trip_no, stop_seq: a.stop_seq, manual_seq: a.manual_seq ?? null, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null, coTeams: coByOrder.get(a.order_id) ?? null, app_events: eventsByOrder.get(a.order_id) ?? null } as any);
     sv.pallets += Number(o.pallets) || 0;
     sv.actualPallets += Number(o.stated_pallets ?? o.pallets) || 0;
     sv.revenue += Number(o.transport_charge) || 0;
