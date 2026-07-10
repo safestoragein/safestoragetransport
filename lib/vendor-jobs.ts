@@ -164,7 +164,8 @@ export async function vendorDates(vendorId: string): Promise<string[]> {
 
 // The status lifecycle a vendor advances through, in order. Kept server-side so the app and the
 // dashboard agree on valid values.
-export const JOB_STATUSES = ["assigned", "en_route", "arrived", "packing", "loaded", "delivered"] as const;
+// Includes the retrieval-only first step "collected" (collected from warehouse).
+export const JOB_STATUSES = ["assigned", "collected", "en_route", "arrived", "packing", "loaded", "delivered"] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 // Record a status tap: append an immutable event (with GPS) + update the order's live status.
