@@ -78,43 +78,33 @@ const agoLabel = (m: number | null) => (m == null ? "" : m < 1 ? "just now" : m 
 // Freshness of the last GPS ping → dot colour.
 const freshDot = (m: number | null) => (m == null ? "bg-slate-300" : m < 5 ? "bg-emerald-500" : m < 20 ? "bg-amber-500" : "bg-slate-400");
 
-// ---- Per-order app flow: exactly which app button the vendor has pressed, per order, with times.
+// ---- Per-order app flow: each order gets its OWN round-circle step flow (exactly the buttons the
+// vendor presses in the app), with the tap time under each completed step.
 const PICKUP_FLOW: [string, string][] = [["en_route", "Started"], ["arrived", "Reached"], ["packing", "Loading"], ["loaded", "Loaded"], ["delivered", "At WH"]];
 const RETR_FLOW: [string, string][] = [["collected", "Collected"], ["en_route", "Started"], ["arrived", "Reached"], ["loaded", "Unloaded"], ["delivered", "Done"]];
 
-function OrderFlow({ o }: { o: any }) {
-  const flow = isPickup(o) ? PICKUP_FLOW : RETR_FLOW;
-  const cur = APP_ORDER.indexOf(String(o.live_status ?? "assigned"));
+function OrderFlow({ o, live }: { o: any; live: LiveMap }) {
+  const pk = isPickup(o);
+  const flow = pk ? PICKUP_FLOW : RETR_FLOW;
+  const appIdx = APP_ORDER.indexOf(String(o.live_status ?? "assigned"));
+  const blendDone = pk ? pickedUp(o, live) : delivered(o, live); // WMS says finished (vendor may not have used the app)
+  const steps: LifeStep[] = flow.map(([st, label], i) => {
+    const done = appIdx >= APP_ORDER.indexOf(st) || (blendDone && appIdx <= 0);
+    const at = o.app_events?.[st]
+      ? `done ${shortClock(o.app_events[st])}`
+      : (blendDone && appIdx <= 0 && i === flow.length - 1 ? "via WMS" : undefined);
+    return { label, done, at: at ?? null };
+  });
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${isPickup(o) ? "bg-blue-600" : "bg-emerald-600"}`}>{isPickup(o) ? "PICKUP" : "RETRIEVAL"}</span>
-      <span className="text-xs font-semibold text-slate-800">{o.customer_unique_id}</span>
-      <span className="max-w-[110px] truncate text-xs text-slate-500">{o.customer_name}</span>
-      <span className="flex flex-wrap items-center gap-1">
-        {flow.map(([st, label], i) => {
-          const stepIdx = APP_ORDER.indexOf(st);
-          const done = cur >= stepIdx;
-          const isCurrent = cur === stepIdx;
-          const at = o.app_events?.[st] ? shortClock(o.app_events[st]) : undefined;
-          return (
-            <span key={st} className="flex items-center gap-1">
-              {i > 0 && <span className={`text-[10px] ${done ? "text-emerald-400" : "text-slate-300"}`}>›</span>}
-              <span
-                title={at ? `Vendor tapped at ${at}` : undefined}
-                className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold ring-1 ${
-                  isCurrent
-                    ? "bg-blue-600 text-white ring-blue-600"
-                    : done
-                      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                      : "bg-slate-50 text-slate-400 ring-slate-200"
-                }`}
-              >
-                {done ? "✓ " : ""}{label}{at ? ` ${at}` : ""}
-              </span>
-            </span>
-          );
-        })}
-      </span>
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 pt-2.5 pb-1">
+      <div className="mb-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white ${pk ? "bg-blue-600" : "bg-emerald-600"}`}>{pk ? "Pickup" : "Retrieval"}</span>
+        <span className="text-sm font-bold text-slate-900">{o.customer_unique_id}</span>
+        <span className="text-xs text-slate-600">{o.customer_name}</span>
+        {o.locality && <span className="text-xs text-slate-400">📍 {o.locality}</span>}
+        {o.contact && <a className="text-xs font-medium text-blue-600 hover:underline" href={`tel:${String(o.contact).split(/[/,]/)[0].trim()}`}>📞 {o.contact}</a>}
+      </div>
+      <Lifecycle steps={steps} />
     </div>
   );
 }
@@ -334,10 +324,9 @@ export default function MonitoringView({ cities }: { cities: ScheduleData[] }) {
                       </div>
                       <span className="shrink-0 text-[11px] font-medium text-slate-500">{doneCount}/{steps.length} stops</span>
                     </div>
-                    <Lifecycle steps={steps} />
-                    {/* One flow line PER ORDER — the exact app steps this vendor has pressed */}
-                    <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-                      {ordered(v.orders, v.plan).map((o: any) => <OrderFlow key={o.id ?? o.order_id} o={o} />)}
+                    {/* ONE round-circle flow PER ORDER — the exact app steps, with tap times */}
+                    <div className="space-y-2.5">
+                      {ordered(v.orders, v.plan).map((o: any) => <OrderFlow key={o.id ?? o.order_id} o={o} live={live} />)}
                     </div>
                   </div>
                 );
