@@ -32,10 +32,10 @@ export interface VendorJob {
   liveStatusAt: string | null;
 }
 
-// The vendor's stops for the schedule they were MOST RECENTLY notified about (today's, or the
-// upcoming one the office published the evening before — date-agnostic on purpose). Empty/`published:
-// false` until the office has actually sent this vendor their notification. `_date` is accepted for
-// backwards-compat but ignored — the notification is the source of truth.
+// The vendor's stops for one day. With a `date` → that specific day's notified run (the app's
+// Today and Tomorrow tabs both pass their exact date), falling back to a masked tentative preview
+// when that day's schedule exists but hasn't been notified. Without a date → the latest notified
+// run, whatever its date.
 export async function vendorJobs(vendorId: string, date?: string | null): Promise<{ published: boolean; tentative: boolean; notifiedAt: string | null; date: string | null; jobs: VendorJob[] }> {
   const empty = { published: false, tentative: false, notifiedAt: null as string | null, date: null as string | null, jobs: [] as VendorJob[] };
   if (!hasDb) return empty;
