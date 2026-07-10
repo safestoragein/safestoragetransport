@@ -93,8 +93,10 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
         warehouseName: o.warehouse_name ?? null,
         warehouseLat: o.warehouse_lat ?? null,
         warehouseLng: o.warehouse_lng ?? null,
-        // ACTUAL pallets (as booked) — not the buffered/assumed count used for scheduling.
-        pallets: o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : null),
+        // STRICTLY the ACTUAL pallets — never the buffered/assumed scheduling count. Retrievals'
+        // `pallets` IS actual (exact from the warehouse); a pickup with no customer-stated count
+        // shows nothing rather than the 3.5-default/buffered assumption.
+        pallets: o.stated_pallets != null ? Number(o.stated_pallets) : (isRet && o.pallets != null ? Number(o.pallets) : null),
         timeSlot: o.time_slot ?? null,
         lift: o.lift ?? null,
         floor: o.floor ?? null,
@@ -136,7 +138,7 @@ async function tentativeJobs(c: any, vendorId: string, date: string): Promise<{ 
           address: o.locality ?? null, // area only, to help planning
           lat: null, lng: null, // exact pin masked
           warehouseName: null, warehouseLat: null, warehouseLng: null,
-          pallets: o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : null),
+          pallets: o.stated_pallets != null ? Number(o.stated_pallets) : (isRet && o.pallets != null ? Number(o.pallets) : null),
           timeSlot: o.time_slot ?? null,
           lift: null, floor: o.floor ?? null, teamNotes: null,
           tripNo: a.trip_no ?? 0, stopSeq: a.stop_seq ?? 0,
