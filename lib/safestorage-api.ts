@@ -20,6 +20,7 @@ import { VEHICLE_CAPACITY, bufferedPickupPallets, requiredVehicleFor } from "./c
 import { parseRequiredTime } from "./timeslot";
 import { flag } from "./format";
 import { geocodeCached } from "./geocode-remote";
+import { db, hasDb } from "./db";
 
 const API_BASE = process.env.SAFESTORAGE_API_BASE || "https://safestorage.in/back";
 
@@ -136,6 +137,19 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     (o) => (o.customer_local_city || "").toLowerCase().trim() === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date,
   );
 
+  // Pallet counts are STICKY: once an order exists in our DB, its ACTUAL pallet count is never
+  // re-pulled from the feed — the office edits it on the schedule and regenerates, and a feed
+  // refresh must not undo that. Everything else refreshes as usual; only brand-new orders (or
+  // ones whose saved count is empty) take the feed's total_pallet.
+  const savedPallets = new Map<string, number>();
+  if (hasDb && dayOrders.length) {
+    try {
+      const ids = [...new Set(dayOrders.map((o) => String(o.order_id ?? "")).filter(Boolean))];
+      const { data } = await db().from("orders").select("order_id, stated_pallets").in("order_id", ids);
+      for (const r of data ?? []) if (r.stated_pallets != null) savedPallets.set(String(r.order_id), Number(r.stated_pallets));
+    } catch { /* DB unreachable → fall back to feed values */ }
+  }
+
   let precise = 0;
   const bookings: Booking[] = [];
   for (let i = 0; i < dayOrders.length; i++) {
@@ -144,7 +158,8 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     if (g.precise) precise++;
     const isPickup = !/retriev/i.test(o.order_type || "");
     const statedRaw = parseFloat(o.total_pallet);
-    const stated = !statedRaw || statedRaw <= 0 ? null : Math.round(statedRaw * 10) / 10;
+    const feedStated = !statedRaw || statedRaw <= 0 ? null : Math.round(statedRaw * 10) / 10;
+    const stated = savedPallets.get(String(o.order_id ?? "")) ?? feedStated;
     // Pickups: customers under-report, so schedule for stated + buffer and size the vehicle off the
     // stated count. Retrievals are exact from the warehouse (no buffer). Missing count -> ~3.5 avg
     // so zero-pallet orders don't pile onto one team without limit.

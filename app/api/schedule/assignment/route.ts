@@ -7,10 +7,14 @@
 //        - set the optional 3rd-trip count on a vendor (₹1,500 each)
 //   PATCH /api/schedule/assignment { runId, orderUuid, action: "timeslot", timeSlot }
 //        - change the customer time window on an order (admin can shift morning <-> afternoon)
+//   PATCH /api/schedule/assignment { runId, orderUuid, action: "pallets", pallets }
+//        - team corrects the ACTUAL pallet count; sticky (feed refreshes keep it), applied to
+//          allocation on the next Generate. Pickups get the assumed buffer recomputed.
 //   PATCH /api/schedule/assignment { runId, action: "sequence", orderUuids: [uuid, …] }
 //        - set a vendor's manual stop order (the team interchanges stops); 1..N in array order
 import { NextRequest, NextResponse } from "next/server";
 import { db, isUuid } from "@/lib/db";
+import { bufferedPickupPallets } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +61,20 @@ export async function PATCH(req: NextRequest) {
       const { error } = await c.from("orders").update({ time_slot: slot }).eq("id", b.orderUuid);
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true, timeSlot: slot });
+    }
+
+    // Team corrects the ACTUAL pallet count. The saved value is authoritative from here on — the
+    // live feed never overwrites an existing order's pallets — so it survives Generate, which is
+    // exactly when it takes effect on allocation. The assumed (buffered) count is kept in sync.
+    if (b.action === "pallets") {
+      const n = Number(b.pallets);
+      if (!Number.isFinite(n) || n <= 0) return NextResponse.json({ ok: false, error: "Enter a pallet count above 0 (e.g. 2.5)." }, { status: 400 });
+      const stated = Math.round(n * 10) / 10;
+      const { data: ord } = await c.from("orders").select("order_type").eq("id", b.orderUuid).maybeSingle();
+      const isPickup = !/retriev/i.test(String(ord?.order_type ?? ""));
+      const { error } = await c.from("orders").update({ stated_pallets: stated, pallets: isPickup ? bufferedPickupPallets(stated) : stated }).eq("id", b.orderUuid);
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ ok: true, pallets: stated });
     }
 
     const { data: existing } = await c.from("schedule_assignments").select("*").eq("run_id", b.runId).eq("order_id", b.orderUuid).maybeSingle();

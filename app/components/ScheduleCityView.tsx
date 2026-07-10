@@ -136,6 +136,18 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
     setPending(null);
   }
 
+  // Team corrects the ACTUAL pallet count on an order. The value is sticky (a feed refresh never
+  // overwrites it) and is applied to allocation on the next Generate.
+  async function setPallets(orderUuid: string, val: string) {
+    const n = Number(val);
+    if (!Number.isFinite(n) || n <= 0) { alert("Enter a pallet count above 0 (e.g. 2.5)."); await reload(); return; }
+    setPending(`pallets:${orderUuid}`);
+    const r = await fetch("/api/schedule/assignment", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, orderUuid, action: "pallets", pallets: n }) }).then((x) => x.json()).catch(() => null);
+    if (r && r.ok === false) alert(r.error || "Could not save the pallet count.");
+    await reload();
+    setPending(null);
+  }
+
   // Admin shifts an order's customer time window (e.g. move an afternoon stop into the morning).
   async function setTimeslot(orderUuid: string, val: string) {
     setPending(`slot:${orderUuid}`);
@@ -345,9 +357,24 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     )}
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${t.dot}`}>{t.label}{o.is_shifting ? " · shifting" : o.is_intercity ? " · intercity" : ""}</span>
                     <span className="text-sm font-medium text-slate-800">{o.customer_unique_id}</span>
-                    {/* actual + assumed pallets, right after the booking id */}
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600" title="Actual pallets (customer-stated / warehouse). Pickups add an assumed buffer.">
-                      <b className="font-semibold">{(o.stated_pallets ?? o.pallets) ?? "—"}p</b> actual
+                    {/* actual + assumed pallets, right after the booking id — actual is team-editable */}
+                    <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600" title={readOnly ? "Actual pallets (customer-stated / warehouse). Pickups add an assumed buffer." : "Actual pallets — edit the number if it changed, then press Generate to re-run the schedule with it. The edit is kept even when the feed refreshes."}>
+                      {readOnly ? (
+                        <b className="font-semibold">{(o.stated_pallets ?? o.pallets) ?? "—"}p</b>
+                      ) : (
+                        <>
+                          <input
+                            key={`${o.id}:${o.stated_pallets ?? o.pallets ?? ""}`}
+                            type="number" min={0.1} step={0.1} inputMode="decimal"
+                            defaultValue={(o.stated_pallets ?? o.pallets) ?? ""}
+                            disabled={pending === `pallets:${o.id}`}
+                            onBlur={(e) => { const val = e.target.value.trim(); const cur = String((o.stated_pallets ?? o.pallets) ?? ""); if (val !== "" && Number(val) !== Number(cur)) setPallets(o.id, val); else e.target.value = cur; }}
+                            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                            className="w-12 rounded border border-slate-300 bg-white px-1 py-0 text-[11px] font-semibold text-slate-800"
+                          />
+                          <b className="font-semibold">p</b>
+                        </>
+                      )} actual
                       {o.order_type === "pickup" && o.stated_pallets != null && Number(o.stated_pallets) !== Number(o.pallets)
                         ? <span className="text-slate-400"> → {o.pallets}p assumed</span> : null}
                     </span>
