@@ -144,6 +144,7 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
     setPending(`pallets:${orderUuid}`);
     const r = await fetch("/api/schedule/assignment", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, orderUuid, action: "pallets", pallets: n }) }).then((x) => x.json()).catch(() => null);
     if (r && r.ok === false) alert(r.error || "Could not save the pallet count.");
+    else if (r?.warning) alert(r.warning);
     await reload();
     setPending(null);
   }

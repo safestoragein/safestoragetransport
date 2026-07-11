@@ -63,16 +63,23 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, timeSlot: slot });
     }
 
-    // Team corrects the ACTUAL pallet count. The saved value is authoritative from here on — the
-    // live feed never overwrites an existing order's pallets — so it survives Generate, which is
-    // exactly when it takes effect on allocation. The assumed (buffered) count is kept in sync.
+    // Team corrects the ACTUAL pallet count. Pallets are otherwise DERIVED (storage_charges/1000),
+    // so the edit is persisted as pallet_override — the one thing that beats the formula — and
+    // survives every Generate. The assumed (buffered) count is kept in sync for display.
     if (b.action === "pallets") {
       const n = Number(b.pallets);
       if (!Number.isFinite(n) || n <= 0) return NextResponse.json({ ok: false, error: "Enter a pallet count above 0 (e.g. 2.5)." }, { status: 400 });
       const stated = Math.round(n * 10) / 10;
       const { data: ord } = await c.from("orders").select("order_type").eq("id", b.orderUuid).maybeSingle();
       const isPickup = !/retriev/i.test(String(ord?.order_type ?? ""));
-      const { error } = await c.from("orders").update({ stated_pallets: stated, pallets: isPickup ? bufferedPickupPallets(stated) : stated }).eq("id", b.orderUuid);
+      const scheduled = isPickup ? bufferedPickupPallets(stated) : stated;
+      let { error } = await c.from("orders").update({ pallet_override: stated, stated_pallets: stated, pallets: scheduled }).eq("id", b.orderUuid);
+      if (error && /pallet_override/i.test(error.message || "")) {
+        // Migration not run yet — save the display values anyway, but warn that the edit won't
+        // survive a regenerate until the column exists.
+        ({ error } = await c.from("orders").update({ stated_pallets: stated, pallets: scheduled }).eq("id", b.orderUuid));
+        if (!error) return NextResponse.json({ ok: true, pallets: stated, warning: "Run the 2026-07-11-order-pallet-override.sql migration so this edit survives Generate." });
+      }
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true, pallets: stated });
     }

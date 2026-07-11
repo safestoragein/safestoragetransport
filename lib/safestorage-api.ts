@@ -137,17 +137,17 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     (o) => (o.customer_local_city || "").toLowerCase().trim() === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date,
   );
 
-  // Pallet counts are STICKY: once an order exists in our DB, its ACTUAL pallet count is never
-  // re-pulled from the feed — the office edits it on the schedule and regenerates, and a feed
-  // refresh must not undo that. Everything else refreshes as usual; only brand-new orders (or
-  // ones whose saved count is empty) take the feed's total_pallet.
-  const savedPallets = new Map<string, number>();
+  // PALLETS ARE NOT PULLED FROM THE FEED. Business rule: storage is billed at ~₹1,000 per pallet,
+  // so the ACTUAL pallet count is DERIVED as storage_charges / 1000 (rounded to 0.1). The only
+  // thing that beats the formula is an explicit manual edit made on the schedule, persisted in
+  // orders.pallet_override.
+  const overrides = new Map<string, number>();
   if (hasDb && dayOrders.length) {
     try {
       const ids = [...new Set(dayOrders.map((o) => String(o.order_id ?? "")).filter(Boolean))];
-      const { data } = await db().from("orders").select("order_id, stated_pallets").in("order_id", ids);
-      for (const r of data ?? []) if (r.stated_pallets != null) savedPallets.set(String(r.order_id), Number(r.stated_pallets));
-    } catch { /* DB unreachable → fall back to feed values */ }
+      const { data } = await db().from("orders").select("order_id, pallet_override").in("order_id", ids);
+      for (const r of (data ?? []) as any[]) if (r.pallet_override != null) overrides.set(String(r.order_id), Number(r.pallet_override));
+    } catch { /* column not migrated yet / DB unreachable → pure formula */ }
   }
 
   let precise = 0;
@@ -157,9 +157,11 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     const g = await geocodeCached(o.order_address || "", citySlug); // real geocode, cached in MySQL
     if (g.precise) precise++;
     const isPickup = !/retriev/i.test(o.order_type || "");
-    const statedRaw = parseFloat(o.total_pallet);
-    const feedStated = !statedRaw || statedRaw <= 0 ? null : Math.round(statedRaw * 10) / 10;
-    const stated = savedPallets.get(String(o.order_id ?? "")) ?? feedStated;
+    // Derived pallets: storage ₹1,000 ≈ 1 pallet. No storage charge on record → null (scheduler
+    // falls back to its ~3.5 average). A manual edit (pallet_override) wins over the formula.
+    const storageC = parseFloat(o.storage_charges) || 0;
+    const formulaStated = storageC > 0 ? Math.round((storageC / 1000) * 10) / 10 : null;
+    const stated = overrides.get(String(o.order_id ?? "")) ?? formulaStated;
     // Pickups: customers under-report, so schedule for stated + buffer and size the vehicle off the
     // stated count. Retrievals are exact from the warehouse (no buffer). Missing count -> ~3.5 avg
     // so zero-pallet orders don't pile onto one team without limit.
