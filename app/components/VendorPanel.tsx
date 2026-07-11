@@ -432,6 +432,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
   const [f, setF] = useState({
     name: v.name ?? "", startingPoint: v.startingPoint ?? "", tier: v.tier,
     dailyPrice: v.dailyPrice != null ? String(v.dailyPrice) : "",
+    pricingNote: v.pricingNote ?? "",
     securityDeposit: v.securityDeposit != null ? String(v.securityDeposit) : "",
     driverName: v.driverName ?? "", driverContact: v.driverContact ?? "",
     packerNames: v.packerNames ?? "", vehicleNo: v.vehicleNo ?? "", systemTeamNo: v.systemTeamNo ?? "",
@@ -456,6 +457,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
         id: v.id, name: f.name.trim(), startingPoint: f.startingPoint.trim(), tier: f.tier,
         isIntercityVendor: f.isIntercityVendor, doesLocal: f.doesLocal, appPin: f.appPin.trim() || null, notes: f.notes.trim() || null, priorityGroup: f.priorityGroup || null, billingCycle: f.billingCycle || null,
         dailyPrice: f.dailyPrice === "" ? null : Number(f.dailyPrice),
+        pricingNote: f.pricingNote.trim() || null,
         securityDeposit: f.securityDeposit === "" ? null : Number(f.securityDeposit),
         driverName: f.driverName.trim() || null, driverContact: f.driverContact.trim() || null,
         packerNames: f.packerNames.trim() || null, vehicleNo: f.vehicleNo.trim() || null, systemTeamNo: f.systemTeamNo.trim() || null,
@@ -509,6 +511,7 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
           <select className={input} value={f.billingCycle} onChange={(e) => set("billingCycle", e.target.value)}><option value="">— none —</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
         </label>
         {field("Daily price (₹)", "dailyPrice", "number")}
+        {field("Pricing note (non-general)", "pricingNote", "text", "e.g. 6 transactions / 19 pallets / ₹20,000")}
         {field("Security deposit (₹)", "securityDeposit", "number", "e.g. 25000")}
         {field("Driver name", "driverName")}
         {field("Driver contact", "driverContact")}
