@@ -56,7 +56,7 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
     const match = notifs.find((n: any) => dateByRun.get(n.run_id) === date);
     if (!match) return tentativeJobs(c, vendorId, date); // no notification for that date → tentative preview
     runId = match.run_id; notifiedAt = match.sent_at;
-    sameDayOlderRunIds = [...new Set(notifs.filter((n: any) => n.run_id !== runId && dateByRun.get(n.run_id) === date).map((n: any) => n.run_id as string))];
+    sameDayOlderRunIds = [...new Set<string>(notifs.filter((n: any) => n.run_id !== runId && dateByRun.get(n.run_id) === date).map((n: any) => String(n.run_id)))];
   }
   const { data: runRow } = await c.from("schedule_runs").select("schedule_date").eq("id", runId).limit(1);
   const runDate = runRow?.[0]?.schedule_date ? String(runRow[0].schedule_date).slice(0, 10) : null;
