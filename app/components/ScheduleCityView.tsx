@@ -187,7 +187,11 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
     : (tab === "intercity" || tab === "shifting")
       ? sched.vendors.filter((v) => v.isUnassigned).map((v) => ({ ...v, orders: (v.orders as any[]).filter(keep) }))
       : sched.vendors.map((v) => (v.isUnassigned ? { ...v, orders: (v.orders as any[]).filter(keep) } : v))
-  ).filter((v) => !v.isUnassigned || v.orders.length > 0);
+  )
+    .filter((v) => !v.isUnassigned || v.orders.length > 0)
+    // A big order's 2nd/3rd teams are shown ON the main vendor's card (title, pay line, team
+    // details) — not as a separate shadow card.
+    .filter((v) => !v.isCoTeam);
 
   return (
     <div className="space-y-3">
@@ -222,22 +226,29 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
         const perTxn = v.tier === "non_general" || v.isIntercity;
         const base = perTxn ? (v.perTransaction != null ? v.perTransaction * v.orders.length : null) : (v.dailyPrice ?? null);
         const pay = base != null ? base + addOns : null;
+        // Reserved 2nd/3rd teams on this vendor's big order(s) — shown on THIS card (one card per
+        // job), each an extra vehicle paid at the same day rate.
+        const coTeams: any[] = (() => {
+          const seen = new Set<string>();
+          return v.orders.flatMap((o: any) => (o.coTeams ?? []) as any[]).filter((ct: any) => {
+            const k = String(ct.vendorId ?? ct.vendorName ?? "");
+            if (!k || seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+        })();
         return (
         <Card key={v.vendorId ?? v.vendorName} className={`overflow-hidden ${v.isUnassigned ? "ring-1 ring-amber-300" : v.isCoTeam ? "ring-1 ring-fuchsia-200" : ""}`}>
           <div className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 ${v.isUnassigned ? "bg-amber-50" : v.isCoTeam ? "bg-fuchsia-50" : "bg-slate-50"}`}>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-800">
-                {v.vendorName}
-                {v.isCoTeam && <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700">2nd team · with {v.coTeamOf}</span>}
-                {/* header shows BOTH team names when this card runs a big 2-team order */}
-                {!v.isCoTeam && (() => {
-                  const coNames = [...new Set(v.orders.flatMap((o: any) => (o.coTeams ?? []).map((ct: any) => ct.vendorName)).filter(Boolean))];
-                  return coNames.length > 0 ? (
-                    <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700" title="This vendor runs 2 teams on a big order">
-                      🚚 2 teams: {v.vendorName} + {coNames.join(" + ")}
-                    </span>
-                  ) : null;
-                })()}
+                {/* One card per JOB: a big 2-team order shows both team names in the title */}
+                {coTeams.length > 0 ? `${v.vendorName} + ${coTeams.map((ct: any) => ct.vendorName).join(" + ")}` : v.vendorName}
+                {coTeams.length > 0 && (
+                  <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700" title="Big order — one job carried by this vendor's teams together">
+                    🚚 {coTeams.length + 1} teams · one job
+                  </span>
+                )}
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
                 {v.isCoTeam
@@ -246,11 +257,14 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
               </div>
               {!v.isUnassigned && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                  <span className="rounded-md bg-slate-900 px-2 py-0.5 font-semibold text-white">We pay {pay != null ? money(pay) : "—"}{pay != null && !perTxn ? "/day" : ""}</span>
+                  <span className="rounded-md bg-slate-900 px-2 py-0.5 font-semibold text-white">
+                    We pay {pay != null ? money(pay + (coTeams.length && !perTxn && v.dailyPrice != null ? coTeams.length * v.dailyPrice : 0)) : "—"}{pay != null && !perTxn ? "/day" : ""}
+                  </span>
                   <span className="text-slate-400">
                     {base != null
                       ? (perTxn ? `${money(v.perTransaction!)} × ${v.orders.length} order${v.orders.length > 1 ? "s" : ""}` : `${money(v.dailyPrice!)}/day`)
                       : (v.pricingNote || "per-trip pricing TBD")}
+                    {coTeams.length > 0 && !perTxn && v.dailyPrice != null && ` × ${coTeams.length + 1} vehicles`}
                     {addOns > 0 && ` + ${money(addOns)} add-ons (${v.resources ? `${v.resources}×₹${sched.resourceCost}` : ""}${v.resources && v.extraTrips ? ", " : ""}${v.extraTrips ? `${v.extraTrips}×₹${sched.extraTripCost}` : ""})`}
                   </span>
                 </div>
@@ -260,6 +274,15 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                 {v.driverName && <span>Driver: <b className="font-medium text-slate-700">{v.driverName}</b> {v.driverContact}</span>}
                 {(v.vehicleType || v.vehicleNo) && <span>Vehicle: <b className="font-medium text-slate-700">{v.vehicleType === "others" ? "Other" : v.vehicleType || ""}</b>{v.vehicleNo ? `${v.vehicleType ? " · " : ""}${v.vehicleNo}` : ""}</span>}
               </div>
+              {/* 2nd/3rd team crew — merged onto this card instead of a separate shadow card */}
+              {coTeams.map((ct: any, i: number) => (
+                <div key={i} className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-fuchsia-700">
+                  <span className="font-semibold">{ct.vendorName} (2nd vehicle):</span>
+                  {ct.supervisorName && <span>Supervisor: <b className="font-medium">{ct.supervisorName}</b> {ct.supervisorContact}</span>}
+                  {ct.driverName && <span>Driver: <b className="font-medium">{ct.driverName}</b> {ct.driverContact}</span>}
+                  {(ct.vehicleType || ct.vehicleNo) && <span>Vehicle: <b className="font-medium">{ct.vehicleType === "others" ? "Other" : ct.vehicleType || ""}</b>{ct.vehicleNo ? `${ct.vehicleType ? " · " : ""}${ct.vehicleNo}` : ""}</span>}
+                </div>
+              ))}
               {/* Live tracking (from the vendor app): current GPS + delivery progress */}
               {!v.isUnassigned && (() => {
                 const total = v.orders.length;
