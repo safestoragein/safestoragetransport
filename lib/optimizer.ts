@@ -230,6 +230,58 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
   const generals = vendors.filter((v) => v.tier === "general").sort((a, b) => priRank(a) - priRank(b));
   const nons = vendors.filter((v) => v.tier === "non_general");
 
+  // Phase 1-BIG (runs FIRST) — an order above the 14ft cap must go WHOLE to either
+  //   (a) ONE bulk day-rate vendor whose day is big enough to carry it alone (Daksh "up to 14.5p",
+  //       VMS T3 "up to 19p"). Their N-transactions figure is a CAP, not a quota — one big order
+  //       is a perfectly good day for a flat day rate; or
+  //   (b) ONE vendor family that can field enough FREE teams to cover it together. Never split
+  //       across different vendors.
+  // This used to run AFTER the Type-A block fill, which consumed every team by the time big orders
+  // were looked at — so they all fell into the manual bucket. Biggest orders now reserve their
+  // carrier first; the block fill packs everyone else around them.
+  const bigFirst = [...remaining].map((id) => byId.get(id)!).filter((b) => teamsNeeded(b.pallets) >= 2).sort((a, b) => b.pallets - a.pallets);
+  for (const b of bigFirst) {
+    if (!remaining.has(b.id)) continue;
+    const need = teamsNeeded(b.pallets);
+    let bestPick: { primary: Vendor; siblings: Vendor[]; km: number; why: string } | null = null;
+    // (a) a single bulk vendor with room in its day (pallet ceiling + transaction cap respected).
+    for (const v of nons) {
+      if (consumed.has(v.id)) continue;
+      if (palletsAt(v.id) + b.pallets > v.maxPalletsPerDay + EPS) continue;
+      if (assignedTo.get(v.id)!.length >= (v.maxOrdersPerDay ?? 3)) continue;
+      const km = roadKm(v.depot, b.location);
+      if (!bestPick || km < bestPick.km) {
+        bestPick = { primary: v, siblings: [], km, why: `Big order (${b.pallets}p) — ${v.name} carries it alone (bulk day rate, up to ${v.maxPalletsPerDay}p/day).` };
+      }
+    }
+    // (b) a family with `need` completely free teams whose combined capacity covers the order.
+    const freeByFamily = new Map<string, Vendor[]>();
+    for (const v of [...generals, ...nons]) {
+      if (assignedTo.get(v.id)!.length > 0 || consumed.has(v.id)) continue;
+      const f = vendorFamily(v.name);
+      if (!freeByFamily.has(f)) freeByFamily.set(f, []);
+      freeByFamily.get(f)!.push(v);
+    }
+    for (const teams of freeByFamily.values()) {
+      if (teams.length < need) continue;
+      const byCap = [...teams].sort((x, y) => effectiveCapacity(y.vehicle.type) - effectiveCapacity(x.vehicle.type));
+      const chosen = byCap.slice(0, need); // the `need` biggest teams of this family
+      const capSum = chosen.reduce((s, v) => s + effectiveCapacity(v.vehicle.type), 0);
+      if (capSum + EPS < b.pallets) continue; // even its biggest teams can't carry the order
+      const primary = [...chosen].sort((x, y) => roadKm(x.depot, b.location) - roadKm(y.depot, b.location))[0];
+      const km = roadKm(primary.depot, b.location);
+      if (!bestPick || km < bestPick.km) {
+        bestPick = { primary, siblings: chosen.filter((v) => v.id !== primary.id), km, why: `Big order (${b.pallets}p) — ${primary.name} sends ${need} teams (order kept whole).` };
+      }
+    }
+    if (bestPick) {
+      b.coTeams = bestPick.siblings.map((s) => s.id); // reserved 2nd/3rd teams (empty for a bulk solo)
+      take(bestPick.primary.id, b, bestPick.why);
+      for (const s of bestPick.siblings) consumed.add(s.id);
+    }
+    // else: leave in `remaining` → ends up in the "team to assign" bucket. Never split.
+  }
+
   // Phase 1a — fill each Type A base block tightly (cap at the obligation, no overshoot) so the
   // prepaid 7-pallet blocks pack well first.
   for (const v of generals) {
@@ -248,43 +300,6 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
       if (!b) break;
       take(v.id, b, `Topping up ${v.name} to its 7-pallet obligation (${b.location.label}, ${b.pallets}p).`);
     }
-  }
-
-  // Phase 1c — BIG orders (more than one team can carry) go to ONE vendor that has enough FREE teams
-  // to cover the whole order together. The order is NEVER split; all the needed teams come from the
-  // same vendor family and are reserved for it. If no vendor has enough free teams, the order is left
-  // for the team to assign by hand (it must never be split across different vendors).
-  const bigFirst = [...remaining].map((id) => byId.get(id)!).filter((b) => teamsNeeded(b.pallets) >= 2).sort((a, b) => b.pallets - a.pallets);
-  for (const b of bigFirst) {
-    if (!remaining.has(b.id)) continue;
-    const need = teamsNeeded(b.pallets);
-    // Free teams (empty + not already reserved), grouped by vendor family.
-    const freeByFamily = new Map<string, Vendor[]>();
-    for (const v of [...generals, ...nons]) {
-      if (assignedTo.get(v.id)!.length > 0 || consumed.has(v.id)) continue;
-      const f = vendorFamily(v.name);
-      if (!freeByFamily.has(f)) freeByFamily.set(f, []);
-      freeByFamily.get(f)!.push(v);
-    }
-    // Families that can field `need` teams whose combined capacity covers the order; pick the one
-    // whose nearest team is closest to the stop.
-    let bestPick: { primary: Vendor; siblings: Vendor[]; km: number } | null = null;
-    for (const teams of freeByFamily.values()) {
-      if (teams.length < need) continue;
-      const byCap = [...teams].sort((x, y) => effectiveCapacity(y.vehicle.type) - effectiveCapacity(x.vehicle.type));
-      const chosen = byCap.slice(0, need); // the `need` biggest teams of this family
-      const capSum = chosen.reduce((s, v) => s + effectiveCapacity(v.vehicle.type), 0);
-      if (capSum + EPS < b.pallets) continue; // even its biggest teams can't carry the order
-      const primary = [...chosen].sort((x, y) => roadKm(x.depot, b.location) - roadKm(y.depot, b.location))[0];
-      const km = roadKm(primary.depot, b.location);
-      if (!bestPick || km < bestPick.km) bestPick = { primary, siblings: chosen.filter((v) => v.id !== primary.id), km };
-    }
-    if (bestPick) {
-      b.coTeams = bestPick.siblings.map((s) => s.id); // remember the reserved 2nd/3rd teams
-      take(bestPick.primary.id, b, `Big order (${b.pallets}p) — ${bestPick.primary.name} sends ${need} teams (order kept whole).`);
-      for (const s of bestPick.siblings) consumed.add(s.id);
-    }
-    // else: leave in `remaining` → ends up in the "team to assign" bucket. Never split.
   }
 
   // Phase 2 — assign every order to a vendor, in TWO passes (the team's tiering policy):

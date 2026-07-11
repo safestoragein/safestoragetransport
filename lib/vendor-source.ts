@@ -50,6 +50,9 @@ export async function masterVendorsForCity(citySlug: string): Promise<Vendor[]> 
         // bigger day: N transactions (from the pricing note, default 6) across 2 trips — up to
         // 2 × rated pallets (Daksh: 2 × 7 = 14). Generals stay at the standard 3-orders/vehicle-cap day.
         const txn = tier === "non_general" ? (String(r.pricing_note || "").match(/(\d+)\s*transaction/i)?.[1] ?? "6") : null;
+        // The pricing note may also state the day's pallet ceiling explicitly ("… 14.5 pallets …",
+        // Daksh 14.5 / VMS T3 19) — when present it overrides the 2×rated default.
+        const notePallets = tier === "non_general" ? Number(String(r.pricing_note || "").match(/([\d.]+)\s*pallet/i)?.[1]) : NaN;
         return {
           id: r.id,
           name: r.name,
@@ -58,7 +61,7 @@ export async function masterVendorsForCity(citySlug: string): Promise<Vendor[]> 
           depot: { lat: r.starting_lat ?? g.lat, lng: r.starting_lng ?? g.lng, label: r.starting_point || r.name },
           vehicle: { id: `${r.id}-VH`, type: vt, palletCapacity: VEHICLE_CAPACITY[vt] },
           palletObligation: 0, // no obligation: a vendor is paid only if used, nothing if idle
-          maxPalletsPerDay: tier === "non_general" ? 2 * (rated > 0 ? rated : 7) : vendorDailyCap(vt),
+          maxPalletsPerDay: tier === "non_general" ? (notePallets > 0 ? notePallets : 2 * (rated > 0 ? rated : 7)) : vendorDailyCap(vt),
           maxOrdersPerDay: txn != null ? Number(txn) : undefined,
           dailyPrice: r.daily_price != null ? Number(r.daily_price) : null,
           obligated: false,

@@ -383,12 +383,22 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                         🚚 2nd team{v.vehicleType ? ` (${v.vehicleType})` : ""} · with {v.coTeamOf}
                       </span>
                     ) : teamsNeeded(Number(o.pallets) || 0) > 1 && (() => {
+                      // A bulk day-rate vendor (Daksh / VMS T3) can carry an over-cap order ALONE —
+                      // no co-teams reserved. Only show the multi-team chip when teams were reserved.
+                      const cts = (o.coTeams ?? []) as any[];
+                      if (!v.isUnassigned && cts.length === 0) {
+                        return (
+                          <span className="rounded bg-fuchsia-100 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700" title="Over-cap order carried whole by one bulk day-rate vendor">
+                            🚚 bulk load — one vehicle
+                          </span>
+                        );
+                      }
                       const label = (name?: string | null, veh?: string | null) => `${name ?? "—"}${veh ? ` (${veh})` : ""}`;
-                      const names = [label(v.vendorName, v.vehicleType), ...((o.coTeams ?? []).map((ct: any) => label(ct.vendorName, ct.vehicleType)))].join(", ");
-                      const sups = [`${v.supervisorName ?? ""} ${v.supervisorContact ?? ""}`.trim(), ...((o.coTeams ?? []).map((ct: any) => `${ct.supervisorName ?? ""} ${ct.supervisorContact ?? ""}`.trim()))].filter(Boolean).join(" · ");
+                      const names = [label(v.vendorName, v.vehicleType), ...cts.map((ct: any) => label(ct.vendorName, ct.vehicleType))].join(", ");
+                      const sups = [`${v.supervisorName ?? ""} ${v.supervisorContact ?? ""}`.trim(), ...cts.map((ct: any) => `${ct.supervisorName ?? ""} ${ct.supervisorContact ?? ""}`.trim())].filter(Boolean).join(" · ");
                       return (
-                        <span className="rounded bg-fuchsia-100 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700" title={`Big order — kept whole, ${teamsNeeded(Number(o.pallets) || 0)} teams. Supervisors: ${sups}`}>
-                          🚚 {teamsNeeded(Number(o.pallets) || 0)} teams: {names}
+                        <span className="rounded bg-fuchsia-100 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700" title={`Big order — kept whole, ${cts.length + 1} teams. Supervisors: ${sups}`}>
+                          🚚 {cts.length + 1} teams: {names}
                         </span>
                       );
                     })()}
