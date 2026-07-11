@@ -80,7 +80,9 @@ const freshDot = (m: number | null) => (m == null ? "bg-slate-300" : m < 5 ? "bg
 
 // ---- Per-order app flow: each order gets its OWN round-circle step flow (exactly the buttons the
 // vendor presses in the app), with the tap time under each completed step.
-const PICKUP_FLOW: [string, string][] = [["en_route", "Started"], ["arrived", "Reached"], ["packing", "Loading"], ["loaded", "Loaded"], ["delivered", "At WH"]];
+// "Loading started" (packing) was dropped from the app — one "Loaded" step now. A legacy 'packing'
+// status from older app builds still counts as past "Reached" via APP_ORDER.
+const PICKUP_FLOW: [string, string][] = [["en_route", "Started"], ["arrived", "Reached"], ["loaded", "Loaded"], ["delivered", "At WH"]];
 const RETR_FLOW: [string, string][] = [["collected", "Collected"], ["en_route", "Started"], ["arrived", "Reached"], ["loaded", "Unloaded"], ["delivered", "Done"]];
 
 function OrderFlow({ o, live }: { o: any; live: LiveMap }) {
@@ -88,7 +90,9 @@ function OrderFlow({ o, live }: { o: any; live: LiveMap }) {
   const flow = pk ? PICKUP_FLOW : RETR_FLOW;
   const appIdx = APP_ORDER.indexOf(String(o.live_status ?? "assigned"));
   const blendDone = pk ? pickedUp(o, live) : delivered(o, live); // WMS says finished (vendor may not have used the app)
-  const activeIdx = flow.findIndex(([st]) => APP_ORDER.indexOf(st) === appIdx + 1);
+  // Next pending step = first flow step BEYOND the current status (the flow may skip statuses
+  // that exist in APP_ORDER, e.g. the retired 'packing').
+  const activeIdx = flow.findIndex(([st]) => APP_ORDER.indexOf(st) > appIdx);
   const floorOk = o.floor != null && String(o.floor).trim() !== "" && !/^na$/i.test(String(o.floor).trim());
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
