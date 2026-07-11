@@ -48,6 +48,7 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
   if (!notifs?.length) return date ? tentativeJobs(c, vendorId, date) : empty;
   let runId = notifs[0].run_id as string;
   let notifiedAt = notifs[0].sent_at as string;
+  let sameDayOlderRunIds: string[] = [];
   if (date) {
     const runIds = [...new Set(notifs.map((n: any) => n.run_id))];
     const { data: runs } = await c.from("schedule_runs").select("id, schedule_date").in("id", runIds);
@@ -55,11 +56,30 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
     const match = notifs.find((n: any) => dateByRun.get(n.run_id) === date);
     if (!match) return tentativeJobs(c, vendorId, date); // no notification for that date → tentative preview
     runId = match.run_id; notifiedAt = match.sent_at;
+    sameDayOlderRunIds = [...new Set(notifs.filter((n: any) => n.run_id !== runId && dateByRun.get(n.run_id) === date).map((n: any) => n.run_id as string))];
   }
   const { data: runRow } = await c.from("schedule_runs").select("schedule_date").eq("id", runId).limit(1);
   const runDate = runRow?.[0]?.schedule_date ? String(runRow[0].schedule_date).slice(0, 10) : null;
   const { data: assigns } = await c.from("schedule_assignments").select("*").eq("run_id", runId).eq("vendor_id", vendorId);
   const rows = assigns ?? [];
+
+  // A regenerate + re-notify replaces the vendor's run — and orders they already worked on may be
+  // MISSING from the new run (completed orders drop out of the live feed). Without this, a finished
+  // job vanishes from the app the moment the office regenerates. Merge back any order from this
+  // day's OLDER notified runs that this vendor had already started/completed.
+  if (sameDayOlderRunIds.length) {
+    const { data: oldAssigns } = await c.from("schedule_assignments").select("*").in("run_id", sameDayOlderRunIds).eq("vendor_id", vendorId);
+    const have = new Set(rows.map((a: any) => a.order_id));
+    const candidates = (oldAssigns ?? []).filter((a: any) => a.stop_seq !== -1 && a.order_id && !have.has(a.order_id));
+    if (candidates.length) {
+      const { data: oldOrders } = await c.from("orders").select("id, live_status").in("id", [...new Set(candidates.map((a: any) => a.order_id))]);
+      const started = new Set((oldOrders ?? []).filter((o: any) => o.live_status && o.live_status !== "assigned").map((o: any) => o.id));
+      for (const a of candidates) {
+        if (started.has(a.order_id) && !have.has(a.order_id)) { have.add(a.order_id); rows.push(a); }
+      }
+    }
+  }
+
   if (!rows.length) return { published: true, tentative: false, notifiedAt, date: runDate, jobs: [] };
   const orderIds = [...new Set(rows.map((a: any) => a.order_id))];
   const { data: orders } = await c.from("orders").select("*").in("id", orderIds);
