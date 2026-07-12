@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar, { NavKey } from "./Sidebar";
 import TopBar from "./TopBar";
 import { SessionUser } from "@/lib/auth";
@@ -23,6 +23,40 @@ export default function AppShell({
 }: { active: NavKey; user: SessionUser | null; children: React.ReactNode }) {
   const [country, setCountry] = useState<CountryKey>("india");
   const sel = COUNTRIES.find((c) => c.key === country)!;
+
+  // Session watchdog. The login gate only protects full page loads — once the shell is in the
+  // browser, data flows through client fetches, and an EXPIRED session just returns 401s that
+  // components swallow (page "loads" but nothing works). Patch fetch once: any 401 from our API
+  // → straight to the login page, returning here after sign-in. A focus-time ping catches
+  // expiry even on pages that don't poll.
+  useEffect(() => {
+    const base = location.pathname.startsWith("/safestorage-transport") ? "/safestorage-transport" : "";
+    let redirected = false;
+    const toLogin = () => {
+      if (redirected) return;
+      redirected = true;
+      const path = location.pathname + location.search;
+      const next = base && path.startsWith(base) ? path.slice(base.length) || "/" : path;
+      location.href = `${base}/login?next=${encodeURIComponent(next)}`;
+    };
+    const orig = window.fetch.bind(window);
+    window.fetch = async (...args: Parameters<typeof fetch>) => {
+      const res = await orig(...args);
+      try {
+        const url = typeof args[0] === "string" ? args[0] : args[0] instanceof Request ? args[0].url : String(args[0]);
+        if (res.status === 401 && url.includes("/api/")) toLogin();
+      } catch { /* never break the caller */ }
+      return res;
+    };
+    const ping = () => { if (document.visibilityState === "visible") orig(`${base}/api/settings`).then((r) => { if (r.status === 401) toLogin(); }).catch(() => {}); };
+    window.addEventListener("focus", ping);
+    document.addEventListener("visibilitychange", ping);
+    return () => {
+      window.fetch = orig;
+      window.removeEventListener("focus", ping);
+      document.removeEventListener("visibilitychange", ping);
+    };
+  }, []);
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
       <Sidebar active={active} user={user} />
