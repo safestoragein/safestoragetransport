@@ -204,6 +204,8 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
   // Tomorrow's schedule has Schedule / Intercity / Shifting sub-tabs (intercity + shifting are held
   // out of the regular schedule). Other modes show everything ("all").
   const [schedTab, setSchedTab] = useState<"schedule" | "intercity" | "shifting">("schedule");
+  // System plan vs the team-edited FINAL plan (tomorrow's Schedule sub-tab only).
+  const [planView, setPlanView] = useState<"final" | "system" | "compare">("final");
   const cats = { schedule: 0, intercity: 0, shifting: 0 };
   for (const c of shown) for (const v of c.vendors) for (const o of v.orders as any[]) { if (o.is_shifting) cats.shifting++; else if (o.is_intercity) cats.intercity++; else cats.schedule++; }
   const tabbed = !isHistory && !isToday; // tomorrow only
@@ -398,7 +400,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
 
         {/* Schedule / Intercity / Shifting sub-tabs (tomorrow only) */}
         {tabbed && (
-          <div className="mb-4 flex gap-1 border-b border-slate-200">
+          <div className="mb-4 flex flex-wrap items-center gap-1 border-b border-slate-200">
             {([
               { id: "schedule", label: `Schedule (${cats.schedule})` },
               { id: "intercity", label: `Intercity (${cats.intercity})` },
@@ -412,6 +414,24 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                 {tb.label}
               </button>
             ))}
+            {/* System vs team plan — capture at Generate, compare after edits */}
+            {schedTab === "schedule" && (
+              <span className="mb-1 ml-auto inline-flex overflow-hidden rounded-lg ring-1 ring-slate-200">
+                {([
+                  { id: "final", label: "Final schedule" },
+                  { id: "system", label: "System plan" },
+                  { id: "compare", label: "Compare" },
+                ] as const).map((pv) => (
+                  <button
+                    key={pv.id}
+                    onClick={() => setPlanView(pv.id)}
+                    className={`px-3 py-1.5 text-xs font-semibold ${planView === pv.id ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                  >
+                    {pv.label}
+                  </button>
+                ))}
+              </span>
+            )}
           </div>
         )}
 
@@ -479,6 +499,8 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
             {shown.map((c) => <TodayAssign key={c.city} city={c} onChanged={() => load(todayStr)} />)}
             <MonitoringView cities={shown} vendorFilter={vendorFilter} />
           </>
+        ) : tabbed && cityTab === "schedule" && planView !== "final" ? (
+          <PlanViews cities={shown} mode={planView} />
         ) : (() => {
           const matchN = (c: ScheduleData) =>
             cityTab === "intercity" ? c.vendors.reduce((s, v) => s + (v.orders as any[]).filter((o) => o.is_intercity && !o.is_shifting).length, 0)
@@ -508,5 +530,115 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
           );
         })()}
     </AppShell>
+  );
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// ---- System plan vs team-edited FINAL (snapshot captured at Generate, immutable afterwards) ----
+function planRows(c: ScheduleData) {
+  const rows: { o: any; cur: string | null }[] = [];
+  for (const v of c.vendors) {
+    if ((v as any).isCoTeam) continue;
+    for (const o of v.orders as any[]) {
+      if (o.is_intercity || o.is_shifting) continue; // regular schedule only, like the Schedule tab
+      rows.push({ o, cur: v.isUnassigned ? null : ((v.vendorName as string | null) ?? null) });
+    }
+  }
+  return rows;
+}
+
+function PlanViews({ cities, mode }: { cities: ScheduleData[]; mode: "system" | "compare" }) {
+  return (
+    <div className="space-y-6">
+      {cities.map((c) => {
+        const rows = planRows(c);
+        const hasSnap = rows.some((r) => r.o.system_vendor_name != null);
+        const label = cityName(c.city);
+        if (!hasSnap) {
+          return (
+            <Card key={c.city} className="p-5 text-sm text-slate-500">
+              <b className="text-slate-700">{label}:</b> no system snapshot on this run yet — it is captured
+              automatically on the next <b>Generate</b> (run the <code>system_vendor</code> migration once first).
+            </Card>
+          );
+        }
+        if (mode === "system") {
+          const by = new Map<string, any[]>();
+          for (const r of rows) {
+            const k = r.o.system_vendor_name ?? "Unassigned — left for the team";
+            if (!by.has(k)) by.set(k, []);
+            by.get(k)!.push(r.o);
+          }
+          return (
+            <section key={c.city}>
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-3 border-b border-slate-200 pb-1">
+                <h2 className="text-base font-bold text-slate-900">{label}</h2>
+                <span className="text-xs text-slate-500">system plan (read-only) — what the optimizer produced at Generate</span>
+              </div>
+              <div className="space-y-3">
+                {[...by.entries()].map(([vn, orders]) => (
+                  <Card key={vn} className="p-3">
+                    <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3">
+                      <span className="text-sm font-semibold text-slate-800">{vn}</span>
+                      <span className="text-xs text-slate-400">
+                        {orders.length} order{orders.length > 1 ? "s" : ""} · {Math.round(orders.reduce((s, o) => s + (Number(o.pallets) || 0), 0) * 10) / 10} pallets
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {orders.map((o) => (
+                        <span key={o.id} className="rounded bg-slate-50 px-2 py-1 text-[11px] text-slate-600 ring-1 ring-slate-200">
+                          <b className="text-slate-800">{o.customer_unique_id}</b> · {(o.stated_pallets ?? o.pallets) ?? "—"}p{o.locality ? ` · ${o.locality}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          );
+        }
+        // compare
+        const diff = rows.filter((r) => ((r.o.system_vendor_name as string | null) ?? null) !== (r.cur ?? null));
+        const pct = rows.length ? Math.round((diff.length / rows.length) * 100) : 0;
+        return (
+          <section key={c.city}>
+            <div className="mb-2 flex flex-wrap items-baseline gap-x-3 border-b border-slate-200 pb-1">
+              <h2 className="text-base font-bold text-slate-900">{label}</h2>
+              <span className="text-xs text-slate-500">
+                {rows.length} orders · {rows.length - diff.length} kept as system · <b className={diff.length ? "text-amber-600" : "text-emerald-600"}>{diff.length} overridden by team ({pct}%)</b>
+              </span>
+            </div>
+            {diff.length === 0 ? (
+              <Card className="p-4 text-sm text-emerald-700">✓ The team kept the system plan exactly as generated.</Card>
+            ) : (
+              <Card className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
+                      <th className="px-3 py-2">Booking</th>
+                      <th className="px-3 py-2">Pallets</th>
+                      <th className="px-3 py-2">Area</th>
+                      <th className="px-3 py-2">System chose</th>
+                      <th className="px-3 py-2">Team changed to</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {diff.map((r) => (
+                      <tr key={r.o.id} className="border-b border-slate-50">
+                        <td className="px-3 py-2 font-semibold text-slate-800">{r.o.customer_unique_id}</td>
+                        <td className="px-3 py-2 text-slate-600">{(r.o.stated_pallets ?? r.o.pallets) ?? "—"}p</td>
+                        <td className="px-3 py-2 text-slate-500">{r.o.locality ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.o.system_vendor_name ?? <span className="text-amber-600">Unassigned (left for team)</span>}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-800">{r.cur ?? <span className="text-amber-600">Unassigned</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            )}
+          </section>
+        );
+      })}
+    </div>
   );
 }

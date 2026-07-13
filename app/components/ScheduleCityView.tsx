@@ -194,6 +194,10 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
     // details) — not as a separate shadow card.
     .filter((v) => !v.isCoTeam);
 
+  // The optimizer snapshot exists only on runs generated after the system_vendor migration —
+  // the override badge is shown only then (otherwise every order would look "moved").
+  const hasSysSnapshot = sched.vendors.some((v) => (v.orders as any[]).some((o) => o.system_vendor_name != null));
+
   return (
     <div className="space-y-3">
       {/* Live monitoring summary — only appears once vendors start acting in the app today */}
@@ -431,6 +435,17 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                         {LIVE[o.live_status].label}{o.live_status_at ? ` · ${shortTime(o.live_status_at)}` : ""}
                       </span>
                     )}
+                    {/* Team override marker: this order sits somewhere other than the optimizer's pick */}
+                    {hasSysSnapshot && (() => {
+                      const sys = (o as any).system_vendor_name ?? null;
+                      const cur = v.isUnassigned ? null : (v.vendorName ?? null);
+                      if (sys === cur) return null;
+                      return (
+                        <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700" title="The team moved this order away from the optimizer's pick — see the Compare view for the full list">
+                          ✎ team pick · system: {sys ?? "unassigned"}
+                        </span>
+                      );
+                    })()}
                     <span className="text-sm text-slate-600">{o.customer_name}</span>
                     {o.contact && (
                       <a href={`tel:${String(o.contact).split(/[/,]/)[0].trim()}`} className="text-xs font-medium text-blue-600 hover:underline" title="Call customer">📞 {o.contact}</a>

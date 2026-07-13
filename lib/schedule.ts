@@ -51,6 +51,20 @@ async function upsertOrders(c: any, rows: any[]): Promise<void> { // eslint-disa
   }
 }
 
+// Insert assignment rows with the same unknown-column tolerance (e.g. the system_vendor_* snapshot
+// columns before their migration runs — the insert still succeeds, just without the snapshot).
+async function insertAssignments(c: any, rows: any[]): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!rows.length) return;
+  let cur = rows;
+  for (let i = 0; i < 10; i++) {
+    const { error } = await c.from("schedule_assignments").insert(cur);
+    if (!error) return;
+    const col = unknownColumn(error.message || "");
+    if (!col || !(col in cur[0])) throw new Error(error.message || "assignment insert failed");
+    cur = cur.map(({ [col]: _drop, ...rest }: any) => rest); // eslint-disable-line @typescript-eslint/no-explicit-any
+  }
+}
+
 export async function generateSchedule(citySlug: string, date: string, trigger: "cron" | "manual" = "manual") {
   const snap = await loadLive(citySlug, date, true); // fresh feed — reflect edits made in the booking system now
   let vendors = await masterVendorsForCity(citySlug);
@@ -106,7 +120,9 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
   }).select().single();
   if (runErr || !run) throw new Error(runErr?.message ?? "could not create run");
 
-  // 3) insert assignments
+  // 3) insert assignments. vendor_* is the FINAL (team-editable) allocation; system_vendor_* is a
+  // write-once snapshot of the optimizer's choice, so "system plan vs team plan" stays comparable
+  // no matter how much the team edits afterwards.
   const vName = new Map(vendors.map((v) => [v.id, v.name]));
   const bookingById = new Map(bookings.map((b) => [b.id, b]));
   const rows: any[] = [];
@@ -114,26 +130,31 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
     a.trips.forEach((t, ti) => t.bookingIds.forEach((bid, si) => {
       const oid = orderUuidByBooking.get(bid);
       if (!oid) return;
+      const vid = isUuid(a.vendorId) ? a.vendorId : null;
+      const vnm = vName.get(a.vendorId) ?? a.vendorId;
       rows.push({
         run_id: run.id,
-        vendor_id: isUuid(a.vendorId) ? a.vendorId : null,
-        vendor_name: vName.get(a.vendorId) ?? a.vendorId,
+        vendor_id: vid, vendor_name: vnm,
+        system_vendor_id: vid, system_vendor_name: vnm,
         order_id: oid, trip_no: ti + 1, stop_seq: si + 1,
       });
       // Big order → also record its reserved 2nd/3rd teams as co-team rows (stop_seq = -1), so the
       // schedule can show both teams and the vendor notify reaches both.
       for (const coId of bookingById.get(bid)?.coTeams ?? []) {
-        rows.push({ run_id: run.id, vendor_id: isUuid(coId) ? coId : null, vendor_name: vName.get(coId) ?? coId, order_id: oid, trip_no: ti + 1, stop_seq: -1 });
+        const cid = isUuid(coId) ? coId : null;
+        const cnm = vName.get(coId) ?? coId;
+        rows.push({ run_id: run.id, vendor_id: cid, vendor_name: cnm, system_vendor_id: cid, system_vendor_name: cnm, order_id: oid, trip_no: ti + 1, stop_seq: -1 });
       }
     }));
   }
   // Unassigned (intercity retrievals + any overflow) get a null-vendor row so they're scoped to THIS
   // run and surface in the "team to assign" bucket — without picking up stale orders from past runs.
+  // system_vendor_name stays null too = "the system left this for the team".
   for (const bid of result.unassigned) {
     const oid = orderUuidByBooking.get(bid);
-    if (oid) rows.push({ run_id: run.id, vendor_id: null, vendor_name: null, order_id: oid, trip_no: 0, stop_seq: 0 });
+    if (oid) rows.push({ run_id: run.id, vendor_id: null, vendor_name: null, system_vendor_id: null, system_vendor_name: null, order_id: oid, trip_no: 0, stop_seq: 0 });
   }
-  if (rows.length) await c.from("schedule_assignments").insert(rows);
+  await insertAssignments(c, rows);
 
   return { runId: run.id, orders: result.kpis.totalBookings, vendors: result.kpis.vendorsActive, usedMaster };
 }
@@ -189,6 +210,7 @@ export interface ScheduleOrder {
   trip_no: number; stop_seq: number; resources: number;
   live_status?: string | null; live_status_at?: string | null; // vendor app: en_route/arrived/packing/loaded/delivered
   app_events?: Record<string, string> | null; // event -> tap time (from order_events)
+  system_vendor_name?: string | null; // the optimizer's original pick (write-once at Generate)
   coTeams?: CoTeam[] | null; // big order: the reserved 2nd/3rd teams (same vendor) working it
 }
 export interface CoTeam {
@@ -320,7 +342,7 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
         vendorNotifiedAt: a.vendor_id ? vendorNotified.get(a.vendor_id) ?? null : null,
       };
     });
-    sv.orders.push({ ...o, trip_no: a.trip_no, stop_seq: a.stop_seq, manual_seq: a.manual_seq ?? null, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null, coTeams: coByOrder.get(a.order_id) ?? null, app_events: eventsByOrder.get(a.order_id) ?? null } as any);
+    sv.orders.push({ ...o, trip_no: a.trip_no, stop_seq: a.stop_seq, manual_seq: a.manual_seq ?? null, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null, coTeams: coByOrder.get(a.order_id) ?? null, app_events: eventsByOrder.get(a.order_id) ?? null, system_vendor_name: a.system_vendor_name ?? null } as any);
     sv.pallets += Number(o.pallets) || 0;
     sv.actualPallets += Number(o.stated_pallets ?? o.pallets) || 0;
     sv.revenue += Number(o.transport_charge) || 0;
