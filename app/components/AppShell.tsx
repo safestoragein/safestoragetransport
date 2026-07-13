@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Sidebar, { NavKey } from "./Sidebar";
 import TopBar from "./TopBar";
 import { SessionUser } from "@/lib/auth";
+import { Country } from "@/lib/country";
+import { setActiveCountry, useCountry } from "@/lib/country-store";
 
 // SafeStorage logo orange — the active country tab colour.
 const BRAND_ORANGE = "#FF6B35";
 
 const COUNTRIES = [
   { key: "india", label: "India", flag: "🇮🇳", live: true },
-  { key: "dubai", label: "Dubai", flag: "🇦🇪", live: false },
+  { key: "dubai", label: "Dubai", flag: "🇦🇪", live: true }, // feed pushes city "dubai" — same views as India
   { key: "uk", label: "UK", flag: "🇬🇧", live: false },
 ] as const;
-type CountryKey = (typeof COUNTRIES)[number]["key"];
 
 // The one app frame every signed-in view renders inside: fixed left rail + top bar + content.
 // A country switcher sits above the content: all current data is INDIA; Dubai / UK are wired as
@@ -21,8 +22,9 @@ type CountryKey = (typeof COUNTRIES)[number]["key"];
 export default function AppShell({
   active, user, children,
 }: { active: NavKey; user: SessionUser | null; children: React.ReactNode }) {
-  const [country, setCountry] = useState<CountryKey>("india");
-  const sel = COUNTRIES.find((c) => c.key === country)!;
+  const country = useCountry();
+  const setCountry = (c: Country) => setActiveCountry(c);
+  const sel = COUNTRIES.find((c) => c.key === country) ?? COUNTRIES[0];
 
   // Session watchdog. The login gate only protects full page loads — once the shell is in the
   // browser, data flows through client fetches, and an EXPIRED session just returns 401s that

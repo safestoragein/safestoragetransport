@@ -4,6 +4,8 @@ import { OpsDashboard, OpsCity } from "@/lib/dashboard";
 import { money } from "@/lib/format";
 import { SessionUser } from "@/lib/auth";
 import { withBase } from "@/lib/base";
+import { countryOfCity } from "@/lib/country";
+import { useCountry } from "@/lib/country-store";
 import { Card, Bar } from "./ui";
 import AppShell from "./AppShell";
 
@@ -34,12 +36,24 @@ export default function CommandCenter({
   activeDate: string;
   user: SessionUser | null;
 }) {
-  const t = ops.totals;
+  // Country tab scoping — the server aggregates ALL cities; the client shows one country's slice
+  // and recomputes the headline totals from it.
+  const country = useCountry();
+  const cities = ops.cities.filter((c) => countryOfCity(c.slug) === country);
+  const t = cities.reduce(
+    (a, s) => ({
+      orders: a.orders + s.orders, pickups: a.pickups + s.pickups, retrievals: a.retrievals + s.retrievals,
+      done: a.done + s.done, inProgress: a.inProgress + s.inProgress, notStarted: a.notStarted + s.notStarted,
+      atRisk: a.atRisk + s.atRisk, unassigned: a.unassigned + s.unassigned, liveTeams: a.liveTeams + s.liveTeams,
+      teams: a.teams + s.teams, revenue: a.revenue + s.revenue, cost: a.cost + s.cost, margin: a.margin + s.margin,
+    }),
+    { orders: 0, pickups: 0, retrievals: 0, done: 0, inProgress: 0, notStarted: 0, atRisk: 0, unassigned: 0, liveTeams: 0, teams: 0, revenue: 0, cost: 0, margin: 0 },
+  );
   const isToday = ops.isToday;
   const donePct = t.orders > 0 ? Math.round((t.done / t.orders) * 100) : 0;
   const marginPct = t.revenue > 0 ? Math.round((t.margin / t.revenue) * 100) : 0;
-  const maxRev = Math.max(1, ...ops.cities.map((c) => c.revenue));
-  const hasCities = ops.cities.length > 0;
+  const maxRev = Math.max(1, ...cities.map((c) => c.revenue));
+  const hasCities = cities.length > 0;
 
   return (
     <AppShell active="dashboard" user={user}>
@@ -122,7 +136,7 @@ export default function CommandCenter({
             <Stat label="Revenue" value={money(t.revenue)} tone="slate" />
             <Stat label="Vendor cost" value={money(t.cost)} tone="slate" />
             <Stat label="Margin" value={money(t.margin)} tone={t.margin >= 0 ? "emerald" : "red"} sub={`${marginPct}% of revenue`} />
-            <Stat label="Cities operating" value={ops.cities.length} tone="slate" sub={`${t.teams} teams`} />
+            <Stat label="Cities operating" value={cities.length} tone="slate" sub={`${t.teams} teams`} />
           </div>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -130,7 +144,7 @@ export default function CommandCenter({
             <Card className="p-5">
               <h3 className="mb-3 text-sm font-semibold text-slate-700">Revenue &amp; margin by city</h3>
               <div className="space-y-2.5">
-                {ops.cities.map((s) => (
+                {cities.map((s) => (
                   <div key={s.slug}>
                     <div className="mb-1 flex items-center justify-between text-xs">
                       <span className="text-slate-600">{s.name}</span>
@@ -157,7 +171,7 @@ export default function CommandCenter({
                     </tr>
                   </thead>
                   <tbody>
-                    {ops.cities.map((s) => <CityRow key={s.slug} s={s} isToday={isToday} />)}
+                    {cities.map((s) => <CityRow key={s.slug} s={s} isToday={isToday} />)}
                   </tbody>
                 </table>
               </div>

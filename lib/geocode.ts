@@ -21,6 +21,12 @@ export const CITY_CENTER: Record<string, { lat: number; lng: number; label: stri
   ahmedabad: { lat: 23.02, lng: 72.57, label: "Ahmedabad" },
   kolkata: { lat: 22.57, lng: 88.36, label: "Kolkata" },
   noida: { lat: 28.58, lng: 77.32, label: "Noida" },
+  // ---- UAE (Dubai operations) ----
+  dubai: { lat: 25.2048, lng: 55.2708, label: "Dubai" },
+  "abu dhabi": { lat: 24.4539, lng: 54.3773, label: "Abu Dhabi" },
+  sharjah: { lat: 25.3463, lng: 55.4209, label: "Sharjah" },
+  // ---- UK (future) ----
+  london: { lat: 51.5072, lng: -0.1276, label: "London" },
 };
 
 // Approximate SafeStorage warehouse coordinates by city (geocoded from warehouse_full_loc).
@@ -32,6 +38,8 @@ export const CITY_WAREHOUSE: Record<string, { lat: number; lng: number; label: s
   mumbai: { lat: 19.08, lng: 72.88, label: "Mumbai WH" },
   delhi: { lat: 28.61, lng: 77.21, label: "Delhi WH" },
   coimbatore: { lat: 11.02, lng: 76.96, label: "Coimbatore WH" },
+  // Placeholder until the real Dubai warehouse location lands in the cities feed.
+  dubai: { lat: 25.2048, lng: 55.2708, label: "Dubai WH" },
 };
 
 const GAZ: Record<string, [number, number]> = {

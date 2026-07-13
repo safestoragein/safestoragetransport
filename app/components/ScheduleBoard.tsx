@@ -5,6 +5,8 @@ import { ScheduleData } from "@/lib/schedule";
 import { money } from "@/lib/format";
 import { SessionUser } from "@/lib/auth";
 import { withBase } from "@/lib/base";
+import { countryOfCity } from "@/lib/country";
+import { useCountry } from "@/lib/country-store";
 import AppShell from "./AppShell";
 import ScheduleCityView from "./ScheduleCityView";
 import CityRouteMap from "./CityRouteMap";
@@ -181,7 +183,9 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     setSavingPacking(false);
   }
 
-  const allCities = (data?.cities ?? []);
+  // Country tab scoping: each tab shows only its own cities (feed pushes Dubai as city "dubai").
+  const country = useCountry();
+  const allCities = (data?.cities ?? []).filter((c) => countryOfCity(c.city) === country);
   const shown = cityFilter === "All" ? allCities : allCities.filter((c) => c.city === cityFilter);
   const t = agg(shown);
   const packingDirty = packing !== null && packingDraft !== String(packing);

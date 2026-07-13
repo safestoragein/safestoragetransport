@@ -44,6 +44,7 @@ function slotEndMinutes(slot: string | null | undefined): number | null {
 const CITY_NAMES: Record<string, string> = {
   bangalore: "Bangalore", hyderabad: "Hyderabad", chennai: "Chennai", mumbai: "Mumbai",
   pune: "Pune", delhi: "Delhi", kolkata: "Kolkata", gurgaon: "Gurgaon", noida: "Noida",
+  dubai: "Dubai", "abu dhabi": "Abu Dhabi", sharjah: "Sharjah", london: "London",
 };
 const cityName = (slug: string) => CITY_NAMES[slug] ?? slug.charAt(0).toUpperCase() + slug.slice(1);
 

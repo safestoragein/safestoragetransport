@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { VendorMaster } from "@/lib/vendors";
 import { money } from "@/lib/format";
+import { countryOfCity } from "@/lib/country";
+import { useCountry } from "@/lib/country-store";
 import { Card } from "./ui";
 import { SessionUser } from "@/lib/auth";
 import AppShell from "./AppShell";
@@ -36,7 +38,11 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
   // Update a vendor in place WITHOUT collapsing its expanded panel (used by inline doc replace).
   const onLocalUpdate = (u: VendorMaster) => setVendors((arr) => arr.map((x) => (x.id === u.id ? u : x)));
 
-  const cities = [...new Set(vendors.map((v) => v.city))].sort();
+  // Country tab scoping: the panel lists only the active country's vendors (Dubai vendors are
+  // created with city "Dubai" and show under the Dubai tab).
+  const country = useCountry();
+  const countryVendors = vendors.filter((v) => countryOfCity(v.city) === country);
+  const cities = [...new Set(countryVendors.map((v) => v.city))].sort();
   const [cityFilter, setCityFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState<"All" | "intercity" | "local" | "both">("All");
   const [vehicleFilter, setVehicleFilter] = useState<"All" | "14ft" | "10ft" | "others">("All");
@@ -48,7 +54,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
     if (typeFilter === "local") return lo && !ic;
     return true;
   };
-  const shown = vendors.filter((v) =>
+  const shown = countryVendors.filter((v) =>
     (cityFilter === "All" || v.city === cityFilter) &&
     matchType(v) &&
     (vehicleFilter === "All" || v.vehicleType === vehicleFilter),
