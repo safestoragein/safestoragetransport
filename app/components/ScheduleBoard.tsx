@@ -11,6 +11,7 @@ import AppShell from "./AppShell";
 import ScheduleCityView from "./ScheduleCityView";
 import CityRouteMap from "./CityRouteMap";
 import MonitoringView from "./MonitoringView";
+import TodayAssign from "./TodayAssign";
 import { Card } from "./ui";
 
 const cityName = (slug: string) => slug.replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
@@ -138,9 +139,10 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
   }, [mode, data?.date]);
 
   // Poll the live feed vs the persisted run to catch bookings added/removed/rescheduled AFTER the
-  // 6 AM run — Tomorrow's planning view only. Re-checks on load and every 60s.
+  // 6 AM run — Tomorrow's planning view AND Today (same-day bookings get pulled in and assigned
+  // MANUALLY; today is never re-optimised). Re-checks on load and every 60s.
   useEffect(() => {
-    if (mode !== "tomorrow" || !data?.date) return;
+    if ((mode !== "tomorrow" && mode !== "today") || !data?.date) return;
     let stop = false;
     const check = () => fetch(`/api/schedule/diff?date=${data.date}`).then((x) => x.json()).then((r) => { if (!stop) setDiff(r?.ok ? r : null); }).catch(() => {});
     check();
@@ -160,7 +162,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     if (!data?.date) return;
     setPulling(true);
     await fetch("/api/schedule/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: data.date }) }).catch(() => {});
-    await load(undefined); // reload tomorrow
+    await load(mode === "today" ? todayStr : undefined);
     const r = await fetch(`/api/schedule/diff?date=${data.date}`).then((x) => x.json()).catch(() => null);
     setDiff(r?.ok ? r : null);
     setPulling(false);
@@ -237,7 +239,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
 
         {/* Live-feed diff vs the persisted run — highlights bookings added / rescheduled / removed
             AFTER the 6 AM run. Polls every 60s. Tomorrow's planning view only. */}
-        {!isToday && !isHistory && diff && diff.total > 0 && (() => {
+        {!isHistory && diff && diff.total > 0 && (() => {
           const nNew = diff.cities.reduce((s: number, c: any) => s + c.newOrders.length, 0);
           const nRes = diff.cities.reduce((s: number, c: any) => s + c.rescheduled.length, 0);
           const nRem = diff.cities.reduce((s: number, c: any) => s + c.removed.length, 0);
@@ -471,8 +473,12 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
             )}
           </Card>
         ) : isToday ? (
-          // Monitoring: one lifecycle tracker per booking (no editing / generating here).
-          <MonitoringView cities={shown} vendorFilter={vendorFilter} />
+          // Monitoring + MANUAL assignment: same-day bookings pulled in above land in an amber
+          // "needs a team" card per city; assigning is always by hand (no re-optimisation today).
+          <>
+            {shown.map((c) => <TodayAssign key={c.city} city={c} onChanged={() => load(todayStr)} />)}
+            <MonitoringView cities={shown} vendorFilter={vendorFilter} />
+          </>
         ) : (() => {
           const matchN = (c: ScheduleData) =>
             cityTab === "intercity" ? c.vendors.reduce((s, v) => s + (v.orders as any[]).filter((o) => o.is_intercity && !o.is_shifting).length, 0)
