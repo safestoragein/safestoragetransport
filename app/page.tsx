@@ -1,4 +1,5 @@
 import CommandCenter from "./components/CommandCenter";
+import FeedbackBoard from "./components/FeedbackBoard";
 import ScheduleBoard from "./components/ScheduleBoard";
 import VendorPanel from "./components/VendorPanel";
 import SchedulingRules from "./components/SchedulingRules";
@@ -32,6 +33,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
     const { vendors, source } = await listVendors();
     return <VendorPanel initial={vendors} source={source} user={user} />;
   }
+
+  // Feedback & escalations — every completed order with editable feedback / escalation fields
+  if (view === "feedback") return <FeedbackBoard user={user} />;
 
   // Read-only scheduling rules
   if (view === "rules") return <SchedulingRules user={user} />;
