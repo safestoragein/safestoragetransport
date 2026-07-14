@@ -467,8 +467,16 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     {o.floor != null && String(o.floor).trim() !== "" && !/^na$/i.test(String(o.floor).trim()) && (
                       <span className="rounded bg-slate-100 px-1 text-[10px] font-medium text-slate-500" title="Floor the goods are on">🏢 Floor {String(o.floor).trim()}</span>
                     )}
-                    {o.schedule_date && <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600" title="Scheduled service date">service {fmtBooked(o.schedule_date)}</span>}
-                    {fmtBooked(o.booking_date) && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500" title="When the customer booked this order">booked {fmtBooked(o.booking_date)}</span>}
+                    {/* When the order was BOOKED + how long it has been in the system */}
+                    {fmtBooked(o.booking_date) && (() => {
+                      const bd = new Date(String(o.booking_date).replace(" ", "T"));
+                      const days = isNaN(bd.getTime()) ? null : Math.max(0, Math.floor((Date.now() - bd.getTime()) / 86_400_000));
+                      return (
+                        <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600" title="When the customer booked this order">
+                          booked {fmtBooked(o.booking_date)}{days != null ? ` (${days} day${days === 1 ? "" : "s"} ago)` : ""}
+                        </span>
+                      );
+                    })()}
                   </div>
                   {o.team_notes && <div className="mt-1 truncate text-[11px] text-slate-500">📝 {o.team_notes}</div>}
 
@@ -542,23 +550,15 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                       </span>
                     )}
 
+                    {/* Customer notifications are PAUSED for now — button stays visible but grey/dead. */}
                     {!v.isUnassigned && (
-                      o.customerNotifiedAt ? (
-                        <span className="ml-auto flex shrink-0 items-center gap-1">
-                          <span className="rounded bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-700">Customer notified ✓</span>
-                          <button disabled={pending === `customer:${o.id}`} onClick={() => notify("customer", { orderId: o.id })} title="Resend WhatsApp to customer" className="rounded px-2 py-1 text-[11px] font-medium text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50">
-                            {pending === `customer:${o.id}` ? "…" : "Resend"}
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          disabled={pending === `customer:${o.id}`}
-                          onClick={() => notify("customer", { orderId: o.id })}
-                          className="ml-auto shrink-0 rounded bg-white px-2 py-1 text-[11px] font-medium text-blue-600 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50"
-                        >
-                          {pending === `customer:${o.id}` ? "…" : "Notify customer"}
-                        </button>
-                      )
+                      <button
+                        disabled
+                        title="Customer notifications are disabled for now"
+                        className="ml-auto shrink-0 cursor-not-allowed rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-400 ring-1 ring-slate-200"
+                      >
+                        Notify customer
+                      </button>
                     )}
                   </div>
                   )}

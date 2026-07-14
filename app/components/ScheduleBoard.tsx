@@ -176,6 +176,34 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     setBusy(false);
   }
 
+  // Publish: send the WhatsApp to every assigned vendor team that has NOT been notified yet
+  // (vendors only — customers are never messaged from here). A vendor already notified is
+  // skipped, so clicking Publish twice only reaches teams added since the last click.
+  const [publishing, setPublishing] = useState(false);
+  async function publishVendors() {
+    const targets: { runId: string; vendorId: string; name: string; city: string }[] = [];
+    for (const c of shown) {
+      for (const v of c.vendors as any[]) {
+        if (v.isUnassigned || v.isCoTeam || v.isIntercity || !v.vendorId) continue;
+        if (v.vendorNotifiedAt) continue; // already messaged — skip on repeat publishes
+        targets.push({ runId: (c as any).runId, vendorId: v.vendorId, name: v.vendorName, city: c.city });
+      }
+    }
+    if (targets.length === 0) { alert("All assigned vendors are already notified — nothing new to send."); return; }
+    if (!confirm(`Send the schedule on WhatsApp to ${targets.length} vendor team${targets.length > 1 ? "s" : ""}?\n(vendors only — customers are not messaged)`)) return;
+    setPublishing(true);
+    let sent = 0;
+    const fails: string[] = [];
+    for (const t of targets) {
+      const r = await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: t.runId, kind: "vendor", vendorId: t.vendorId }) }).then((x) => x.json()).catch(() => null);
+      if (r?.ok) sent++;
+      else fails.push(`${t.name} (${cityName(t.city)})${r?.error ? ` — ${r.error}` : ""}`);
+    }
+    setPublishing(false);
+    alert(`Published: ${sent}/${targets.length} vendor teams messaged.${fails.length ? `\n\nFailed:\n${fails.join("\n")}` : ""}`);
+    await load(mode === "history" ? selDate : mode === "today" ? todayStr : undefined);
+  }
+
   async function savePacking() {
     const v = Number(packingDraft);
     if (!Number.isFinite(v) || v < 0) return;
@@ -229,6 +257,13 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
               >
                 ⬇ Download Excel
               </a>
+            )}
+            {/* Publish: WhatsApp the schedule to every ASSIGNED vendor team (vendors ONLY, never
+                customers). Idempotent — a second click reaches only vendors not yet messaged. */}
+            {!isToday && !isHistory && (
+              <button onClick={publishVendors} disabled={publishing || busy} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+                {publishing ? "Publishing…" : "📣 Publish to vendors"}
+              </button>
             )}
             {/* Generate: Tomorrow only. Today is monitoring-only; Old schedules are read-only. */}
             {!isToday && !isHistory && (
