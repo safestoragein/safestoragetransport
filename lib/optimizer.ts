@@ -391,6 +391,53 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
   // Pass 2 — overflow. Volume (re-checked as orders place) decides the bulk vendor's attractiveness.
   runPass([...generals, ...nons], true, Infinity);
 
+  // Phase 2R — TINY-CLUSTER RESCUE. One sub-2-pallet order must never open a vehicle (a lone
+  // crumb goes to the team's Porter) — but SEVERAL leftover tinies together are a real day's
+  // work (e.g. 5 × ~1.5p ≈ ₹17k transport collected). Club them and open ONE vehicle for the
+  // GROUP: cheapest fitting vendor wins, and bulk day-rate vendors (6 transactions / 14-19p)
+  // are first-class candidates. A group must be ≥2 orders and ≥3.5p (or ≥3 orders) to justify
+  // the day rate; whatever can't form a group stays with the team as before.
+  const TINY_CLUSTER_MIN_ORDERS = 2;
+  const TINY_CLUSTER_MIN_PALLETS = 3.5;
+  const TINY_CLUSTER_MAX_LEG_KM = 15; // don't drag a tiny 15+ km just to force a group
+  for (;;) {
+    const tinies = [...remaining].map((id) => byId.get(id)!)
+      .filter((b) => !teamAssigns(b) && teamsNeeded(b.pallets) < 2 && b.pallets < TINY_ORDER_PALLETS);
+    if (tinies.length < TINY_CLUSTER_MIN_ORDERS) break;
+    const freeV = [...generals, ...nons].filter((v) => assignedTo.get(v.id)!.length === 0 && !consumed.has(v.id));
+    if (!freeV.length) break;
+    // For each free vendor, greedily grow the best nearest-next group it could carry, then pick
+    // the (vendor, group) pair with the least route-km + price.
+    let best: { v: Vendor; group: Booking[]; score: number } | null = null;
+    for (const v of freeV) {
+      const maxOrders = v.maxOrdersPerDay ?? MAX_ORDERS_PER_VENDOR;
+      const group: Booking[] = [];
+      let load = 0, km = 0, cur = v.depot;
+      while (group.length < maxOrders) {
+        let pick: Booking | null = null, pickKm = Infinity;
+        for (const b of tinies) {
+          if (group.includes(b)) continue;
+          if (load + b.pallets > v.maxPalletsPerDay + EPS) continue;
+          if (buildTrips(v, [...group, b]).length > TRIPS_PER_DAY) continue;
+          const d = roadKm(cur, b.location);
+          if (d < pickKm) { pickKm = d; pick = b; }
+        }
+        if (!pick || pickKm > TINY_CLUSTER_MAX_LEG_KM) break;
+        group.push(pick); load += pick.pallets; km += pickKm; cur = pick.location;
+      }
+      if (group.length < TINY_CLUSTER_MIN_ORDERS) continue;
+      if (load < TINY_CLUSTER_MIN_PALLETS - EPS && group.length < 3) continue;
+      // Fewer vehicles first (bigger group), then shorter route, then cheaper day rate.
+      const score = -group.length * 100 + km + (v.dailyPrice ? (v.dailyPrice / 1000) * PRICE_KM_PER_1K : 0);
+      if (!best || score < best.score) best = { v, group, score };
+    }
+    if (!best) break;
+    const total = round1(best.group.reduce((s, x) => s + x.pallets, 0));
+    for (const b of best.group) {
+      take(best.v.id, b, `Tiny-cluster rescue: ${best.group.length} small orders clubbed (${total}p together) — one ${best.v.vehicle.type} vehicle instead of leaving them all to the team.`);
+    }
+  }
+
   // ---------- assemble ----------
   const assignments: Assignment[] = [];
   for (const v of vendors) {
