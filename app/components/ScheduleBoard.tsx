@@ -51,6 +51,10 @@ function agg(cities: ScheduleData[]) {
 // uses the SAME view with a date picker over every persisted date. Identical content either way.
 export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorrow" | "history"; user: SessionUser | null }) {
   const todayStr = new Date().toISOString().slice(0, 10);
+  const tomorrowStr = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  // The planning date — defaults to TOMORROW; the team can plan any future date and everything
+  // (load, diff banner, Pull changes, Generate, Publish) follows the picked date.
+  const [planDate, setPlanDate] = useState(tomorrowStr);
   const [data, setData] = useState<{ date: string; cities: ScheduleData[] } | null>(null);
   const [dates, setDates] = useState<{ date: string; runs: number; orders: number }[]>([]); // history only
   const [selDate, setSelDate] = useState<string | undefined>(undefined);
@@ -77,7 +81,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     if (!data?.date) return;
     setSyncing(true);
     await fetch("/api/schedule/changes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync", date: data.date }) });
-    await load(mode === "history" ? selDate : mode === "today" ? todayStr : undefined);
+    await load(mode === "history" ? selDate : mode === "today" ? todayStr : planDate);
     await refreshChanges(data.date);
     setSyncing(false);
   }
@@ -127,10 +131,10 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
       } else if (mode === "today") {
         await load(todayStr);
       } else {
-        await load(undefined); // tomorrow (server default)
+        await load(planDate); // planning view — defaults to tomorrow, follows the date picker
       }
     })();
-  }, [mode, load, todayStr]);
+  }, [mode, load, todayStr, planDate]);
 
   // post-cutoff changes for the Tomorrow planning view only (not history, not today's monitoring view)
   useEffect(() => {
@@ -162,7 +166,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     if (!data?.date) return;
     setPulling(true);
     await fetch("/api/schedule/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: data.date }) }).catch(() => {});
-    await load(mode === "today" ? todayStr : undefined);
+    await load(mode === "today" ? todayStr : planDate);
     const r = await fetch(`/api/schedule/diff?date=${data.date}`).then((x) => x.json()).catch(() => null);
     setDiff(r?.ok ? r : null);
     setPulling(false);
@@ -170,9 +174,9 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
 
   async function generate() {
     setBusy(true);
-    const genDate = data?.date ?? (mode === "today" ? todayStr : undefined);
+    const genDate = mode === "tomorrow" ? planDate : (data?.date ?? (mode === "today" ? todayStr : undefined));
     await fetch("/api/schedule/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: genDate }) });
-    await load(mode === "history" ? selDate : mode === "today" ? todayStr : undefined);
+    await load(mode === "history" ? selDate : mode === "today" ? todayStr : planDate);
     setBusy(false);
   }
 
@@ -201,7 +205,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     }
     setPublishing(false);
     alert(`Published: ${sent}/${targets.length} vendor teams messaged.${fails.length ? `\n\nFailed:\n${fails.join("\n")}` : ""}`);
-    await load(mode === "history" ? selDate : mode === "today" ? todayStr : undefined);
+    await load(mode === "history" ? selDate : mode === "today" ? todayStr : planDate);
   }
 
   async function savePacking() {
@@ -257,6 +261,23 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
               >
                 ⬇ Download Excel
               </a>
+            )}
+            {/* Planning date — defaults to tomorrow; pick any date and load/generate/publish all
+                target that day. */}
+            {!isToday && !isHistory && (
+              <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                📅 Schedule date
+                <input
+                  type="date"
+                  value={planDate}
+                  min={todayStr}
+                  onChange={(e) => { if (e.target.value) setPlanDate(e.target.value); }}
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm font-semibold text-slate-800"
+                />
+                {planDate !== tomorrowStr && (
+                  <button onClick={() => setPlanDate(tomorrowStr)} className="text-[11px] font-medium text-blue-600 hover:underline">reset to tomorrow</button>
+                )}
+              </label>
             )}
             {/* Publish: WhatsApp the schedule to every ASSIGNED vendor team (vendors ONLY, never
                 customers). Idempotent — a second click reaches only vendors not yet messaged. */}
