@@ -2,7 +2,9 @@
 // /api/auth/* through).
 //   1) First check the MySQL `sst_transport_users` table (source of truth for role-based access:
 //      role 'admin' = full edit, anything else = read-only — enforced in proxy.ts).
-//   2) If the email isn't a transport user, fall back to the legacy SafeStorage admin_login.
+//   2) Then the CENTRAL SafeStorage user table shared with the other apps
+//      (get_user_credentials_api) — the team's single login. status 0 = active; role_id 1 = admin.
+//   3) If the email is in neither, fall back to the legacy SafeStorage admin_login.
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE_NAME, SESSION_MAX_AGE, signSession, SessionUser, verifyPassword } from "@/lib/auth";
 import { db, hasDb } from "@/lib/db";
@@ -54,7 +56,31 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Verify the credentials with the existing SafeStorage admin login endpoint.
+  // 2) CENTRAL SafeStorage user table (same logins as the other SafeStorage apps).
+  try {
+    const key = process.env.SS_USER_API_KEY || "SS-USR-9f3c7a2e5b8d41f0a6c1";
+    const r = await fetch(`${API_BASE}/transport_controller_Dev0/get_user_credentials_api?api_key=${encodeURIComponent(key)}`, { cache: "no-store" });
+    const j: any = await r.json().catch(() => null);
+    const users: any[] = Array.isArray(j?.data) ? j.data : [];
+    const em = String(email).trim().toLowerCase();
+    const u = users.find((x) => String(x.user_email ?? "").trim().toLowerCase() === em);
+    if (u) {
+      const active = String(u.status ?? "0") === "0"; // observed: every live user carries status 0
+      if (active && String(u.user_password ?? "") === String(password)) {
+        const name = [u.user_fname, u.user_lname].filter(Boolean).join(" ").trim() || em.split("@")[0];
+        return withSession({
+          id: String(u.user_id ?? em),
+          email: String(u.user_email),
+          name,
+          role: String(u.role_id ?? "1") === "1" ? "admin" : "staff",
+        });
+      }
+      // Known central user but wrong password / inactive — reject (don't leak to legacy).
+      return NextResponse.json({ ok: false, error: "Invalid email or password" }, { status: 401 });
+    }
+  } catch { /* central service unreachable — fall through to the legacy login */ }
+
+  // 3) Verify the credentials with the existing SafeStorage admin login endpoint.
   let data: any = null;
   try {
     const body = new URLSearchParams({ email: String(email).trim(), password: String(password) });
