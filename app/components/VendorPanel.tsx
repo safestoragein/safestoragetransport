@@ -311,6 +311,11 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
         <td className="px-3 py-2.5 text-slate-600">{v.city}</td>
         <td className="cursor-pointer px-3 py-2.5 font-medium text-slate-800" onClick={onDetails}>
           <span className="mr-1 text-slate-400">{open ? "▾" : "▸"}</span>{v.name}
+          {(!v.serviceAgreementUrl || !v.gstDocumentUrl) && (
+            <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700" title={`Mandatory documents missing: ${[!v.serviceAgreementUrl && "Service agreement", !v.gstDocumentUrl && "GST"].filter(Boolean).join(", ")}`}>
+              ⚠ docs missing
+            </span>
+          )}
           {v.source === "panel" && <span className="ml-1.5 rounded bg-blue-50 px-1 text-[10px] text-blue-600">added</span>}
         </td>
         <td className="px-3 py-2.5">
@@ -453,6 +458,10 @@ function EditForm({ v, onSaved, onCancel }: { v: VendorMaster; onSaved: (v: Vend
   const set = (k: string, val: string | boolean) => setF((p) => ({ ...p, [k]: val }));
 
   async function save() {
+    // MANDATORY documents: an edit can't be saved while the vendor is missing either doc —
+    // this pulls existing vendors into compliance one edit at a time.
+    if (!v.serviceAgreementUrl && !saFile) { setErr("Service agreement is mandatory — upload it under Documents before saving."); return; }
+    if (!v.gstDocumentUrl && !gstFile) { setErr("GST document is mandatory — upload it under Documents before saving."); return; }
     setSaving(true); setErr("");
     try {
       let sa = v.serviceAgreementUrl ?? null, gst = v.gstDocumentUrl ?? null;
@@ -596,6 +605,9 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
 
   async function submit() {
     if (!f.name || selCities.length === 0) { setErr("Vendor name and at least one city are required"); return; }
+    // MANDATORY documents: no vendor enters the system without a signed service agreement + GST.
+    if (!saFile) { setErr("Service agreement document is required — upload it below."); return; }
+    if (!gstFile) { setErr("GST document is required — upload it below."); return; }
     setSaving(true); setErr("");
     try {
       const cleanSups = sups.filter((s) => s.name.trim() || s.phone.trim()).map((s) => ({ name: s.name.trim(), phone: s.phone.trim() }));
@@ -694,13 +706,13 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
         <textarea className={input} rows={2} value={f.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Anything to remember about this vendor…" />
       </label>
 
-      <div className="mb-1 mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Documents</div>
+      <div className="mb-1 mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Documents <span className="text-red-500">* both required</span></div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Service agreement</span>
+        <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">Service agreement <span className="text-red-500">*</span></span>
           <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(e) => setSaFile(e.target.files?.[0] ?? null)} className="w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white" />
           {saFile && <span className="mt-1 block text-[11px] text-emerald-600">{saFile.name}</span>}
         </label>
-        <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">GST document</span>
+        <label className="block"><span className="mb-1 block text-[11px] font-medium text-slate-500">GST document <span className="text-red-500">*</span></span>
           <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(e) => setGstFile(e.target.files?.[0] ?? null)} className="w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white" />
           {gstFile && <span className="mt-1 block text-[11px] text-emerald-600">{gstFile.name}</span>}
         </label>
