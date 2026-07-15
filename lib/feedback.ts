@@ -127,7 +127,14 @@ const TEAM_COMPLAINT_ID: Record<string, string> = {
   "Instant Payment Team": "19",
   "Warehouse Team": "20",
   "Warehouse team": "20",
+  "Intercity retrieval team": "21",
   "Other": "9",                // legacy label
+};
+
+// Each complaint task lands with its OWNER in the WMS (assigned_user_id, provided by the team).
+const COMPLAINT_ASSIGNEE: Record<string, string> = {
+  "1": "23167", "15": "2907", "16": "25213", "17": "7594",
+  "18": "36476", "19": "36827", "20": "27749", "21": "37112",
 };
 
 async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolean; raisedAt?: string; error?: string }> {
@@ -144,12 +151,14 @@ async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolea
 
   const follow = new Date(Date.now() + 86_400_000); // follow up tomorrow
   const dd = String(follow.getDate()).padStart(2, "0"), mm = String(follow.getMonth() + 1).padStart(2, "0");
+  const complaintId = TEAM_COMPLAINT_ID[String(fb.assigned_team)] ?? "9"; // task derived from the assigned team
   const payload = {
     customer_id: String(f?.customer_id ?? o.customer_unique_id ?? ""),
     customer_contact: String(f?.customer_contact1 ?? String(o.contact ?? "").split(/[/,]/)[0].trim()),
     customer_email: String(f?.customer_email ?? ""),
     follow_up_date: `${dd}/${mm}/${follow.getFullYear()}`,
-    complaint_id: TEAM_COMPLAINT_ID[String(fb.assigned_team)] ?? "9", // task derived from the assigned team
+    complaint_id: complaintId,
+    ...(COMPLAINT_ASSIGNEE[complaintId] ? { assigned_user_id: COMPLAINT_ASSIGNEE[complaintId] } : {}),
     is_internal: "1", // ALWAYS internal — raised by the transport module, not the customer
     message: `[${o.customer_unique_id ?? o.order_id}] ${fb.remarks || "Negative transport feedback"} — assigned to ${fb.assigned_team} (transport module)`,
   };
