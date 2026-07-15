@@ -52,7 +52,9 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
       body: JSON.stringify({ orderUuid, [field]: value }),
     }).then((x) => x.json()).catch(() => null);
     if (r && r.ok === false) alert(r.error || "Could not save.");
-    setRows((rs) => rs.map((x) => (x.id === orderUuid ? { ...x, [field]: value || null, ...(r?.ticketRaised ? { complaint_raised_at: r.complaintRaisedAt ?? new Date().toISOString() } : {}) } : x)));
+    setRows((rs) => rs.map((x) => (x.id === orderUuid
+      ? { ...x, [field]: value || null, ...(r?.ticketRaised ? { complaint_raised_at: r.complaintRaisedAt ?? new Date().toISOString(), resolved_status: x.resolved_status ?? "active" } : {}) }
+      : x)));
     if (r?.ticketRaised) alert("🎫 Internal complaint ticket raised for this order ✓" + (r.ticketError ? `\n\nNote: ${r.ticketError}` : ""));
     else if (r?.ticketError) alert(`Ticket could not be raised: ${r.ticketError}`);
     setPending(null);

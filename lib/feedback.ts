@@ -183,7 +183,8 @@ async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolea
     if (!success) return { error: j?.message || `complaint API ${res.status}: ${text.slice(0, 120)}` };
     const ref = j.ticket_id ? `ticket ${j.ticket_id}` : text.slice(0, 180);
     const now = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 19).replace("T", " "); // IST
-    const { error: upErr } = await c.from("order_feedback").update({ complaint_raised_at: now, complaint_ref: ref }).eq("order_id", orderUuid);
+    // A freshly raised ticket is an ACTIVE escalation by definition (until the WMS side resolves it).
+    const { error: upErr } = await c.from("order_feedback").update({ complaint_raised_at: now, complaint_ref: ref, resolved_status: fb.resolved_status ?? "active" }).eq("order_id", orderUuid);
     if (upErr && /complaint_raised_at|complaint_ref/i.test(upErr.message || "")) {
       return { raised: true, raisedAt: now, error: `Ticket ${j.ticket_id ?? ""} raised, but run 2026-07-15-feedback-complaint.sql so it isn't raised again on the next edit.` };
     }
