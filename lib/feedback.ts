@@ -83,9 +83,44 @@ export async function loadFeedbackBoard(from: string, to: string, city?: string 
       complaint_ref: f.complaint_ref ?? null,
     };
   });
+  // Sync escalation status from the WMS: a ticket resolved on their side flips to Resolved here
+  // automatically on the next page load. Best-effort — a down endpoint changes nothing.
+  const toCheck = rows.filter((r) => r.complaint_raised_at && r.resolved_status !== "resolved" && /ticket\s+([A-Za-z0-9]+)/.test(r.complaint_ref ?? "")).slice(0, 20);
+  await Promise.all(toCheck.map(async (r) => {
+    const tid = (r.complaint_ref as string).match(/ticket\s+([A-Za-z0-9]+)/)![1];
+    if (await wmsTicketResolved(tid)) {
+      r.resolved_status = "resolved";
+      try { await c.from("order_feedback").update({ resolved_status: "resolved" }).eq("order_id", r.id); } catch { /* best-effort */ }
+    }
+  }));
+
   // Newest first, negatives on top within a day (they need action).
   rows.sort((a, b) => (b.completed_at ?? "").localeCompare(a.completed_at ?? "") || (a.outcome === "negative" ? -1 : 1));
   return { rows, feedbackTableMissing };
+}
+
+// Latest ticket status from the WMS (get_internal_complaint_status_api). Returns true only when
+// the WMS clearly says resolved/closed. Tries the controller spelling from the team's message
+// first, then the standard one.
+const COMPLAINT_STATUS_APIS = [
+  "https://safestorage.in/back/transport_controller_Dev0e/get_internal_complaint_status_api",
+  "https://safestorage.in/back/transport_controller_Dev0/get_internal_complaint_status_api",
+];
+
+async function wmsTicketResolved(ticketId: string): Promise<boolean> {
+  for (const base of COMPLAINT_STATUS_APIS) {
+    try {
+      const res = await fetch(`${base}?ticket_id=${encodeURIComponent(ticketId)}`, { cache: "no-store" });
+      const text = await res.text();
+      let j: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+      try { j = JSON.parse(text); } catch { continue; }
+      if (!j || j.status !== true) continue; // envelope false / ticket unknown → no information
+      const d = j.data ?? j;
+      const s = String(d?.ticket_status ?? d?.complaint_status ?? d?.current_status ?? d?.status ?? d?.resolved ?? "").toLowerCase();
+      return /resolv|clos|complete|done/.test(s) || s === "1";
+    } catch { /* try the next base */ }
+  }
+  return false;
 }
 
 const EDITABLE = new Set(["remarks", "source_of_lead", "outcome", "assigned_team", "resolved_status"]);
