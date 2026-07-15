@@ -1,7 +1,9 @@
 // Feedback & escalations board: every COMPLETED order (vendor app says delivered, or the WMS
 // snapshot says completed/stacking) surfaces here with its feedback row — remarks, source of
-// lead, outcome (positive/negative), assigned team and resolved status.
+// lead, outcome (positive/negative), assigned team and resolved status. A NEGATIVE outcome with
+// a team assigned auto-raises an internal complaint ticket (once) via the WMS complaint API.
 import { db, hasDb } from "./db";
+import { allLiveOrders } from "./safestorage-api";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -20,6 +22,8 @@ export interface FeedbackRow {
   outcome: string | null;
   assigned_team: string | null;
   resolved_status: string | null;
+  complaint_raised_at: string | null;
+  complaint_ref: string | null;
 }
 
 const doneStatus = (o: any) =>
@@ -75,6 +79,8 @@ export async function loadFeedbackBoard(from: string, to: string, city?: string 
       outcome: f.outcome ?? null,
       assigned_team: f.assigned_team ?? null,
       resolved_status: f.resolved_status ?? null,
+      complaint_raised_at: f.complaint_raised_at ?? null,
+      complaint_ref: f.complaint_ref ?? null,
     };
   });
   // Newest first, negatives on top within a day (they need action).
@@ -84,7 +90,7 @@ export async function loadFeedbackBoard(from: string, to: string, city?: string 
 
 const EDITABLE = new Set(["remarks", "source_of_lead", "outcome", "assigned_team", "resolved_status"]);
 
-export async function saveFeedback(orderId: string, patch: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+export async function saveFeedback(orderId: string, patch: Record<string, unknown>): Promise<{ ok: boolean; error?: string; ticketRaised?: boolean; ticketError?: string; complaintRaisedAt?: string }> {
   if (!hasDb) return { ok: false, error: "db not configured" };
   const clean: Record<string, unknown> = { order_id: orderId };
   for (const [k, v] of Object.entries(patch)) {
@@ -99,5 +105,47 @@ export async function saveFeedback(orderId: string, patch: Record<string, unknow
     }
     return { ok: false, error: msg };
   }
-  return { ok: true };
+  // NEGATIVE outcome + a team assigned = escalation → raise the internal complaint (once).
+  const t = await maybeRaiseComplaint(orderId);
+  return { ok: true, ticketRaised: !!t.raised, ticketError: t.error, complaintRaisedAt: t.raisedAt };
+}
+
+// ---- internal complaint ticket (WMS add_internal_complaint_api) ----
+const COMPLAINT_API = "https://safestorage.in/back/transport_controller_Dev0/add_internal_complaint_api";
+
+async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolean; raisedAt?: string; error?: string }> {
+  const c = db();
+  const { data: fb } = await c.from("order_feedback").select("*").eq("order_id", orderUuid).maybeSingle();
+  if (!fb || fb.outcome !== "negative" || !fb.assigned_team) return {};
+  if (fb.complaint_raised_at) return {}; // already ticketed — never raise duplicates
+  const { data: o } = await c.from("orders").select("order_id, customer_unique_id, customer_name, contact").eq("id", orderUuid).maybeSingle();
+  if (!o) return { error: "order not found" };
+
+  // customer_id / email live only in the WMS feed — look the order up there.
+  let f: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  try { f = (await allLiveOrders()).find((x: any) => String(x.order_id ?? "") === String(o.order_id ?? "")); } catch { /* feed down → best-effort payload */ } // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  const follow = new Date(Date.now() + 86_400_000); // follow up tomorrow
+  const dd = String(follow.getDate()).padStart(2, "0"), mm = String(follow.getMonth() + 1).padStart(2, "0");
+  const payload = {
+    customer_id: String(f?.customer_id ?? o.customer_unique_id ?? ""),
+    customer_contact: String(f?.customer_contact1 ?? String(o.contact ?? "").split(/[/,]/)[0].trim()),
+    customer_email: String(f?.customer_email ?? ""),
+    follow_up_date: `${dd}/${mm}/${follow.getFullYear()}`,
+    complaint_id: "1",
+    message: `[${o.customer_unique_id ?? o.order_id}] ${fb.remarks || "Negative transport feedback"} — assigned to ${fb.assigned_team} (transport module)`,
+  };
+  try {
+    const res = await fetch(COMPLAINT_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const text = await res.text().catch(() => "");
+    if (!res.ok) return { error: `complaint API ${res.status}: ${text.slice(0, 120)}` };
+    const now = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 19).replace("T", " "); // IST
+    const { error: upErr } = await c.from("order_feedback").update({ complaint_raised_at: now, complaint_ref: text.slice(0, 180) || null }).eq("order_id", orderUuid);
+    if (upErr && /complaint_raised_at|complaint_ref/i.test(upErr.message || "")) {
+      return { raised: true, raisedAt: now, error: "Ticket raised, but run 2026-07-15-feedback-complaint.sql so it isn't raised again on the next edit." };
+    }
+    return { raised: true, raisedAt: now };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
 }

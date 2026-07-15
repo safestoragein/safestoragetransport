@@ -51,7 +51,9 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
       body: JSON.stringify({ orderUuid, [field]: value }),
     }).then((x) => x.json()).catch(() => null);
     if (r && r.ok === false) alert(r.error || "Could not save.");
-    setRows((rs) => rs.map((x) => (x.id === orderUuid ? { ...x, [field]: value || null } : x)));
+    setRows((rs) => rs.map((x) => (x.id === orderUuid ? { ...x, [field]: value || null, ...(r?.ticketRaised ? { complaint_raised_at: r.complaintRaisedAt ?? new Date().toISOString() } : {}) } : x)));
+    if (r?.ticketRaised) alert("🎫 Internal complaint ticket raised for this order ✓" + (r.ticketError ? `\n\nNote: ${r.ticketError}` : ""));
+    else if (r?.ticketError) alert(`Ticket could not be raised: ${r.ticketError}`);
     setPending(null);
   }
 
@@ -115,9 +117,9 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                 <th className="px-3 py-2">Completed on</th>
                 <th className="w-[24%] px-3 py-2">Remarks (feedback)</th>
                 <th className="px-3 py-2">Source of lead</th>
+                <th className="px-3 py-2">Outcome</th>
                 <th className="px-3 py-2">Assigned team</th>
                 <th className="px-3 py-2">Resolved</th>
-                <th className="px-3 py-2">Outcome</th>
               </tr>
             </thead>
             <tbody>
@@ -154,19 +156,6 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                       />
                     </td>
                     <td className="px-3 py-2">
-                      <select value={r.assigned_team ?? ""} disabled={pending === `${r.id}:assigned_team`} onChange={(e) => save(r.id, "assigned_team", e.target.value)} className={sel}>
-                        <option value="">—</option>
-                        {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <select value={r.resolved_status ?? ""} disabled={pending === `${r.id}:resolved_status`} onChange={(e) => save(r.id, "resolved_status", e.target.value)} className={sel}>
-                        <option value="">—</option>
-                        <option value="active">Active</option>
-                        <option value="resolved">Resolved</option>
-                      </select>
-                    </td>
-                    <td className="px-3 py-2">
                       <select
                         value={r.outcome ?? ""}
                         disabled={pending === `${r.id}:outcome`}
@@ -177,6 +166,34 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         <option value="positive">Positive</option>
                         <option value="negative">Negative</option>
                       </select>
+                    </td>
+                    {/* Escalation fields appear ONLY on negative outcomes. Picking a team on a
+                        negative row auto-raises the internal complaint ticket (once). */}
+                    <td className="px-3 py-2">
+                      {negRow ? (
+                        <>
+                          <select value={r.assigned_team ?? ""} disabled={pending === `${r.id}:assigned_team`} onChange={(e) => save(r.id, "assigned_team", e.target.value)} className={sel} title="Selecting a team raises the internal complaint ticket">
+                            <option value="">— pick team (raises ticket) —</option>
+                            {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                          {r.complaint_raised_at && (
+                            <div className="mt-1 text-[10px] font-semibold text-red-600" title={r.complaint_ref ?? ""}>🎫 ticket raised · {fmtDate(r.complaint_raised_at)}</div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {negRow ? (
+                        <select value={r.resolved_status ?? ""} disabled={pending === `${r.id}:resolved_status`} onChange={(e) => save(r.id, "resolved_status", e.target.value)} className={sel}>
+                          <option value="">—</option>
+                          <option value="active">Active</option>
+                          <option value="resolved">Resolved</option>
+                        </select>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
                     </td>
                   </tr>
                 );
