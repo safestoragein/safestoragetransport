@@ -12,7 +12,8 @@ import { Card } from "./ui";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const TEAMS = ["Transport Team", "Retrieval Team", "CRM", "Escalation Team", "Instant Payment Team", "Warehouse Team", "Other"];
+// Exactly the WMS complaint-task options the team mandated for assignment (ids 1, 15-20).
+const TEAMS = ["Payment issue", "Transport Team", "Retrieval Team", "CRM Team", "Escalation Team", "Instant Payment Team", "Warehouse Team"];
 const LEADS = ["google", "friend", "family", "reference", "returning customer", "walk-in", "other"];
 
 const cityName = (slug: string) => slug.replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());

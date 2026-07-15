@@ -113,18 +113,21 @@ export async function saveFeedback(orderId: string, patch: Record<string, unknow
 // ---- internal complaint ticket (WMS add_internal_complaint_api) ----
 const COMPLAINT_API = "https://safestorage.in/back/transport_controller_Dev0/add_internal_complaint_api";
 
-// complaint_id derived from the ASSIGNED TEAM (the WMS task list:
-// 1 Payment issue · 2 Inventory mismatch · 3 Packing quality · 4 Images Request · 5 warehouse
-// visit · 6 Refund · 7 Retrieval · 8 Video tour · 9 Others · 10 Damage · 11 Missing Item ·
-// 12 Intercity Retrieval · 13 Partial Retrieval · 14 Items Inspection).
+// complaint_id derived from the ASSIGNED TEAM — the WMS added dedicated task ids for each team:
+// 1 Payment issue · 15 Transport Team · 16 Retrieval Team · 17 CRM Team · 18 Escalation Team ·
+// 19 Instant Payment Team · 20 Warehouse team. (Older saved rows may still carry legacy labels —
+// they map to the closest id; unknown labels fall back to 9 "Others".)
 const TEAM_COMPLAINT_ID: Record<string, string> = {
-  "Instant Payment Team": "1", // Payment issue
-  "Warehouse Team": "5",       // warehouse visit
-  "Retrieval Team": "7",       // Retrieval
-  "Transport Team": "9",       // Others
-  "CRM": "9",                  // Others
-  "Escalation Team": "9",      // Others
-  "Other": "9",                // Others
+  "Payment issue": "1",
+  "Transport Team": "15",
+  "Retrieval Team": "16",
+  "CRM Team": "17",
+  "CRM": "17",                 // legacy label
+  "Escalation Team": "18",
+  "Instant Payment Team": "19",
+  "Warehouse Team": "20",
+  "Warehouse team": "20",
+  "Other": "9",                // legacy label
 };
 
 async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolean; raisedAt?: string; error?: string }> {
