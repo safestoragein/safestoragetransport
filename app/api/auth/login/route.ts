@@ -8,12 +8,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE_NAME, SESSION_MAX_AGE, signSession, SessionUser, verifyPassword } from "@/lib/auth";
 import { db, hasDb } from "@/lib/db";
+import { logActivity } from "@/lib/usage";
 
 export const dynamic = "force-dynamic";
 
 const API_BASE = process.env.SAFESTORAGE_API_BASE || "https://safestorage.in/back";
 
-function withSession(session: SessionUser) {
+async function withSession(session: SessionUser, req: NextRequest) {
+  // Every successful login is recorded for the admin usage insights (best-effort).
+  const fwd = req.headers.get("x-forwarded-for");
+  await logActivity(session, "login", null, fwd ? fwd.split(",")[0].trim() : null);
   const res = NextResponse.json({ ok: true, user: session });
   res.cookies.set(COOKIE_NAME, signSession(session), {
     httpOnly: true,
@@ -46,7 +50,7 @@ export async function POST(req: NextRequest) {
             role: String(data.role || "staff"),
           };
           try { await db().from("transport_users").update({ last_login_at: new Date() }).eq("id", data.id); } catch {}
-          return withSession(session);
+          return await withSession(session, req);
         }
         // Email is a known transport user but wrong password / inactive — reject here.
         return NextResponse.json({ ok: false, error: "Invalid email or password" }, { status: 401 });
@@ -68,12 +72,12 @@ export async function POST(req: NextRequest) {
       const active = String(u.status ?? "0") === "0"; // observed: every live user carries status 0
       if (active && String(u.user_password ?? "") === String(password)) {
         const name = [u.user_fname, u.user_lname].filter(Boolean).join(" ").trim() || em.split("@")[0];
-        return withSession({
+        return await withSession({
           id: String(u.user_id ?? em),
           email: String(u.user_email),
           name,
           role: String(u.role_id ?? "1") === "1" ? "admin" : "staff",
-        });
+        }, req);
       }
       // Known central user but wrong password / inactive — reject (don't leak to legacy).
       return NextResponse.json({ ok: false, error: "Invalid email or password" }, { status: 401 });
@@ -110,6 +114,6 @@ export async function POST(req: NextRequest) {
     role: String(u.role ?? u.user_role ?? "admin"),
   };
 
-  return withSession(session);
+  return await withSession(session, req);
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

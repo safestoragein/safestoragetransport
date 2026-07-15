@@ -4,7 +4,7 @@ import { useState } from "react";
 import { SessionUser } from "@/lib/auth";
 import { withBase } from "@/lib/base";
 
-export type NavKey = "dashboard" | "today" | "schedule" | "history" | "vendors" | "feedback" | "rules";
+export type NavKey = "dashboard" | "today" | "schedule" | "history" | "vendors" | "feedback" | "usage" | "rules";
 
 // Items inside the "Pickup & Retrieval" module group (expand/collapse in the rail).
 const ITEMS: { key: NavKey; label: string; href: string; icon: string }[] = [
@@ -14,6 +14,7 @@ const ITEMS: { key: NavKey; label: string; href: string; icon: string }[] = [
   { key: "history", label: "Old schedules", href: "/?view=history", icon: "M3 3v5h5M3.05 13A9 9 0 1 0 6 5.3L3 8m9-1v5l4 2" },
   { key: "vendors", label: "Vendor panel", href: "/?view=vendors", icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm14 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },
   { key: "feedback", label: "Feedback & escalations", href: "/?view=feedback", icon: "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" },
+  { key: "usage", label: "Team usage", href: "/?view=usage", icon: "M12 8v4l3 2M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z" },
   { key: "rules", label: "Scheduling rules", href: "/?view=rules", icon: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2zM9 7h7M9 11h7" },
 ];
 
@@ -51,7 +52,7 @@ export default function Sidebar({ active, user }: { active: NavKey; user: Sessio
 
         {open && (
           <div className="mt-1 space-y-0.5 border-l border-slate-100 pl-2">
-            {ITEMS.map((n) => {
+            {ITEMS.filter((n) => n.key !== "usage" || user?.role === "admin").map((n) => {
               const on = active === n.key;
               return (
                 <a

@@ -53,10 +53,25 @@ export default function AppShell({
     const ping = () => { if (document.visibilityState === "visible") orig(`${base}/api/settings`).then((r) => { if (r.status === 401) toLogin(); }).catch(() => {}); };
     window.addEventListener("focus", ping);
     document.addEventListener("visibilitychange", ping);
+
+    // Usage heartbeat: one beacon per minute while the tab is actually VISIBLE. Powers the
+    // admin "Team usage" insights (active time / idle gaps); a hidden tab sends nothing, so
+    // leaving the tool open in the background correctly counts as idle.
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      const view = new URLSearchParams(location.search).get("view") || "dashboard";
+      orig(`${base}/api/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ view }), keepalive: true }).catch(() => {});
+    };
+    beat();
+    const beatId = setInterval(beat, 60_000);
+    document.addEventListener("visibilitychange", beat);
+
     return () => {
       window.fetch = orig;
       window.removeEventListener("focus", ping);
       document.removeEventListener("visibilitychange", ping);
+      clearInterval(beatId);
+      document.removeEventListener("visibilitychange", beat);
     };
   }, []);
   return (
