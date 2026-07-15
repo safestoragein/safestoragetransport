@@ -472,7 +472,7 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                       const bd = new Date(String(o.booking_date).replace(" ", "T"));
                       const days = isNaN(bd.getTime()) ? null : Math.max(0, Math.floor((Date.now() - bd.getTime()) / 86_400_000));
                       return (
-                        <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600" title="When the customer booked this order">
+                        <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-600" title="When the customer booked this order">
                           booked {fmtBooked(o.booking_date)}{days != null ? ` (${days} day${days === 1 ? "" : "s"} ago)` : ""}
                         </span>
                       );
