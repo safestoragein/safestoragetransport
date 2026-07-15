@@ -113,6 +113,20 @@ export async function saveFeedback(orderId: string, patch: Record<string, unknow
 // ---- internal complaint ticket (WMS add_internal_complaint_api) ----
 const COMPLAINT_API = "https://safestorage.in/back/transport_controller_Dev0/add_internal_complaint_api";
 
+// complaint_id derived from the ASSIGNED TEAM (the WMS task list:
+// 1 Payment issue · 2 Inventory mismatch · 3 Packing quality · 4 Images Request · 5 warehouse
+// visit · 6 Refund · 7 Retrieval · 8 Video tour · 9 Others · 10 Damage · 11 Missing Item ·
+// 12 Intercity Retrieval · 13 Partial Retrieval · 14 Items Inspection).
+const TEAM_COMPLAINT_ID: Record<string, string> = {
+  "Instant Payment Team": "1", // Payment issue
+  "Warehouse Team": "5",       // warehouse visit
+  "Retrieval Team": "7",       // Retrieval
+  "Transport Team": "9",       // Others
+  "CRM": "9",                  // Others
+  "Escalation Team": "9",      // Others
+  "Other": "9",                // Others
+};
+
 async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolean; raisedAt?: string; error?: string }> {
   const c = db();
   const { data: fb } = await c.from("order_feedback").select("*").eq("order_id", orderUuid).maybeSingle();
@@ -132,7 +146,8 @@ async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolea
     customer_contact: String(f?.customer_contact1 ?? String(o.contact ?? "").split(/[/,]/)[0].trim()),
     customer_email: String(f?.customer_email ?? ""),
     follow_up_date: `${dd}/${mm}/${follow.getFullYear()}`,
-    complaint_id: "1",
+    complaint_id: TEAM_COMPLAINT_ID[String(fb.assigned_team)] ?? "9", // task derived from the assigned team
+    is_internal: "1", // ALWAYS internal — raised by the transport module, not the customer
     message: `[${o.customer_unique_id ?? o.order_id}] ${fb.remarks || "Negative transport feedback"} — assigned to ${fb.assigned_team} (transport module)`,
   };
   try {
