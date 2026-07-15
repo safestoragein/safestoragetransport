@@ -152,6 +152,7 @@ async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolea
   const follow = new Date(Date.now() + 86_400_000); // follow up tomorrow
   const dd = String(follow.getDate()).padStart(2, "0"), mm = String(follow.getMonth() + 1).padStart(2, "0");
   const complaintId = TEAM_COMPLAINT_ID[String(fb.assigned_team)] ?? "9"; // task derived from the assigned team
+  const assignee = COMPLAINT_ASSIGNEE[complaintId];
   const payload = {
     // The API resolves the customer by the UNIQUE id (BH…): the numeric customer_id is rejected
     // with "No active customer found for this Customer Unique ID".
@@ -160,7 +161,15 @@ async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolea
     customer_email: String(f?.customer_email ?? ""),
     follow_up_date: `${dd}/${mm}/${follow.getFullYear()}`,
     complaint_id: complaintId,
-    ...(COMPLAINT_ASSIGNEE[complaintId] ? { assigned_user_id: COMPLAINT_ASSIGNEE[complaintId] } : {}),
+    // The owner id, under every plausible field name (unknown extras are ignored by the API) and
+    // both as number and string — their side was receiving null with assigned_user_id alone.
+    ...(assignee ? {
+      assigned_user_id: Number(assignee),
+      assign_user_id: assignee,
+      assigned_to: assignee,
+      assign_to: assignee,
+      user_id: assignee,
+    } : {}),
     is_internal: "1", // ALWAYS internal — raised by the transport module, not the customer
     message: `[${o.customer_unique_id ?? o.order_id}] ${fb.remarks || "Negative transport feedback"} — assigned to ${fb.assigned_team} (transport module)`,
   };
