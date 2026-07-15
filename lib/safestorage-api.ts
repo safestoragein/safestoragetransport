@@ -24,6 +24,14 @@ import { db, hasDb } from "./db";
 
 const API_BASE = process.env.SAFESTORAGE_API_BASE || "https://safestorage.in/back";
 
+// The feed spells cities inconsistently ("Bengaluru" vs "bangalore", …). Normalise to our slugs —
+// without this, a "Bengaluru" order silently belongs to no city and never gets scheduled.
+const CITY_ALIAS: Record<string, string> = { bengaluru: "bangalore", bombay: "mumbai", gurugram: "gurgaon", "new delhi": "delhi" };
+export function normCity(c: unknown): string {
+  const s = String(c ?? "").toLowerCase().trim();
+  return CITY_ALIAS[s] ?? s;
+}
+
 function timeFromNotes(notes?: string): { requiredTimeText?: string; requiredSlot?: { start: number; end: number } } {
   const r = parseRequiredTime(notes);
   if (!r) return {};
@@ -65,7 +73,7 @@ export async function listLiveCities(date?: string): Promise<{ slug: string; nam
   const all = new Set<string>();
   const counts = new Map<string, number>();
   for (const o of orders) {
-    const c = (o.customer_local_city || "").toLowerCase().trim();
+    const c = normCity(o.customer_local_city);
     if (!c) continue;
     all.add(c);
     if (date && String(o.order_schedule_date || "").slice(0, 10) !== date) continue;
@@ -80,7 +88,7 @@ export async function listLiveDates(citySlug: string): Promise<{ date: string; c
   const orders = await getJson("transport_controller_Dev0/get_work_order_list_api_new");
   const counts = new Map<string, number>();
   for (const o of orders) {
-    if ((o.customer_local_city || "").toLowerCase().trim() !== citySlug) continue;
+    if (normCity(o.customer_local_city) !== citySlug) continue;
     const d = String(o.order_schedule_date || "").slice(0, 10);
     if (d) counts.set(d, (counts.get(d) ?? 0) + 1);
   }
@@ -134,7 +142,7 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
   const wh: GeoPoint = CITY_WAREHOUSE[citySlug] ?? { ...CITY_CENTER[citySlug], label: `${cap(citySlug)} WH` };
 
   const dayOrders = orders.filter(
-    (o) => (o.customer_local_city || "").toLowerCase().trim() === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date,
+    (o) => normCity(o.customer_local_city) === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date,
   );
 
   // PALLETS ARE NOT PULLED FROM THE FEED. Business rule: storage is billed at ~₹1,000 per pallet,
@@ -157,24 +165,32 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     const g = await geocodeCached(o.order_address || "", citySlug); // real geocode, cached in MySQL
     if (g.precise) precise++;
     const isPickup = !/retriev/i.test(o.order_type || "");
+    // SHIFTING orders (house shifting: order_type "shifting" / is_shifting_order=1) have no
+    // storage relationship — their pallet count comes from the feed's total_pallet directly.
+    const isShifting = /shifting/i.test(o.order_type || "") || flag(o.is_shifting_order);
     // Derived pallets: storage ₹1,000 ≈ 1 pallet. No storage charge on record → null (scheduler
     // falls back to its ~3.5 average). A manual edit (pallet_override) wins over the formula.
     const storageC = parseFloat(o.storage_charges) || 0;
-    const formulaStated = storageC > 0 ? Math.round((storageC / 1000) * 10) / 10 : null;
+    const feedPallet = parseFloat(o.total_pallet) || 0;
+    const formulaStated = isShifting
+      ? (feedPallet > 0 ? Math.round(feedPallet * 10) / 10 : null)
+      : (storageC > 0 ? Math.round((storageC / 1000) * 10) / 10 : null);
     const stated = overrides.get(String(o.order_id ?? "")) ?? formulaStated;
     // Pickups: customers under-report, so schedule for stated + buffer and size the vehicle off the
     // stated count. Retrievals are exact from the warehouse (no buffer). Missing count -> ~3.5 avg
     // so zero-pallet orders don't pile onto one team without limit.
     const palletsScheduled = stated == null ? 3.5 : isPickup ? bufferedPickupPallets(stated) : stated;
     bookings.push({
+      // Shifting bookings arrive without a customer_unique_id — fall back to a short readable ref
+      // from the order id so the schedule/app never shows a blank booking number.
       id: `${o.customer_unique_id || "ORD"}-${o.order_id || i}`,
-      refNo: o.customer_unique_id || `ORD-${i}`,
+      refNo: o.customer_unique_id || (o.order_id ? `SH-${String(o.order_id).slice(-6)}` : `ORD-${i}`),
       date,
       type: /retriev/i.test(o.order_type || "") ? "retrieval" : "pickup",
       category: /partial/i.test(o.order_type || "") ? "partial_retrieval" : /retriev/i.test(o.order_type || "") ? "full_retrieval" : "pickup",
       orderId: String(o.order_id || `${o.customer_unique_id}-${i}`),
-      isIntercity: flag(o.is_intercity) || /intercity|shifting/i.test(o.order_type || ""),
-      isShifting: /shifting/i.test(o.order_type || ""),
+      isIntercity: flag(o.is_intercity) || /intercity|shifting/i.test(o.order_type || "") || isShifting,
+      isShifting,
       customerName: o.customer_name || o.customer_unique_id || "Customer",
       location: { lat: g.lat, lng: g.lng, label: g.locality ?? (o.order_address || "").split(",")[0] },
       warehouse: wh,
