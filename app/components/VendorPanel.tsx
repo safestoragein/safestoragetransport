@@ -600,11 +600,12 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const set = (k: string, v: string | boolean) => setF((p) => ({ ...p, [k]: v }));
-  const toggleCity = (c: string) => setSelCities((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
-  const addNewCity = () => { const c = newCity.trim(); if (c && !selCities.includes(c)) setSelCities((s) => [...s, c]); setNewCity(""); };
+  // ONE city per add — a vendor record belongs to a single city (add again for another city).
+  const toggleCity = (c: string) => setSelCities((s) => (s[0] === c ? [] : [c]));
+  const addNewCity = () => { const c = newCity.trim(); if (c) setSelCities([c]); setNewCity(""); };
 
   async function submit() {
-    if (!f.name || selCities.length === 0) { setErr("Vendor name and at least one city are required"); return; }
+    if (!f.name || selCities.length !== 1) { setErr("Vendor name and ONE city are required"); return; }
     // MANDATORY documents: no vendor enters the system without a signed service agreement + GST.
     if (!saFile) { setErr("Service agreement document is required — upload it below."); return; }
     if (!gstFile) { setErr("GST document is required — upload it below."); return; }
@@ -643,7 +644,7 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
       </div>
 
       {/* cities — multi-select; one record is created per selected city */}
-      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Cities <span className="text-red-500">*</span> (select at least one — one record created per city)</div>
+      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">City <span className="text-red-500">*</span> (pick ONE — a vendor record belongs to a single city; add the vendor again for another city)</div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         {existingCities.map((c) => (
           <button key={c} type="button" onClick={() => toggleCity(c)} className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ${selCities.includes(c) ? "bg-blue-600 text-white ring-blue-600" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}>{c}</button>
@@ -653,7 +654,7 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
           <button type="button" onClick={addNewCity} className="rounded-lg px-2 py-1 text-xs font-medium text-blue-600 ring-1 ring-slate-200 hover:bg-blue-50">Add</button>
         </span>
       </div>
-      {selCities.length > 0 && <div className="mb-3 text-[11px] text-slate-500">Will create <b>{selCities.length}</b> record{selCities.length > 1 ? "s" : ""}: {selCities.join(", ")}</div>}
+      {selCities.length > 0 && <div className="mb-3 text-[11px] text-slate-500">Vendor will be created in: <b>{selCities[0]}</b></div>}
 
       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Vendor &amp; pricing</div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
