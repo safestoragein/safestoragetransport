@@ -153,7 +153,9 @@ async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolea
   const dd = String(follow.getDate()).padStart(2, "0"), mm = String(follow.getMonth() + 1).padStart(2, "0");
   const complaintId = TEAM_COMPLAINT_ID[String(fb.assigned_team)] ?? "9"; // task derived from the assigned team
   const payload = {
-    customer_id: String(f?.customer_id ?? o.customer_unique_id ?? ""),
+    // The API resolves the customer by the UNIQUE id (BH…): the numeric customer_id is rejected
+    // with "No active customer found for this Customer Unique ID".
+    customer_id: String(o.customer_unique_id ?? f?.customer_unique_id ?? ""),
     customer_contact: String(f?.customer_contact1 ?? String(o.contact ?? "").split(/[/,]/)[0].trim()),
     customer_email: String(f?.customer_email ?? ""),
     follow_up_date: `${dd}/${mm}/${follow.getFullYear()}`,
@@ -165,11 +167,16 @@ async function maybeRaiseComplaint(orderUuid: string): Promise<{ raised?: boolea
   try {
     const res = await fetch(COMPLAINT_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const text = await res.text().catch(() => "");
-    if (!res.ok) return { error: `complaint API ${res.status}: ${text.slice(0, 120)}` };
+    let j: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+    try { j = JSON.parse(text); } catch { /* non-JSON reply */ }
+    // The API answers HTTP 200 even on failure — success is ONLY {"status":true,"ticket_id":…}.
+    const success = res.ok && j && (j.status === true || j.status === "true");
+    if (!success) return { error: j?.message || `complaint API ${res.status}: ${text.slice(0, 120)}` };
+    const ref = j.ticket_id ? `ticket ${j.ticket_id}` : text.slice(0, 180);
     const now = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 19).replace("T", " "); // IST
-    const { error: upErr } = await c.from("order_feedback").update({ complaint_raised_at: now, complaint_ref: text.slice(0, 180) || null }).eq("order_id", orderUuid);
+    const { error: upErr } = await c.from("order_feedback").update({ complaint_raised_at: now, complaint_ref: ref }).eq("order_id", orderUuid);
     if (upErr && /complaint_raised_at|complaint_ref/i.test(upErr.message || "")) {
-      return { raised: true, raisedAt: now, error: "Ticket raised, but run 2026-07-15-feedback-complaint.sql so it isn't raised again on the next edit." };
+      return { raised: true, raisedAt: now, error: `Ticket ${j.ticket_id ?? ""} raised, but run 2026-07-15-feedback-complaint.sql so it isn't raised again on the next edit.` };
     }
     return { raised: true, raisedAt: now };
   } catch (e) {
