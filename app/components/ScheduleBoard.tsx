@@ -10,6 +10,7 @@ import { useCountry } from "@/lib/country-store";
 import AppShell from "./AppShell";
 import ScheduleCityView from "./ScheduleCityView";
 import CityRouteMap from "./CityRouteMap";
+import LiveTrackMap from "./LiveTrackMap";
 import MonitoringView from "./MonitoringView";
 import TodayAssign from "./TodayAssign";
 import { Card } from "./ui";
@@ -552,6 +553,10 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
           // Monitoring + MANUAL assignment: same-day bookings pulled in above land in an amber
           // "needs a team" card per city; assigning is always by hand (no re-optimisation today).
           <>
+            {/* LIVE map — pick a city in the filter to see every truck's real-time position */}
+            {cityFilter !== "All" && shown.length === 1 && (
+              <LiveTrackMap city={shown[0].city} vendors={(shown[0] as any).vendors ?? []} />
+            )}
             {shown.map((c) => <TodayAssign key={c.city} city={c} onChanged={() => load(todayStr)} />)}
             <MonitoringView cities={shown} vendorFilter={vendorFilter} />
           </>
