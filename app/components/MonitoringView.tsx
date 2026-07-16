@@ -108,6 +108,20 @@ function OrderFlow({ o, live }: { o: any; live: LiveMap }) {
         {o.lift != null && String(o.lift).trim() !== "" && <span className={`rounded px-1.5 py-0.5 text-[11px] ring-1 ${/^(n|no|false|0|na)$/i.test(String(o.lift).trim()) ? "bg-orange-50 text-orange-700 ring-orange-200" : "bg-white text-slate-600 ring-slate-200"}`}>{/^(n|no|false|0|na)$/i.test(String(o.lift).trim()) ? "⚠ no lift" : "lift ✓"}</span>}
         {floorOk && <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200">🏢 floor {String(o.floor).trim()}</span>}
         {o.time_slot && <span className="text-[11px] text-slate-400">wants {String(o.time_slot).replace(/:00/g, "")}</span>}
+        {/* Public live-tracking link — copy & WhatsApp it to the customer (page needs no login). */}
+        <button
+          onClick={() => {
+            const url = `${location.origin}/safestorage-transport/track/${o.id}`;
+            navigator.clipboard?.writeText(url).then(
+              () => alert(`Live-tracking link copied for ${o.customer_unique_id}:\n${url}\n\nPaste it to the customer on WhatsApp.`),
+              () => alert(url),
+            );
+          }}
+          className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100"
+          title="Copy the customer's live-tracking link"
+        >
+          🔗 track link
+        </button>
       </div>
       {/* compact stepper: small circles, one tight row */}
       <div className="flex items-center gap-0 overflow-x-auto pb-0.5">

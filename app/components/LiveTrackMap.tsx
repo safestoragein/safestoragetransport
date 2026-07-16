@@ -14,6 +14,14 @@ const minsAgo = (at: string | null | undefined): number | null => {
   const t = new Date(String(at).replace(" ", "T") + (String(at).includes("Z") ? "" : "Z")).getTime();
   return isNaN(t) ? null : Math.max(0, Math.round((Date.now() - t) / 60_000));
 };
+// "3m", "1h 5m" — and pings older than 3h don't count as a live position at all (yesterday's
+// parking spot is not tracking).
+const LIVE_CUTOFF_MIN = 180;
+const fmtAge = (m: number | null): string => {
+  if (m == null) return "?";
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+};
 
 /// LIVE tracking map for TODAY: each vendor's truck at its last GPS ping (from the vendor app,
 /// one ping / 45s while a job is running), their stops (done ✓ / pending), and a dashed line to
@@ -24,7 +32,10 @@ export default function LiveTrackMap({ city, vendors }: { city: string; vendors:
 
   const tracked = (vendors ?? [])
     .filter((v) => !v.isUnassigned && !v.isCoTeam)
-    .map((v, vi) => ({ v, color: PALETTE[vi % PALETTE.length], age: minsAgo(v.liveLocationAt), hasGps: v.liveLat != null && v.liveLng != null }));
+    .map((v, vi) => {
+      const age = minsAgo(v.liveLocationAt);
+      return { v, color: PALETTE[vi % PALETTE.length], age, hasGps: v.liveLat != null && v.liveLng != null && age != null && age <= LIVE_CUTOFF_MIN };
+    });
   const withGps = tracked.filter((t) => t.hasGps);
 
   useEffect(() => {
@@ -66,11 +77,11 @@ export default function LiveTrackMap({ city, vendors }: { city: string; vendors:
           L.marker(pos, {
             icon: L.divIcon({
               className: "",
-              html: `<div style="opacity:${alpha};background:${pinColor};color:#fff;font-size:11px;font-weight:800;padding:3px 9px;border-radius:14px;white-space:nowrap;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);transform:translate(-50%,-130%)">🚚 ${v.vendorName}${age != null ? ` · ${age}m` : ""}</div>`,
+              html: `<div style="opacity:${alpha};background:${pinColor};color:#fff;font-size:11px;font-weight:800;padding:3px 9px;border-radius:14px;white-space:nowrap;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);transform:translate(-50%,-130%)">🚚 ${v.vendorName} · ${fmtAge(age)}</div>`,
               iconSize: [0, 0],
             }),
             zIndexOffset: 3000,
-          }).addTo(map).bindPopup(`<b>${v.vendorName}</b><br>last ping ${age ?? "?"} min ago${stale ? " — STALE" : ""}`);
+          }).addTo(map).bindPopup(`<b>${v.vendorName}</b><br>last ping ${fmtAge(age)} ago${stale ? " — STALE" : ""}`);
           if (!dim) all.push(pos);
           // Dashed line to the NEXT pending stop.
           const next = stops.find((o: any) => o.live_status !== "delivered");
@@ -102,9 +113,9 @@ export default function LiveTrackMap({ city, vendors }: { city: string; vendors:
                 onClick={() => setSel(on ? null : key)}
                 className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 transition ${on ? "text-white" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
                 style={on ? { backgroundColor: color, borderColor: color } : { borderColor: color }}
-                title={hasGps ? `last ping ${age} min ago — click to spotlight` : "no GPS yet (job not started in the app)"}
+                title={hasGps ? `last ping ${fmtAge(age)} ago — click to spotlight` : "no GPS in the last 3h (job not started in the app)"}
               >
-                <span style={{ color: on ? "#fff" : color }}>●</span> {v.vendorName}{hasGps ? ` · ${age}m` : " · no signal"}
+                <span style={{ color: on ? "#fff" : color }}>●</span> {v.vendorName}{hasGps ? ` · ${fmtAge(age)}` : " · no signal"}
               </button>
             );
           })}

@@ -14,6 +14,11 @@ export function proxy(request: NextRequest) {
   // Vendor mobile app: its own Bearer-token auth (see lib/vendor-auth). Not gated by the admin cookie.
   if (pathname.startsWith("/api/vendor/")) return NextResponse.next();
 
+  // Customer live-tracking page + its data: PUBLIC by design (the link is shared with customers).
+  // The order UUID in the URL is the unguessable token; the endpoint returns only that order's
+  // minimal tracking data.
+  if (pathname.startsWith("/track/") || pathname.startsWith("/api/track/")) return NextResponse.next();
+
   // Vercel Cron hits GET /api/schedule/generate with no session — allow it via its platform header.
   if (pathname.startsWith("/api/schedule/generate") && request.headers.get("x-vercel-cron")) return NextResponse.next();
 
