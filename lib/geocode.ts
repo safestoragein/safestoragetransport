@@ -31,7 +31,9 @@ export const CITY_CENTER: Record<string, { lat: number; lng: number; label: stri
 
 // Approximate SafeStorage warehouse coordinates by city (geocoded from warehouse_full_loc).
 export const CITY_WAREHOUSE: Record<string, { lat: number; lng: number; label: string }> = {
-  bangalore: { lat: 12.992, lng: 77.751, label: "Immadahalli WH · Whitefield" },
+  // SafeStorage Warehouse — 137/5 Makanahalli Rd, Bisanahalli, Dodda Dasarahally, 560067
+  // (exact pin from maps.app.goo.gl/x9Zy8Qe7Q4dsPe3p7; the old "Immadahalli" point was ~8.5km off).
+  bangalore: { lat: 12.9993, lng: 77.8284, label: "SafeStorage WH · Makanahalli Rd, Bisanahalli" },
   hyderabad: { lat: 17.541, lng: 78.487, label: "Kompally WH" },
   pune: { lat: 18.561, lng: 73.918, label: "Pune WH" },
   chennai: { lat: 13.083, lng: 80.27, label: "Chennai WH" },
