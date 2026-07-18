@@ -86,21 +86,50 @@ export default function VendorReport({ vendor, city, date, onClose }: { vendor: 
       .catch(() => setAddresses({}));
   }, [city, date]);
 
-  // Copies BOTH flavours: rich HTML (pastes as a real table into Gmail/Word/Docs) and plain text
-  // (WhatsApp, SMS, notes). Older browsers fall back to plain text.
+  // Copy the report AS AN IMAGE — pasting into WhatsApp (or anywhere) shows the exact same
+  // formatted card, colours and all, like pasting a screenshot. The report HTML is rendered into
+  // an SVG foreignObject → canvas → PNG, all in-browser (no libraries, no external resources, so
+  // the canvas stays clean and copyable). Falls back to rich-HTML+text copy if image copy fails.
   const copy = async () => {
     const a = addresses ?? {};
-    const text = reportText(vendor, a);
+    const html = reportHtml(vendor, a);
     try {
-      const html = reportHtml(vendor, a);
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          "text/html": new Blob([html], { type: "text/html" }),
-          "text/plain": new Blob([text], { type: "text/plain" }),
-        }),
-      ]);
+      const W = 440;
+      // Measure the rendered height off-screen at the same width the SVG will use.
+      const holder = document.createElement("div");
+      holder.style.cssText = `position:fixed;left:-10000px;top:0;width:${W - 24}px;background:#fff`;
+      holder.innerHTML = html;
+      document.body.appendChild(holder);
+      const H = Math.ceil(holder.getBoundingClientRect().height) + 24;
+      document.body.removeChild(holder);
+
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="background:#ffffff;padding:12px;width:${W - 24}px">${html}</div></foreignObject></svg>`;
+      const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = W * 2; canvas.height = H * 2; // 2× for a crisp WhatsApp image
+      const ctx = canvas.getContext("2d")!;
+      ctx.scale(2, 2);
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
+      ctx.drawImage(img, 0, 0, W, H);
+      URL.revokeObjectURL(url);
+      const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, "image/png"));
+      if (!blob) throw new Error("no blob");
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
     } catch {
-      try { await navigator.clipboard.writeText(text); } catch { return; }
+      // Fallback: rich HTML (tables in Gmail/Word) + plain text (WhatsApp text).
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([html], { type: "text/html" }),
+            "text/plain": new Blob([reportText(vendor, a)], { type: "text/plain" }),
+          }),
+        ]);
+      } catch {
+        try { await navigator.clipboard.writeText(reportText(vendor, a)); } catch { return; }
+      }
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
