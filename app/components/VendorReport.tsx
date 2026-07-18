@@ -104,9 +104,10 @@ export default function VendorReport({ vendor, city, date, onClose }: { vendor: 
       document.body.removeChild(holder);
 
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="background:#ffffff;padding:12px;width:${W - 24}px">${html}</div></foreignObject></svg>`;
-      const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+      // MUST be a data: URL — Chrome taints the canvas when a foreignObject SVG is loaded via a
+      // blob: URL (toBlob then throws SecurityError), but renders the data: URL clean.
       const img = new Image();
-      img.src = url;
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
       await img.decode();
       const canvas = document.createElement("canvas");
       canvas.width = W * 2; canvas.height = H * 2; // 2× for a crisp WhatsApp image
@@ -114,7 +115,6 @@ export default function VendorReport({ vendor, city, date, onClose }: { vendor: 
       ctx.scale(2, 2);
       ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
       ctx.drawImage(img, 0, 0, W, H);
-      URL.revokeObjectURL(url);
       const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, "image/png"));
       if (!blob) throw new Error("no blob");
       await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
