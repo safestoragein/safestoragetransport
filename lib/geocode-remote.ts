@@ -51,6 +51,14 @@ export interface Geo { lat: number; lng: number; precise: boolean; locality?: st
 // Bump this when the query strategy changes so already-cached results get re-validated once.
 const GEOCODE_PROVIDER = "nominatim-v4";
 
+// Cached MISSES are retryable. A transient Nominatim failure (timeout / rate-limit) used to be
+// frozen into the cache forever — the order silently kept the city-centre pin, and every distance
+// computed from it was fiction (a Budigere apartment "16.9 km / 35 min" from Electronic City when
+// the real drive is 44 km). We re-attempt a missed address at most once per MISS_RETRY_MS per
+// process; a success overwrites the cached miss for good.
+const missRetryAt = new Map<string, number>();
+const MISS_RETRY_MS = 30 * 60_000;
+
 // A candidate hit must land within this distance of the address's PINCODE centroid — otherwise it's
 // a wrong match (e.g. "Jain International Residential School" fuzzy-matching a city campus 35km from
 // the real Kanakapura Rd one). If nothing passes, the pincode centroid itself is used (~2km accuracy).
@@ -89,7 +97,8 @@ function geocodeQueries(address: string, citySlug: string): string[] {
   // 3. The POI by NAME (first segment — school/society/building): Nominatim knows many of these
   //    even when the full string misses. Guarded downstream by the pincode/city sanity checks.
   const poi = named[0];
-  if (poi && poi.length > 8) out.push(`${poi}, ${ctry}`);
+  // City-scoped first (avoids same-named POIs in other districts), then country-wide.
+  if (poi && poi.length > 8) { out.push(`${poi}, ${city}, ${ctry}`); out.push(`${poi}, ${ctry}`); }
   // 4. Locality (+city), 5. pincode (INDIA only — 6-digit PINs don't exist in the UAE/UK),
   // 6. bare locality.
   const locality = named[named.length - 1];
@@ -97,7 +106,7 @@ function geocodeQueries(address: string, citySlug: string): string[] {
   const pin = ctry === "India" ? a.match(/\b(\d{6})\b/) : null;
   if (pin) out.push(`${pin[1]}, India`);
   if (locality && locality !== poi) out.push(`${locality}, ${ctry}`);
-  return [...new Set(out)].slice(0, 6);
+  return [...new Set(out)].slice(0, 7);
 }
 
 export async function geocodeCached(address: string, citySlug: string): Promise<Geo> {
@@ -112,9 +121,12 @@ export async function geocodeCached(address: string, citySlug: string): Promise<
       // Only trust entries from the CURRENT strategy — older hits may be pre-pincode-validation
       // mismatches (35km off), so anything older is re-looked-up once and re-cached.
       if (data.lat != null && data.lng != null) return { lat: Number(data.lat), lng: Number(data.lng), precise: !!data.precise, locality: local.locality };
-      return local; // cached miss under the current strategy
+      // Cached miss: retry live (throttled to once per MISS_RETRY_MS per address per process).
+      const last = missRetryAt.get(key) ?? 0;
+      if (Date.now() - last < MISS_RETRY_MS) return local;
     }
   } catch { /* cache read failed — carry on to live lookup */ }
+  missRetryAt.set(key, Date.now());
 
   const geo = COUNTRY_GEO[countryOfCity(citySlug)];
   // The pincode centroid anchors the search (INDIA only): any candidate far from it is a wrong match.

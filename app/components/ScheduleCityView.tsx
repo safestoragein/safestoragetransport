@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { ScheduleData } from "@/lib/schedule";
 import { money } from "@/lib/format";
 import { teamsNeeded } from "@/lib/config";
+import { CITY_CENTER } from "@/lib/geocode";
 import { Card } from "./ui";
 import VendorDetails from "./VendorDetails";
 
@@ -21,6 +22,14 @@ const LIVE: Record<string, { label: string; cls: string }> = {
   loaded: { label: "✅ Loaded", cls: "bg-teal-100 text-teal-700" },
   delivered: { label: "🏁 Delivered", cls: "bg-emerald-600 text-white" },
 };
+// The geocoder could not place this address: its pin is the city-centre fallback, so every
+// distance/ETA computed from it is meaningless. Surface that instead of printing fake numbers.
+function isApproxPin(lat: number | null | undefined, lng: number | null | undefined, city: string): boolean {
+  const c = CITY_CENTER[city];
+  if (!c || lat == null || lng == null) return false;
+  return Math.abs(Number(lat) - c.lat) < 0.0005 && Math.abs(Number(lng) - c.lng) < 0.0005;
+}
+
 // "2026-07-04 09:31:29" → "9:31 AM" (short, for the "updated" tooltip/label)
 function shortTime(raw: string | null | undefined) {
   if (!raw) return "";
@@ -452,6 +461,11 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     )}
                     {o.locality && (
                       <a href={mapsUrl(o.lat, o.lng, o.locality)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline" title="Open customer location in Google Maps">📍 {o.locality}</a>
+                    )}
+                    {isApproxPin(o.lat, o.lng, sched.city) && (
+                      <span className="rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700" title="The address could not be located on the map — this order is pinned at the city centre, so its distances and arrival times in the day plan are NOT reliable. Re-pull orders to retry, or verify the address.">
+                        ⚠ address not located — times unreliable
+                      </span>
                     )}
                     <span className="text-xs text-slate-500" title="Transport charge">{o.transport_charge != null ? money(o.transport_charge) : "—"}</span>
                     {o.storage_charges != null && Number(o.storage_charges) > 0 && (

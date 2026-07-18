@@ -24,6 +24,13 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   if (!b?.date) return NextResponse.json({ ok: false, error: "date required" }, { status: 400 });
   try {
+    // Forced single-city resync — refreshes every order snapshot (address pins included) from the
+    // live feed even when the diff sees no change. Used to repair bad geocodes in place.
+    if (b.city) {
+      const rem = await removeStaleFromRun(String(b.city), b.date);
+      const r = await syncNewOrders(String(b.city), b.date);
+      return NextResponse.json({ ok: true, added: r.added, removed: rem.removed, results: [{ city: b.city, ...r }] });
+    }
     // Only the cities that actually changed need a resync (adds new orders to the "to assign"
     // bucket + refreshes reschedules; existing manual assignments are preserved).
     const d = await diffSchedule(b.date);
