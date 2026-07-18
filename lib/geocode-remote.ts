@@ -48,8 +48,36 @@ function nominatim(query: string, cc = "in"): Promise<{ lat: number; lng: number
 
 export interface Geo { lat: number; lng: number; precise: boolean; locality?: string | null }
 
+// Google Geocoding API — the ACCURATE path. Same data as the Google Maps app, resolves Indian
+// apartment addresses Nominatim can't. Activates when GOOGLE_MAPS_API_KEY is set (cPanel env);
+// every address is still cached in MySQL, so each is billed at most once.
+const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY ?? "";
+
+// Google never says "not found" for vague strings — it "resolves" them to the city/state itself.
+// A match at city-or-coarser granularity is NOT a located address; rejecting it is what keeps
+// hopeless strings ("A 1502") from silently pinning to the city centre with false confidence.
+const G_COARSE = new Set(["locality", "administrative_area_level_1", "administrative_area_level_2", "administrative_area_level_3", "country", "political", "colloquial_area"]);
+
+async function googleGeocode(query: string, cc: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&region=${cc}&components=country:${cc.toUpperCase()}&key=${GOOGLE_KEY}`;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 6000);
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    const j: any = await r.json(); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const res = j?.status === "OK" ? j.results?.[0] : null;
+    if (!res?.geometry?.location) return null;
+    const types: string[] = res.types ?? [];
+    if (types.length && types.every((tp) => G_COARSE.has(tp))) return null;
+    return { lat: Number(res.geometry.location.lat), lng: Number(res.geometry.location.lng) };
+  } catch { return null; }
+}
+
 // Bump this when the query strategy changes so already-cached results get re-validated once.
-const GEOCODE_PROVIDER = "nominatim-v4";
+// With a Google key configured, EVERY cached address re-validates through Google once, then the
+// accurate pin is cached for good.
+const GEOCODE_PROVIDER = GOOGLE_KEY ? "google-v1" : "nominatim-v4";
 
 // Cached MISSES are retryable. A transient Nominatim failure (timeout / rate-limit) used to be
 // frozen into the cache forever — the order silently kept the city-centre pin, and every distance
@@ -138,7 +166,21 @@ export async function geocodeCached(address: string, citySlug: string): Promise<
 
   // Try the queries in order; first hit that agrees with the pincode AND the city wins.
   let hit: { lat: number; lng: number } | null = null;
-  for (const cand of geocodeQueries(q, citySlug)) {
+  // Google FIRST (when configured): the full address as-is, then with the city appended. The
+  // pincode/city sanity checks still apply — accuracy, not blind trust.
+  if (GOOGLE_KEY) {
+    const a = q.replace(/\s+/g, " ").trim();
+    const cityRe = new RegExp(citySlug === "bangalore" ? "bangalore|bengaluru" : citySlug, "i");
+    const gq = [a, ...(cityRe.test(a) ? [] : [`${a}, ${cap(citySlug)}`])];
+    for (const cand of gq) {
+      const h = await googleGeocode(cand, geo.code);
+      if (!h) continue;
+      if (pinPt && kmBetween(h, pinPt) > PIN_SANITY_KM) continue;
+      if (centre && kmBetween(h, centre) > geo.maxKmFromCentre) continue;
+      hit = h; break;
+    }
+  }
+  if (!hit) for (const cand of geocodeQueries(q, citySlug)) {
     const h = await throttled(() => nominatim(cand, geo.code));
     if (!h) continue;
     if (pinPt && kmBetween(h, pinPt) > PIN_SANITY_KM) continue;
