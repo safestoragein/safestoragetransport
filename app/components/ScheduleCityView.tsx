@@ -7,6 +7,7 @@ import { teamsNeeded } from "@/lib/config";
 import { CITY_CENTER } from "@/lib/geocode";
 import { Card } from "./ui";
 import VendorDetails from "./VendorDetails";
+import VendorReport from "./VendorReport";
 
 const TYPE: Record<string, { label: string; cls: string; dot: string }> = {
   pickup: { label: "Pickup", cls: "bg-blue-50 border-blue-200", dot: "bg-blue-500" },
@@ -99,6 +100,7 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
   const [sched, setSched] = useState<ScheduleData>(initial);
   const [pending, setPending] = useState<string | null>(null);
   const [openPlan, setOpenPlan] = useState<string | null>(null);
+  const [reportFor, setReportFor] = useState<string | null>(null); // vendor key → supervisor report modal
 
   // Sync when the parent hands down fresh data (e.g. Today's 45s live poll). Local optimistic
   // edits (reassign/notify) keep the same `initial` object, so they're not clobbered mid-action.
@@ -332,6 +334,13 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                   <span className="w-4 text-center font-medium text-slate-700">{v.resources}</span>
                   <button disabled={pending === `res:${v.vendorName}`} onClick={() => setResources(v.vendorName, v.resources + 1)} className="rounded-md bg-amber-500 px-2 py-1 font-semibold text-white shadow-sm hover:bg-amber-600 disabled:opacity-50">+ {money(sched.resourceCost)}</button>
                 </span>
+                <button
+                  onClick={() => setReportFor(v.vendorId ?? v.vendorName)}
+                  title="Supervisor report card for this vendor (printable)"
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+                >
+                  📄 Report
+                </button>
                 <button
                   onClick={() => setOpenPlan(openPlan === (v.vendorId ?? v.vendorName) ? null : (v.vendorId ?? v.vendorName))}
                   className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
@@ -609,6 +618,10 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
         </Card>
         );
       })}
+      {reportFor != null && (() => {
+        const rv = sched.vendors.find((v) => (v.vendorId ?? v.vendorName) === reportFor);
+        return rv ? <VendorReport vendor={rv} city={sched.city} date={sched.date} onClose={() => setReportFor(null)} /> : null;
+      })()}
     </div>
   );
 }
