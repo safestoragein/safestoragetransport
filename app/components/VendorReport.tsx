@@ -61,8 +61,23 @@ function reportHtml(v: any, addresses: Record<string, string>): string {
   </div>`;
 }
 
+// Plain-text version (for WhatsApp / SMS / anywhere without table support).
+function reportText(v: any, addresses: Record<string, string>): string {
+  const orders = (v.orders ?? []).filter((o: any) => o.stop_seq !== -1);
+  const lines: string[] = [`Supervisor: ${v.supervisorName || v.vendorName} (${orders.length} order${orders.length === 1 ? "" : "s"})`];
+  orders.forEach((o: any, i: number) => {
+    lines.push("", `— Booking ${i + 1} —`);
+    for (const r of bookingRows(o, v, addresses[o.customer_unique_id] ?? null)) {
+      const right = ["Pallets", "Floor / Lift", "Customer Notes", "N/A"].includes(r.right) ? "" : `  (${r.right})`;
+      lines.push(`${r.label}: ${r.value}${right}`);
+    }
+  });
+  return lines.join("\n");
+}
+
 export default function VendorReport({ vendor, city, date, onClose }: { vendor: any; city: string; date: string; onClose: () => void }) {
   const [addresses, setAddresses] = useState<Record<string, string> | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch(`/api/schedule/report?city=${city}&date=${date}`)
@@ -70,6 +85,26 @@ export default function VendorReport({ vendor, city, date, onClose }: { vendor: 
       .then((j) => setAddresses(j?.addresses ?? {}))
       .catch(() => setAddresses({}));
   }, [city, date]);
+
+  // Copies BOTH flavours: rich HTML (pastes as a real table into Gmail/Word/Docs) and plain text
+  // (WhatsApp, SMS, notes). Older browsers fall back to plain text.
+  const copy = async () => {
+    const a = addresses ?? {};
+    const text = reportText(vendor, a);
+    try {
+      const html = reportHtml(vendor, a);
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" }),
+        }),
+      ]);
+    } catch {
+      try { await navigator.clipboard.writeText(text); } catch { return; }
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const print = () => {
     const w = window.open("", "_blank", "width=480,height=700");
@@ -85,7 +120,10 @@ export default function VendorReport({ vendor, city, date, onClose }: { vendor: 
       <div className="my-4 w-full max-w-md rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
           <span className="text-sm font-bold text-slate-800">📄 {vendor.vendorName} — {date}</span>
-          <button onClick={print} disabled={!addresses} className="ml-auto rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">🖨 Print / PDF</button>
+          <button onClick={copy} disabled={!addresses} className={`ml-auto rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 disabled:opacity-50 ${copied ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "text-slate-600 ring-slate-200 hover:bg-slate-50"}`}>
+            {copied ? "✓ Copied" : "📋 Copy"}
+          </button>
+          <button onClick={print} disabled={!addresses} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">🖨 Print / PDF</button>
           <button onClick={onClose} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50">✕</button>
         </div>
         <div className="max-h-[75vh] overflow-y-auto p-4">
