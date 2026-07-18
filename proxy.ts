@@ -20,7 +20,9 @@ export function proxy(request: NextRequest) {
   if (pathname.startsWith("/track/") || pathname.startsWith("/api/track/")) return NextResponse.next();
 
   // Vercel Cron hits GET /api/schedule/generate with no session — allow it via its platform header.
-  if (pathname.startsWith("/api/schedule/generate") && request.headers.get("x-vercel-cron")) return NextResponse.next();
+  // /api/schedule/diff gets the same bypass so ops can force a snapshot resync (e.g. repairing a
+  // bad geocode pin in place) without a browser session.
+  if ((pathname.startsWith("/api/schedule/generate") || pathname.startsWith("/api/schedule/diff")) && request.headers.get("x-vercel-cron")) return NextResponse.next();
 
   const user = verifySession(request.cookies.get(COOKIE_NAME)?.value);
   if (user) {
