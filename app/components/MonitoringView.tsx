@@ -156,16 +156,22 @@ function OrderFlow({ o, live, photos }: { o: any; live: LiveMap; photos?: { id: 
         {flow.map(([st, label], i) => {
           const done = appIdx >= APP_ORDER.indexOf(st) || (blendDone && appIdx <= 0);
           const active = !done && i === (activeIdx === -1 ? 0 : activeIdx) && !blendDone && appIdx >= 0;
-          const at = o.app_events?.[st] ? shortClock(o.app_events[st]) : (blendDone && appIdx <= 0 && i === flow.length - 1 ? "WMS" : undefined);
+          // WHEN the step was completed: the app's tap event; else, if this is the order's current
+          // status, its status timestamp. Always visible under the tick + full detail on hover.
+          const rawAt = o.app_events?.[st] ?? (done && String(o.live_status ?? "") === st ? o.live_status_at : undefined);
+          const at = rawAt ? shortClock(rawAt) : (blendDone && appIdx <= 0 && i === flow.length - 1 ? "WMS ✓" : undefined);
+          const tip = rawAt
+            ? `${label} — done at ${shortClock(rawAt)} (${String(rawAt).slice(0, 10)})`
+            : done ? `${label} — completed${at === "WMS ✓" ? " (per warehouse system)" : " (time not recorded)"}` : active ? `${label} — current step` : `${label} — pending`;
           return (
-            <div key={st} className="flex items-center">
+            <div key={st} className="flex items-center" title={tip}>
               {i > 0 && <div className={`h-0.5 w-5 shrink-0 sm:w-8 ${done ? "bg-emerald-400" : "bg-slate-200"}`} />}
               <div className="flex w-[64px] shrink-0 flex-col items-center">
                 <div className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${done ? "bg-emerald-500 text-white" : active ? "bg-amber-400 text-white ring-2 ring-amber-200" : "bg-slate-200 text-slate-500"}`}>
                   {done ? "✓" : i + 1}
                 </div>
                 <span className={`mt-0.5 text-[10px] font-semibold leading-tight ${done ? "text-emerald-700" : active ? "text-amber-700" : "text-slate-400"}`}>{label}</span>
-                <span className="h-3 text-[9px] leading-tight text-slate-400">{at ?? ""}</span>
+                <span className={`h-3 text-[9px] leading-tight ${done && at ? "font-bold text-emerald-600" : "text-slate-400"}`}>{at ?? ""}</span>
               </div>
             </div>
           );
