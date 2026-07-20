@@ -85,7 +85,11 @@ const freshDot = (m: number | null) => (m == null ? "bg-slate-300" : m < 5 ? "bg
 const PICKUP_FLOW: [string, string][] = [["en_route", "Started"], ["arrived", "Reached"], ["loaded", "Loaded"], ["delivered", "At WH"]];
 const RETR_FLOW: [string, string][] = [["collected", "Collected"], ["en_route", "Started"], ["arrived", "Reached"], ["loaded", "Unloaded"], ["delivered", "Done"]];
 
-function OrderFlow({ o, live }: { o: any; live: LiveMap }) {
+// Chip label per photo kind the vendor app captures.
+const PHOTO_KIND: Record<string, string> = { team: "👥 Team photo", kyc: "🪪 KYC", delivery: "📦 Delivery", damage: "⚠️ Damage" };
+
+function OrderFlow({ o, live, photos }: { o: any; live: LiveMap; photos?: { id: string; kind: string; createdAt: string }[] }) {
+  const [viewPhoto, setViewPhoto] = useState<{ id: string; label: string } | null>(null);
   const pk = isPickup(o);
   const flow = pk ? PICKUP_FLOW : RETR_FLOW;
   const appIdx = APP_ORDER.indexOf(String(o.live_status ?? "assigned"));
@@ -122,7 +126,31 @@ function OrderFlow({ o, live }: { o: any; live: LiveMap }) {
         >
           🔗 track link
         </button>
+        {/* Photos the vendor captured in the app (team / KYC / delivery / damage) with upload time —
+            click to view. The team photo is the proof the crew was on site. */}
+        {(photos ?? []).map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setViewPhoto({ id: p.id, label: `${PHOTO_KIND[p.kind] ?? p.kind} · ${o.customer_unique_id}` })}
+            className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200 hover:bg-violet-100"
+            title="Uploaded from the vendor app — click to view"
+          >
+            {PHOTO_KIND[p.kind] ?? `📷 ${p.kind}`} · {shortClock(p.createdAt) ?? ""}
+          </button>
+        ))}
       </div>
+      {viewPhoto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4" onClick={() => setViewPhoto(null)}>
+          <div className="max-h-full max-w-2xl overflow-auto rounded-xl bg-white p-3" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-sm font-bold text-slate-800">{viewPhoto.label}</span>
+              <button onClick={() => setViewPhoto(null)} className="ml-auto rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50">✕</button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/api/schedule/order-photos?img=${viewPhoto.id}`} alt={viewPhoto.label} className="max-h-[75vh] w-auto rounded-lg" />
+          </div>
+        </div>
+      )}
       {/* compact stepper: small circles, one tight row */}
       <div className="flex items-center gap-0 overflow-x-auto pb-0.5">
         {flow.map(([st, label], i) => {
@@ -220,6 +248,20 @@ const behindLabel = (min: number) => (min >= 60 ? `${Math.floor(min / 60)}h ${mi
 export default function MonitoringView({ cities, vendorFilter = "All" }: { cities: ScheduleData[]; vendorFilter?: string }) {
   const [live, setLive] = useState<LiveMap>({});
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  // Photos captured in the vendor app (team/KYC/delivery/damage) keyed by order UUID — shown as
+  // clickable chips with the upload time on each order row.
+  const [orderPhotos, setOrderPhotos] = useState<Record<string, { id: string; kind: string; createdAt: string }[]>>({});
+  useEffect(() => {
+    const ids = cities.flatMap((c) => c.vendors.flatMap((v: any) => v.orders.map((o: any) => o.id))).filter(Boolean);
+    if (!ids.length) return;
+    let alive = true;
+    fetch(`/api/schedule/order-photos?ids=${ids.join(",")}`)
+      .then((r) => r.json())
+      .then((j) => { if (alive && j?.ok) setOrderPhotos(j.photos ?? {}); })
+      .catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(cities.map((c) => c.vendors.map((v: any) => v.orders.map((o: any) => o.id))))]);
   // Same-day notify: a vendor assigned TODAY (e.g. via the manual-assign card) sees nothing in the
   // app until notified — so today's cards need the button too, not just tomorrow's schedule.
   const [notifPending, setNotifPending] = useState<string | null>(null);
@@ -403,7 +445,7 @@ export default function MonitoringView({ cities, vendorFilter = "All" }: { citie
                     </div>
                     {/* ONE round-circle flow PER ORDER — the exact app steps, with tap times */}
                     <div className="space-y-2.5">
-                      {ordered(v.orders, v.plan).map((o: any) => <OrderFlow key={o.id ?? o.order_id} o={o} live={live} />)}
+                      {ordered(v.orders, v.plan).map((o: any) => <OrderFlow key={o.id ?? o.order_id} o={o} live={live} photos={orderPhotos[o.id]} />)}
                     </div>
                   </div>
                 );
