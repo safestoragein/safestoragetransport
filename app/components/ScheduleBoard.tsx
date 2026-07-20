@@ -173,6 +173,24 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
     setPulling(false);
   }
 
+  // Today's "Pull data": FORCED re-pull of every city's orders from the live feed, even when the
+  // diff sees no change — refreshes edited fields the diff ignores (customer phone, notes, slots,
+  // addresses) and drops any net-new unassigned orders into the "team to assign" bucket.
+  async function pullAllData() {
+    if (!data?.date) return;
+    setPulling(true);
+    const cities = (data.cities ?? []).map((c) => c.city);
+    if (cities.length === 0) {
+      await fetch("/api/schedule/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: data.date }) }).catch(() => {});
+    } else {
+      for (const city of cities) {
+        await fetch("/api/schedule/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: data.date, city }) }).catch(() => {});
+      }
+    }
+    await load(mode === "today" ? todayStr : planDate);
+    setPulling(false);
+  }
+
   async function generate() {
     setBusy(true);
     const genDate = mode === "tomorrow" ? planDate : (data?.date ?? (mode === "today" ? todayStr : undefined));
@@ -285,6 +303,18 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
             {!isToday && !isHistory && (
               <button onClick={publishVendors} disabled={publishing || busy} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
                 {publishing ? "Publishing…" : "📣 Publish to vendors"}
+              </button>
+            )}
+            {/* Today: forced feed re-pull — refreshes customer phone/slot/notes edits the diff
+                doesn't detect, and pulls unassigned new orders into the assign bucket. */}
+            {isToday && (
+              <button
+                onClick={pullAllData}
+                disabled={pulling}
+                title="Re-fetch every order from the booking feed: refreshes phone numbers, time slots, notes & addresses, and pulls any not-yet-assigned new orders into the assign bucket"
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                {pulling ? "Pulling…" : "⟳ Pull data"}
               </button>
             )}
             {/* Generate: Tomorrow only. Today is monitoring-only; Old schedules are read-only. */}
