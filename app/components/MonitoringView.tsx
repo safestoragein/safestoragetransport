@@ -220,6 +220,26 @@ const behindLabel = (min: number) => (min >= 60 ? `${Math.floor(min / 60)}h ${mi
 export default function MonitoringView({ cities, vendorFilter = "All" }: { cities: ScheduleData[]; vendorFilter?: string }) {
   const [live, setLive] = useState<LiveMap>({});
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  // Same-day notify: a vendor assigned TODAY (e.g. via the manual-assign card) sees nothing in the
+  // app until notified — so today's cards need the button too, not just tomorrow's schedule.
+  const [notifPending, setNotifPending] = useState<string | null>(null);
+  const [notifDone, setNotifDone] = useState<Record<string, boolean>>({});
+  const notifyVendor = async (runId: string, v: any) => {
+    const key = String(v.vendorId);
+    setNotifPending(key);
+    try {
+      const r = await fetch("/api/notify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId, kind: "vendor", vendorId: v.vendorId }),
+      }).then((x) => x.json()).catch(() => null);
+      if (r?.ok) {
+        setNotifDone((m) => ({ ...m, [key]: true }));
+        if (r.warning) alert(`⚠ ${r.warning}`);
+      } else {
+        alert(`Notify failed: ${r?.error ?? "network error"}`);
+      }
+    } finally { setNotifPending(null); }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -315,6 +335,24 @@ export default function MonitoringView({ cities, vendorFilter = "All" }: { citie
                       <span className="text-xs text-slate-500">{retr ? `${retr} retrieval${retr > 1 ? "s" : ""}` : ""}{retr && pick ? " · " : ""}{pick ? `${pick} pickup${pick > 1 ? "s" : ""}` : ""}</span>
                       {/* Where this team is right now — late warning first, then the next/done state */}
                       <div className="ml-auto flex flex-wrap items-center gap-2">
+                        {v.vendorId && (() => {
+                          const key = String(v.vendorId);
+                          const done = !!v.vendorNotifiedAt || notifDone[key];
+                          const busy = notifPending === key;
+                          return done ? (
+                            <button onClick={() => notifyVendor(c.runId, v)} disabled={busy}
+                              title="Schedule already sent to this vendor's app — click to resend (WhatsApp + app)"
+                              className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 disabled:opacity-50">
+                              {busy ? "…" : "✓ Notified · resend"}
+                            </button>
+                          ) : (
+                            <button onClick={() => notifyVendor(c.runId, v)} disabled={busy}
+                              title="Send today's jobs to this vendor — WhatsApp message + makes the jobs appear in their app"
+                              className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+                              {busy ? "…" : "📣 Notify vendor"}
+                            </button>
+                          );
+                        })()}
                         {late && (
                           <span className="flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
                             <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" /></span>

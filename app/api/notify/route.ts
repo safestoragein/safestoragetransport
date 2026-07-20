@@ -56,9 +56,14 @@ export async function POST(req: NextRequest) {
 
       const msg = vendorMessage(vendorName, ordered, date);
       const r = await sendTemplate({ phone, template: msg.template, bodyValues: msg.bodyValues });
-      if (!r.ok) return NextResponse.json({ ok: false, error: `WhatsApp send failed: ${r.error}` }, { status: 502 });
-
-      await c.from("notifications").insert({ run_id: b.runId, vendor_id: b.vendorId, kind: "vendor", channel: "whatsapp", status: "sent", detail: `interakt:${msg.template} (${ordered.length} stops)` });
+      // The notification row is what makes the run visible in the vendor APP — it must be written
+      // even when WhatsApp fails (test vendors with fake numbers, interakt hiccups). WhatsApp
+      // failure is reported as a warning, not a block.
+      await c.from("notifications").insert({
+        run_id: b.runId, vendor_id: b.vendorId, kind: "vendor", channel: "whatsapp",
+        status: r.ok ? "sent" : "wa-failed",
+        detail: r.ok ? `interakt:${msg.template} (${ordered.length} stops)` : `app-only (${ordered.length} stops); WhatsApp failed: ${r.error}`,
+      });
 
       // Big orders run 2+ teams of the same vendor — notify the reserved co-team(s) too, with the
       // same shared-order details, so both teams show up.
@@ -79,11 +84,20 @@ export async function POST(req: NextRequest) {
         const coOrders = coOrderIds.map((id) => byId.get(id)).filter(Boolean) as any[];
         const cm = vendorMessage(coName, coOrders, date);
         const cr = await sendTemplate({ phone: coPhone, template: cm.template, bodyValues: cm.bodyValues });
-        if (cr.ok) await c.from("notifications").insert({ run_id: b.runId, vendor_id: coVid, kind: "vendor", channel: "whatsapp", status: "sent", detail: `interakt:${cm.template} (co-team, ${coOrders.length})` });
+        // Same rule as the primary team: app visibility never depends on WhatsApp succeeding.
+        await c.from("notifications").insert({
+          run_id: b.runId, vendor_id: coVid, kind: "vendor", channel: "whatsapp",
+          status: cr.ok ? "sent" : "wa-failed",
+          detail: cr.ok ? `interakt:${cm.template} (co-team, ${coOrders.length})` : `app-only (co-team, ${coOrders.length}); WhatsApp failed: ${cr.error}`,
+        });
         coTeams.push({ name: coName, ok: cr.ok, error: cr.error });
       }
 
-      return NextResponse.json({ ok: true, stops: ordered.length, coTeams, sentAt: new Date().toISOString() });
+      return NextResponse.json({
+        ok: true, stops: ordered.length, coTeams, sentAt: new Date().toISOString(),
+        whatsapp: r.ok,
+        ...(r.ok ? {} : { warning: `Jobs published to the vendor's APP, but the WhatsApp message failed: ${r.error}` }),
+      });
     }
 
     return NextResponse.json({ ok: false, error: "unknown kind" }, { status: 400 });
