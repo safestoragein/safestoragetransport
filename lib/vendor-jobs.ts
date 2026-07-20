@@ -10,6 +10,7 @@ export interface VendorJob {
   customerId: string | null;  // WMS customer_id — needed by the WMS inventory/KYC/lift-floor endpoints
   quotationId: string | null; // WMS quotation_id — needed by the WMS inventory endpoints (pickups)
   supervisorId: string | null;// WMS supervisor_id for this order
+  kycImageUrl: string | null; // existing KYC (ss_customer.proof_id_image) — app pre-ticks + shows it
   refNo: string;              // customer_unique_id (e.g. BH46789)
   customerName: string;
   contact: string | null;
@@ -102,6 +103,9 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
         customerId: f.customer_id != null ? String(f.customer_id) : null,
         quotationId: f.quotation_id != null ? String(f.quotation_id) : null,
         supervisorId: f.supervisor_id != null ? String(f.supervisor_id) : null,
+        // Existing KYC on the customer record (ss_customer.proof_id_image via the feed) — the app
+        // pre-ticks the KYC step and shows the document with a replace option.
+        kycImageUrl: f.proof_id_image ? `https://safestorage.in/back/upload/customer_kyc/${f.proof_id_image}` : null,
         refNo: o.customer_unique_id ?? o.order_id,
         customerName: o.customer_name ?? "Customer",
         contact: o.contact ?? null,
@@ -147,7 +151,7 @@ async function tentativeJobs(c: any, vendorId: string, date: string): Promise<{ 
         const o: any = byId.get(a.order_id) || {};
         const isRet = /retriev/i.test(o.order_type || "");
         return {
-          orderId: a.order_id, systemOrderId: null, customerId: null, quotationId: null, supervisorId: null,
+          orderId: a.order_id, systemOrderId: null, customerId: null, quotationId: null, supervisorId: null, kycImageUrl: null,
           refNo: "", // masked
           customerName: "Tentative booking",
           contact: null, // masked
