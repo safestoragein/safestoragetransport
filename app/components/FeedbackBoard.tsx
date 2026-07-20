@@ -8,6 +8,7 @@ import { SessionUser } from "@/lib/auth";
 import { countryOfCity } from "@/lib/country";
 import { useCountry } from "@/lib/country-store";
 import AppShell from "./AppShell";
+import FeedbackReports from "./FeedbackReports";
 import { Card } from "./ui";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -95,11 +96,11 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
         </div>
       )}
 
-      {!loading && shown.length > 0 && (
-        <div className="mb-3 flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700">{shown.length} completed order{shown.length > 1 ? "s" : ""}</span>
-          <span className={`rounded-full px-2.5 py-1 font-medium ${neg.length ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{neg.length} negative</span>
-          {open.length > 0 && <span className="rounded-full bg-amber-100 px-2.5 py-1 font-medium text-amber-800">{open.length} escalation{open.length > 1 ? "s" : ""} still active</span>}
+      {/* WMS-style stat cards + the four copyable reports (full / overall / team / lead). */}
+      {!loading && shown.length > 0 && <FeedbackReports rows={shown} from={from} to={to} />}
+      {!loading && open.length > 0 && (
+        <div className="mb-3 text-xs">
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 font-medium text-amber-800">{open.length} escalation{open.length > 1 ? "s" : ""} still active</span>
         </div>
       )}
 
@@ -192,6 +193,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         <select value={r.resolved_status ?? ""} disabled={pending === `${r.id}:resolved_status`} onChange={(e) => save(r.id, "resolved_status", e.target.value)} className={sel}>
                           <option value="">—</option>
                           <option value="active">Active</option>
+                          <option value="working">Working on it</option>
                           <option value="resolved">Resolved</option>
                         </select>
                       ) : (
