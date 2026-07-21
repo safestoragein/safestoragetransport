@@ -37,6 +37,10 @@ const VEHICLE_PENALTY_KM = 1000;
 // When a SECOND team is needed, prefer another team of the SAME vendor (team rule: a vendor with 2
 // teams sends both). Worth ~this many km of detour so a sibling team wins over a nearer stranger.
 const SIBLING_BONUS_KM = 25;
+// …but family glue must never DRAG a job across the city: the sibling bonus only applies when the
+// sibling team is within this many road-km of the order. (Real case: a Devanahalli retrieval went
+// to Daksh 52 km away — beating Unnathi at 37 km and ₹2.5k/day cheaper — purely on the flat bonus.)
+const SIBLING_BONUS_MAX_KM = 30;
 // Priority group (A/B/C) is now a SECONDARY tiebreak, below proximity. It's worth this many km per
 // group step: a higher-priority vendor wins only when it's within ~this distance of a nearer lower-
 // priority one. Raise it to make priority stronger, lower it to make proximity even more dominant.
@@ -365,7 +369,7 @@ export function optimize(date: string, city: string, bookings: Booking[], vendor
               (opensNew ? NEW_VEHICLE_KM : 0) +
               (conflict ? WINDOW_CONFLICT_KM : 0) + // nudge clashing windows onto a different NEAR vehicle
               (!opensNew ? -0.2 * p : 0) + // tiny tiebreak: top off the fuller of two equal vehicles
-              (opensNew && openFamilies.has(vendorFamily(v.name)) ? -SIBLING_BONUS_KM : 0) + // prefer a working vendor's sibling team
+              (opensNew && openFamilies.has(vendorFamily(v.name)) && clusterKm <= SIBLING_BONUS_MAX_KM ? -SIBLING_BONUS_KM : 0) + // prefer a working vendor's sibling team — only when it's actually near
               (v.tier === "non_general" ? nonGeneralKm : 0) + // volume decides how attractive the bulk vendor is
               (vehicleMismatch(v, b) ? VEHICLE_MISMATCH_KM : 0) +
               // LAST tiebreaks — only when opening a fresh vehicle (a running vehicle's cost is sunk):
