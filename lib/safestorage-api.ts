@@ -172,9 +172,14 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     // falls back to its ~3.5 average). A manual edit (pallet_override) wins over the formula.
     const storageC = parseFloat(o.storage_charges) || 0;
     const feedPallet = parseFloat(o.total_pallet) || 0;
+    // PARTIAL retrievals: only the requested items travel, so pallets come from those items'
+    // POINTS (16 points = 1 pallet) — the storage-charges formula (whole storage) only as a
+    // fallback when the item list is unavailable.
+    const isPartial = /partial/i.test(o.order_type || "");
+    const pointsPallets = isPartial && o.order_id ? await partialRetrievalPointsPallets(String(o.order_id)) : null;
     const formulaStated = isShifting
       ? (feedPallet > 0 ? Math.round(feedPallet * 10) / 10 : null)
-      : (storageC > 0 ? Math.round((storageC / 1000) * 10) / 10 : null);
+      : (pointsPallets ?? (storageC > 0 ? Math.round((storageC / 1000) * 10) / 10 : null));
     const stated = overrides.get(String(o.order_id ?? "")) ?? formulaStated;
     // Pickups: customers under-report, so schedule for stated + buffer and size the vehicle off the
     // stated count. Retrievals are exact from the warehouse (no buffer). Missing count -> ~3.5 avg
@@ -279,6 +284,65 @@ export async function allLiveOrders(): Promise<any[]> {
 //   - full_retrieval    -> get_full_retrieval_order_list_of_items (customer_id) = whole inventory
 //   - partial_retrieval -> get_pickup_order_list_of_partial_retrieval (order_id) = just the subset
 // The exact figure needs SafeStorage's goods->pallet volume table.
+
+// ---- PARTIAL-retrieval pallets from ITEM POINTS (team rule: 16 points = 1 pallet) ----
+// A partial retrieval moves only the REQUESTED items, so storage_charges/1000 (the customer's
+// whole storage) wildly overestimates the load (a 3-item partial showed 2.5 pallets and got a
+// dedicated ₹6.2k vehicle at negative margin). Points come from the WMS item universe
+// (get_inventory_new: storage_item_point per item), matched to the order's item list by name.
+const ITEM_POINTS_PER_PALLET = 16;
+const UNMATCHED_ITEM_POINTS = 2; // an item the universe doesn't know still occupies some space
+let itemPointsCache: Map<string, number> | null = null;
+const normItemName = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+async function itemPointsUniverse(): Promise<Map<string, number>> {
+  if (itemPointsCache) return itemPointsCache;
+  try {
+    const res = await fetch("https://safestorage.in/back/app/get_inventory_new", { cache: "no-store" });
+    let raw = await res.text();
+    // The WMS often appends a stray '1' after the JSON body.
+    const cut = raw.lastIndexOf("]");
+    if (cut > 0) raw = raw.slice(0, cut + 1);
+    const arr = JSON.parse(raw);
+    const m = new Map<string, number>();
+    for (const it of Array.isArray(arr) ? arr : []) {
+      const n = normItemName(it.storage_item_name);
+      const p = parseFloat(it.storage_item_point);
+      if (n && Number.isFinite(p) && p > 0) m.set(n, p);
+    }
+    if (m.size) itemPointsCache = m;
+    return m;
+  } catch {
+    return new Map();
+  }
+}
+
+// Sum of item points for a partial retrieval's requested items → pallets (16 points = 1 pallet,
+// rounded to 0.1, min 0.1). Returns null when the item list is empty/unreachable so the caller
+// can fall back to the storage-charges formula instead of scheduling a zero.
+async function partialRetrievalPointsPallets(orderId: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${API_BASE}/transport_controller_Dev0/get_pickup_order_list_of_partial_retrieval`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `order_id=${encodeURIComponent(orderId)}`,
+      cache: "no-store",
+    });
+    const j = await res.json();
+    const items = Array.isArray(j) ? j : j?.data ?? [];
+    if (!items.length) return null;
+    const uni = await itemPointsUniverse();
+    let points = 0;
+    for (const it of items) {
+      const qty = parseInt(it.goods_quantity) || 1;
+      const p = uni.get(normItemName(it.goods_name));
+      points += (p ?? UNMATCHED_ITEM_POINTS) * qty;
+    }
+    return Math.max(0.1, Math.round((points / ITEM_POINTS_PER_PALLET) * 10) / 10);
+  } catch {
+    return null;
+  }
+}
+
 async function postQty(path: string, body: string): Promise<number> {
   try {
     const res = await fetch(`${API_BASE}/${path}`, {
