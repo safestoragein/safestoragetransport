@@ -23,13 +23,21 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
   // Click a vendor in the legend to spotlight ONLY their route; click again (or another) to switch.
   const [sel, setSel] = useState<string | null>(null);
 
+  // A stop belongs on the CITY map only if it's actually near the city — an intercity order's
+  // far-away destination pin (e.g. a Noida retrieval on the Bangalore board) must not stretch
+  // the zoom to all of India. ~1.3° ≈ 145 km box around the median of the city's own pins.
+  const allPts = (vendors ?? []).flatMap((v) => (v.orders ?? []).filter((o: any) => o.lat != null && o.lng != null));
+  const med = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+  const cLat = med(allPts.map((o: any) => Number(o.lat))), cLng = med(allPts.map((o: any) => Number(o.lng)));
+  const nearCity = (o: any) => Math.abs(Number(o.lat) - cLat) < 1.3 && Math.abs(Number(o.lng) - cLng) < 1.3;
+
   // Assigned, real (non co-team) vendors that have at least one located stop.
   const usable = (vendors ?? [])
     .filter((v) => !v.isUnassigned && !v.isCoTeam)
     .map((v) => {
       const hasManual = (v.orders ?? []).some((o: any) => o.manual_seq != null);
       const stops = [...(v.orders ?? [])]
-        .filter((o: any) => o.lat != null && o.lng != null)
+        .filter((o: any) => o.lat != null && o.lng != null && nearCity(o))
         .sort((a: any, b: any) =>
           hasManual
             ? (a.manual_seq ?? 1e9) - (b.manual_seq ?? 1e9)
@@ -42,7 +50,7 @@ export default function CityRouteMap({ city, vendors }: { city: string; vendors:
   // city's orders are all (or partly) in the "team to assign" bucket.
   const unassignedStops = (vendors ?? [])
     .filter((v) => v.isUnassigned)
-    .flatMap((v) => (v.orders ?? []).filter((o: any) => o.lat != null && o.lng != null));
+    .flatMap((v) => (v.orders ?? []).filter((o: any) => o.lat != null && o.lng != null && nearCity(o)));
   // Orders with NO coordinates at all (not yet geocoded — needs a Generate).
   const unlocated = (vendors ?? []).flatMap((v) => (v.orders ?? []).filter((o: any) => o.lat == null || o.lng == null)).length;
 

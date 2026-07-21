@@ -138,7 +138,17 @@ function geocodeQueries(address: string, citySlug: string): string[] {
 }
 
 export async function geocodeCached(address: string, citySlug: string): Promise<Geo> {
-  const local = geocodeAddress(address || "", citySlug); // approximate fallback (+ city centre)
+  let local = geocodeAddress(address || "", citySlug); // approximate fallback (+ city centre)
+  // The offline gazetteer has NO city sanity — an intercity destination address ("…, Noida…")
+  // can match a far-away locality and put a pin 1,700 km from the schedule's city (which then
+  // wrecks the route map's zoom). Same rule as the online path: too far from the city → centre.
+  {
+    const centre = CITY_CENTER[citySlug];
+    const maxKm = COUNTRY_GEO[countryOfCity(citySlug)].maxKmFromCentre;
+    if (centre && kmBetween(local, centre) > maxKm) {
+      local = { lat: centre.lat, lng: centre.lng, locality: null, precise: false };
+    }
+  }
   const q = (address || "").trim();
   if (!q || !hasDb) return local;
   const key = norm(`${q}|${citySlug}`);
