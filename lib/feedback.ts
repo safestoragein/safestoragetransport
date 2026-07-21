@@ -8,7 +8,9 @@ import { allLiveOrders } from "./safestorage-api";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export interface FeedbackRow {
-  id: string; // orders.id (uuid)
+  id: string; // orders.id (uuid), or "wms:<order_id>" for orders only the WMS knows
+  sys_order_id: string | null;   // WMS numeric order_id (for mirroring edits to their store)
+  wms_customer_id: string | null;// WMS numeric customer_id (idem)
   customer_unique_id: string;
   customer_name: string | null;
   contact: string | null;
@@ -26,22 +28,59 @@ export interface FeedbackRow {
   complaint_ref: string | null;
 }
 
+const doneRe = /complete|stack|inbound|receiv|retrieval_completd/i;
 const doneStatus = (o: any) =>
-  String(o.live_status ?? "") === "delivered" || /complete|stack|inbound|receiv/i.test(String(o.order_status ?? ""));
+  String(o.live_status ?? "") === "delivered" || doneRe.test(String(o.order_status ?? ""));
+
+// The SAME source the WMS "Feedback Calls" page uses — its own DB via feedback_call_orders. This
+// is the truth for "which orders completed on a date": completed orders DROP OUT of the work-order
+// feed, so our snapshot alone under-counts (the team saw 5 of 20).
+const FEEDBACK_ORDERS_API = "https://safestorage.in/back/transport_controller_Dev0/feedback_call_orders";
+async function wmsFeedbackOrders(from: string, to: string): Promise<any[]> {
+  try {
+    const res = await fetch(`${FEEDBACK_ORDERS_API}?from_date=${from}&to_date=${to}`, { cache: "no-store", headers: { Accept: "application/json" } });
+    const j: any = await res.json();
+    const arr: any[] = Array.isArray(j) ? j : (j?.data ?? []);
+    // Same rule as their page: intercity orders are excluded from feedback calls.
+    return arr.filter((r: any) => String(r.is_intercity ?? "") !== "1");
+  } catch { return []; }
+}
 
 export async function loadFeedbackBoard(from: string, to: string, city?: string | null): Promise<{ rows: FeedbackRow[]; feedbackTableMissing: boolean }> {
   if (!hasDb) return { rows: [], feedbackTableMissing: false };
   const c = db();
 
   let q = c.from("orders")
-    .select("id, customer_unique_id, customer_name, contact, order_type, order_status, live_status, city, schedule_date")
+    .select("id, order_id, customer_unique_id, customer_name, contact, order_type, order_status, live_status, city, schedule_date")
     .gte("schedule_date", from).lte("schedule_date", to);
   if (city && city !== "All") q = q.eq("city", city);
   const { data: orders } = await q;
-  const done = (orders ?? []).filter(doneStatus);
-  if (!done.length) return { rows: [], feedbackTableMissing: false };
+  const ours = orders ?? [];
+  const oursBySys = new Map(ours.map((o: any) => [String(o.order_id ?? ""), o]));
 
-  const ids = done.map((o: any) => o.id);
+  // Union: every completed order the WMS lists for the range + any our app marked delivered that
+  // the WMS list is missing. City filter still applies via our snapshot when we know the order.
+  const wms = await wmsFeedbackOrders(from, to);
+  const entries: { o: any | null; w: any | null }[] = [];
+  const seenSys = new Set<string>();
+  for (const w of wms) {
+    const sys = String(w.order_id ?? "");
+    const o = (oursBySys.get(sys) ?? null) as any;
+    if (city && city !== "All" && o && o.city !== city) continue;
+    if (city && city !== "All" && !o) continue; // unknown city → only show under "All cities"
+    const done = doneRe.test(String(w.order_status ?? "")) || (o && String(o.live_status ?? "") === "delivered");
+    if (!done) continue;
+    seenSys.add(sys);
+    entries.push({ o, w });
+  }
+  for (const o of ours) {
+    if (seenSys.has(String(o.order_id ?? ""))) continue;
+    if (doneStatus(o)) entries.push({ o, w: null });
+  }
+  if (!entries.length) return { rows: [], feedbackTableMissing: false };
+
+  const rowIdOf = (e: { o: any | null; w: any | null }) => e.o?.id ?? `wms:${String(e.w?.order_id ?? "")}`;
+  const ids = entries.map(rowIdOf);
 
   // Vendor-app 'delivered' tap → the real completion moment.
   const deliveredAt = new Map<string, string>();
@@ -62,23 +101,28 @@ export async function loadFeedbackBoard(from: string, to: string, city?: string 
     for (const r of rows ?? []) fb.set(r.order_id, r);
   } catch { feedbackTableMissing = true; }
 
-  const rows: FeedbackRow[] = done.map((o: any) => {
-    const f = fb.get(o.id) ?? {};
+  const rows: FeedbackRow[] = entries.map((e) => {
+    const { o, w } = e;
+    const id = rowIdOf(e);
+    const f = fb.get(id) ?? {};
     return {
-      id: o.id,
-      customer_unique_id: o.customer_unique_id,
-      customer_name: o.customer_name ?? null,
-      contact: o.contact ?? null,
-      order_type: o.order_type ?? null,
-      order_status: o.live_status === "delivered" ? "completed" : (o.order_status ?? null),
-      city: o.city ?? null,
-      schedule_date: o.schedule_date ? String(o.schedule_date).slice(0, 10) : null,
-      completed_at: deliveredAt.get(o.id) ?? (o.schedule_date ? String(o.schedule_date).slice(0, 10) : null),
-      remarks: f.remarks ?? null,
-      source_of_lead: f.source_of_lead ?? null,
-      outcome: f.outcome ?? null,
-      assigned_team: f.assigned_team ?? null,
-      resolved_status: f.resolved_status ?? null,
+      id,
+      sys_order_id: w?.order_id != null ? String(w.order_id) : (o?.order_id != null ? String(o.order_id) : null),
+      wms_customer_id: w?.customer_id != null ? String(w.customer_id) : null,
+      customer_unique_id: o?.customer_unique_id ?? w?.customer_unique_id ?? String(w?.order_id ?? ""),
+      customer_name: o?.customer_name ?? w?.customer_name ?? null,
+      contact: o?.contact ?? w?.customer_contact1 ?? null,
+      order_type: o?.order_type ?? w?.order_type ?? null,
+      order_status: w?.order_status ?? (o?.live_status === "delivered" ? "completed" : (o?.order_status ?? null)),
+      city: o?.city ?? null,
+      schedule_date: o?.schedule_date ? String(o.schedule_date).slice(0, 10) : null,
+      completed_at: deliveredAt.get(id) ?? (o?.schedule_date ? String(o.schedule_date).slice(0, 10) : (from === to ? from : null)),
+      // Our edits win; the WMS page's entries show through when we have none (both teams call).
+      remarks: f.remarks ?? (w?.remarks || null),
+      source_of_lead: f.source_of_lead ?? (w?.source_of_lead || null),
+      outcome: f.outcome ?? (String(w?.call_outcome ?? "").toLowerCase() || null),
+      assigned_team: f.assigned_team ?? (w?.assigned_team || null),
+      resolved_status: f.resolved_status ?? (String(w?.resolved_status ?? "").toLowerCase() || null),
       complaint_raised_at: f.complaint_raised_at ?? null,
       complaint_ref: f.complaint_ref ?? null,
     };
@@ -125,7 +169,24 @@ async function wmsTicketResolved(ticketId: string): Promise<boolean> {
 
 const EDITABLE = new Set(["remarks", "source_of_lead", "outcome", "assigned_team", "resolved_status"]);
 
-export async function saveFeedback(orderId: string, patch: Record<string, unknown>): Promise<{ ok: boolean; error?: string; ticketRaised?: boolean; ticketError?: string; complaintRaisedAt?: string }> {
+// Mirror an edit to the WMS feedback store (save_feedback_call) so their Feedback Calls page and
+// our module always show the same data. Best-effort — their side being down never blocks our save.
+const SAVE_FEEDBACK_CALL_API = "https://safestorage.in/back/transport_controller_Dev0/save_feedback_call";
+const WMS_FIELD: Record<string, string> = { remarks: "remarks", source_of_lead: "source_of_lead", outcome: "call_outcome", assigned_team: "assigned_team", resolved_status: "resolved_status" };
+async function mirrorToWms(sysOrderId: string, wmsCustomerId: string, patch: Record<string, unknown>): Promise<void> {
+  for (const [k, v] of Object.entries(patch)) {
+    const wk = WMS_FIELD[k];
+    if (!wk) continue;
+    try {
+      await fetch(SAVE_FEEDBACK_CALL_API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: wmsCustomerId, order_id: sysOrderId, [wk]: v ?? "", user_id: "transport-module" }),
+      });
+    } catch { /* best-effort */ }
+  }
+}
+
+export async function saveFeedback(orderId: string, patch: Record<string, unknown>, mirror?: { sysOrderId?: string | null; wmsCustomerId?: string | null }): Promise<{ ok: boolean; error?: string; ticketRaised?: boolean; ticketError?: string; complaintRaisedAt?: string }> {
   if (!hasDb) return { ok: false, error: "db not configured" };
   const clean: Record<string, unknown> = { order_id: orderId };
   for (const [k, v] of Object.entries(patch)) {
@@ -140,8 +201,14 @@ export async function saveFeedback(orderId: string, patch: Record<string, unknow
     }
     return { ok: false, error: msg };
   }
+  // Keep the WMS Feedback Calls page in sync (both teams see the same remarks/outcome/etc.).
+  if (mirror?.sysOrderId && mirror?.wmsCustomerId) {
+    const { order_id: _drop, ...fields } = clean; // eslint-disable-line @typescript-eslint/no-unused-vars
+    await mirrorToWms(mirror.sysOrderId, mirror.wmsCustomerId, fields);
+  }
   // NEGATIVE outcome + a team assigned = escalation → raise the internal complaint (once).
-  const t = await maybeRaiseComplaint(orderId);
+  // "wms:" rows exist only in the WMS store (never scheduled by us) — no order record to ticket from.
+  const t = orderId.startsWith("wms:") ? {} as { raised?: boolean; raisedAt?: string; error?: string } : await maybeRaiseComplaint(orderId);
   return { ok: true, ticketRaised: !!t.raised, ticketError: t.error, complaintRaisedAt: t.raisedAt };
 }
 

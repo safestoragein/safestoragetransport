@@ -48,9 +48,11 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
 
   async function save(orderUuid: string, field: string, value: string) {
     setPending(`${orderUuid}:${field}`);
+    const row = rows.find((x) => x.id === orderUuid);
     const r = await fetch("/api/feedback", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderUuid, [field]: value }),
+      // sys/customer ids let the server MIRROR the edit into the WMS Feedback Calls store too.
+      body: JSON.stringify({ orderUuid, [field]: value, sysOrderId: row?.sys_order_id ?? null, wmsCustomerId: row?.wms_customer_id ?? null }),
     }).then((x) => x.json()).catch(() => null);
     if (r && r.ok === false) alert(r.error || "Could not save.");
     setRows((rs) => rs.map((x) => (x.id === orderUuid

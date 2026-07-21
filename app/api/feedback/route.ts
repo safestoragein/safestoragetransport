@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   if (!b?.orderUuid) return NextResponse.json({ ok: false, error: "orderUuid required" }, { status: 400 });
-  const { orderUuid, ...patch } = b;
-  const r = await saveFeedback(String(orderUuid), patch);
+  const { orderUuid, sysOrderId, wmsCustomerId, ...patch } = b;
+  const r = await saveFeedback(String(orderUuid), patch, { sysOrderId, wmsCustomerId });
   return NextResponse.json(r, { status: r.ok ? 200 : 400 });
 }
