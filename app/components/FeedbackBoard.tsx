@@ -30,6 +30,12 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
   const [from, setFrom] = useState(weekAgo);
   const [to, setTo] = useState(today);
   const [cityFilter, setCityFilter] = useState("All");
+  // WMS-page-style filters (team request): assigned team / order status / order type / outcome / resolved.
+  const [fTeam, setFTeam] = useState("All");
+  const [fStatus, setFStatus] = useState("All");
+  const [fType, setFType] = useState("All");
+  const [fOutcome, setFOutcome] = useState("All");
+  const [fResolved, setFResolved] = useState("All");
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [tableMissing, setTableMissing] = useState(false);
@@ -65,7 +71,15 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
 
   const countryRows = rows.filter((r) => countryOfCity(r.city) === country);
   const cities = [...new Set(countryRows.map((r) => String(r.city ?? "")))].filter(Boolean).sort();
-  const shown = countryRows.filter((r) => cityFilter === "All" || r.city === cityFilter);
+  const statuses = [...new Set(countryRows.map((r) => String(r.order_status ?? "")))].filter(Boolean).sort();
+  const types = [...new Set(countryRows.map((r) => String(r.order_type ?? "")))].filter(Boolean).sort();
+  const shown = countryRows
+    .filter((r) => cityFilter === "All" || r.city === cityFilter)
+    .filter((r) => fTeam === "All" || (fTeam === "Unassigned" ? !r.assigned_team : r.assigned_team === fTeam))
+    .filter((r) => fStatus === "All" || String(r.order_status ?? "") === fStatus)
+    .filter((r) => fType === "All" || String(r.order_type ?? "") === fType)
+    .filter((r) => fOutcome === "All" || (fOutcome === "notset" ? !r.outcome : r.outcome === fOutcome))
+    .filter((r) => fResolved === "All" || (fResolved === "notset" ? !r.resolved_status : (r.resolved_status ?? "") === fResolved));
   const neg = shown.filter((r) => r.outcome === "negative");
   const open = neg.filter((r) => (r.resolved_status ?? "active") !== "resolved");
 
@@ -91,6 +105,32 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
           </select>
         </div>
       </header>
+
+      {/* WMS-style filters — every stat card, report and table row below follows them. */}
+      <div className="mb-3 flex flex-wrap items-end gap-2 text-xs">
+        {[
+          { label: "Assigned Team", v: fTeam, set: setFTeam, opts: [["All", "All Teams"], ...TEAMS.map((t) => [t, t] as [string, string]), ["Unassigned", "Unassigned"]] },
+          { label: "Order Status", v: fStatus, set: setFStatus, opts: [["All", "All Statuses"], ...statuses.map((s) => [s, s] as [string, string])] },
+          { label: "Order Type", v: fType, set: setFType, opts: [["All", "All Types"], ...types.map((t) => [t, t.replace("_", " ")] as [string, string])] },
+          { label: "Outcome", v: fOutcome, set: setFOutcome, opts: [["All", "All Outcomes"], ["positive", "Positive"], ["negative", "Negative"], ["notset", "Not set"]] },
+          { label: "Resolved Status", v: fResolved, set: setFResolved, opts: [["All", "All Statuses"], ["active", "Active"], ["working", "Working on it"], ["resolved", "Resolved"], ["notset", "Not set"]] },
+        ].map((f) => (
+          <label key={f.label} className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-500">
+            {f.label}
+            <select value={f.v} onChange={(e) => f.set(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
+              {f.opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+        ))}
+        {(fTeam !== "All" || fStatus !== "All" || fType !== "All" || fOutcome !== "All" || fResolved !== "All") && (
+          <button
+            onClick={() => { setFTeam("All"); setFStatus("All"); setFType("All"); setFOutcome("All"); setFResolved("All"); }}
+            className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-blue-600 hover:underline"
+          >
+            ✕ clear filters
+          </button>
+        )}
+      </div>
 
       {tableMissing && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
