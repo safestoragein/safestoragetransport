@@ -62,6 +62,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [cityFilter, setCityFilter] = useState("All");
+  const [typeFilter, setTypeFilter] = useState("All"); // pickup / full_retrieval / partial_retrieval
   const [vendorFilter, setVendorFilter] = useState("All");
   const [pnl, setPnl] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [pnlBusy, setPnlBusy] = useState(false);
@@ -550,10 +551,23 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
         )}
 
         {!loading && shown.length > 0 && cityTab !== "intercity" && cityTab !== "shifting" && (
-          <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-blue-500" /> Pickup ({t.pickup})</span>
-            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Retrieval ({t.full})</span>
-            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Partial ({t.partial})</span>
+          // Clickable order-type filter: tap a type to show only those orders; tap again to clear.
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+            {([["pickup", "Pickup", t.pickup, "bg-blue-500", "ring-blue-300 bg-blue-50 text-blue-700"],
+               ["full_retrieval", "Retrieval", t.full, "bg-emerald-500", "ring-emerald-300 bg-emerald-50 text-emerald-700"],
+               ["partial_retrieval", "Partial", t.partial, "bg-amber-500", "ring-amber-300 bg-amber-50 text-amber-800"]] as [string, string, number, string, string][]).map(([key, label, n, dot, onCls]) => (
+              <button
+                key={key}
+                onClick={() => setTypeFilter(typeFilter === key ? "All" : key)}
+                title={typeFilter === key ? "Click to show all order types again" : `Show only ${label.toLowerCase()} orders`}
+                className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium ring-1 transition ${typeFilter === key ? onCls : "text-slate-500 ring-slate-200 hover:bg-slate-50"}`}
+              >
+                <span className={`h-2.5 w-2.5 rounded-full ${dot}`} /> {label} ({n})
+              </button>
+            ))}
+            {typeFilter !== "All" && (
+              <button onClick={() => setTypeFilter("All")} className="font-semibold text-blue-600 hover:underline">✕ show all</button>
+            )}
           </div>
         )}
         {cityTab === "intercity" && <p className="mb-3 text-xs text-slate-500">Intercity bookings are kept out of the regular schedule — assign an intercity vendor on each one.</p>}
@@ -614,7 +628,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                           <span className={`text-xs ${c.totals.margin < 0 ? "text-red-600" : "text-emerald-600"}`}>margin {money(c.totals.margin)}</span>
                         </>}
                   </div>
-                  <ScheduleCityView initial={c} tab={cityTab} readOnly={isHistory} />
+                  <ScheduleCityView initial={c} tab={cityTab} readOnly={isHistory} typeFilter={typeFilter} />
                 </section>
               ))}
             </div>

@@ -96,7 +96,7 @@ function liftBadge(raw: string | null | undefined) {
 
 // One city's persisted schedule. Owns its own state; reloads from the server after any change
 // (reassign vendor / add resource / notify) so groupings stay correct.
-export default function ScheduleCityView({ initial, tab = "all", readOnly = false }: { initial: ScheduleData; tab?: "all" | "schedule" | "intercity" | "shifting"; readOnly?: boolean }) {
+export default function ScheduleCityView({ initial, tab = "all", readOnly = false, typeFilter = "All" }: { initial: ScheduleData; tab?: "all" | "schedule" | "intercity" | "shifting"; readOnly?: boolean; typeFilter?: string }) {
   const [sched, setSched] = useState<ScheduleData>(initial);
   const [pending, setPending] = useState<string | null>(null);
   const [openPlan, setOpenPlan] = useState<string | null>(null);
@@ -194,12 +194,21 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
   const isInter = (o: any) => !!o.is_intercity && !o.is_shifting;
   const isReg = (o: any) => !o.is_intercity && !o.is_shifting;
   const keep = tab === "intercity" ? isInter : tab === "shifting" ? isShift : tab === "schedule" ? isReg : null;
+  // Order-type filter (the clickable Pickup / Retrieval / Partial legend): vendors keep only the
+  // matching orders; vendors left with none disappear.
+  const typeMatch = (o: any) =>
+    typeFilter === "All" ||
+    (typeFilter === "pickup" ? !/retriev/i.test(String(o.order_type ?? "")) :
+     typeFilter === "partial_retrieval" ? /partial/i.test(String(o.order_type ?? "")) :
+     /retriev/i.test(String(o.order_type ?? "")) && !/partial/i.test(String(o.order_type ?? "")));
   const displayVendors = (keep == null
     ? sched.vendors
     : (tab === "intercity" || tab === "shifting")
       ? sched.vendors.filter((v) => v.isUnassigned).map((v) => ({ ...v, orders: (v.orders as any[]).filter(keep) }))
       : sched.vendors.map((v) => (v.isUnassigned ? { ...v, orders: (v.orders as any[]).filter(keep) } : v))
   )
+    .map((v) => (typeFilter === "All" ? v : { ...v, orders: (v.orders as any[]).filter(typeMatch) }))
+    .filter((v) => v.orders.length > 0 || (typeFilter === "All" && !v.isUnassigned))
     .filter((v) => !v.isUnassigned || v.orders.length > 0)
     // A big order's 2nd/3rd teams are shown ON the main vendor's card (title, pay line, team
     // details) — not as a separate shadow card.
