@@ -282,6 +282,23 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                 ⬇ Download Excel
               </a>
             )}
+            {/* Quick day jumps: Today +1 (tomorrow, the default) / Today +2 (day after) — plus the
+                free date picker for anything further out. */}
+            {!isToday && !isHistory && (() => {
+              const dayAfterStr = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+              const btn = (active: boolean) =>
+                `rounded-lg px-3 py-2 text-sm font-semibold transition ${active ? "bg-blue-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"}`;
+              return (
+                <span className="flex items-center gap-1.5">
+                  <button onClick={() => setPlanDate(tomorrowStr)} className={btn(planDate === tomorrowStr)} title={`Tomorrow — ${tomorrowStr}`}>
+                    Today +1
+                  </button>
+                  <button onClick={() => setPlanDate(dayAfterStr)} className={btn(planDate === dayAfterStr)} title={`Day after tomorrow — ${dayAfterStr}`}>
+                    Today +2
+                  </button>
+                </span>
+              );
+            })()}
             {/* Planning date — defaults to tomorrow; pick any date and load/generate/publish all
                 target that day. */}
             {!isToday && !isHistory && (
