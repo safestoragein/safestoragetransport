@@ -47,9 +47,9 @@ function slotStartMin(s: string | null | undefined): number {
   if (/pm/i.test(m[3])) h += 12;
   return h * 60 + Number(m[2] ?? 0);
 }
-// Per-type block labels: pickups are "Booking", retrievals say what they are.
+// Block labels by booking TYPE — Pickup / Retrieval / Partial Retrieval (never a generic "Booking").
 const blockLabel = (t: string | null | undefined) =>
-  /partial/i.test(String(t ?? "")) ? "Partial Retrieval" : /retriev/i.test(String(t ?? "")) ? "Retrieval" : "Booking";
+  /partial/i.test(String(t ?? "")) ? "Partial Retrieval" : /retriev/i.test(String(t ?? "")) ? "Retrieval" : "Pickup";
 function orderedForReport(v: any): any[] {
   return [...(v.orders ?? [])].filter((o: any) => o.stop_seq !== -1)
     .sort((a: any, b: any) => slotStartMin(a.time_slot) - slotStartMin(b.time_slot));
