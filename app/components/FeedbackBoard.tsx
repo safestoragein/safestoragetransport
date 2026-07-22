@@ -18,6 +18,83 @@ const TEAMS = ["Payment issue", "Transport Team", "Retrieval Team", "CRM Team", 
 const LEADS = ["google", "friend", "family", "reference", "returning customer", "walk-in", "other"];
 
 const cityName = (slug: string) => slug.replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
+
+// ---- WMS-style date-range picker: one field, preset menu + custom range ----
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const fmtRangeDate = (s: string) => {
+  const d = new Date(s + "T00:00:00Z");
+  return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+};
+function presetRange(key: string): { from: string; to: string } {
+  const now = new Date();
+  const today = iso(now);
+  const dayShift = (n: number) => iso(new Date(Date.now() + n * 86_400_000));
+  switch (key) {
+    case "Today": return { from: today, to: today };
+    case "Yesterday": return { from: dayShift(-1), to: dayShift(-1) };
+    case "Last 7 Days": return { from: dayShift(-6), to: today };
+    case "Last 30 Days": return { from: dayShift(-29), to: today };
+    case "This Month": {
+      const y = now.getUTCFullYear(), m = now.getUTCMonth();
+      return { from: iso(new Date(Date.UTC(y, m, 1))), to: iso(new Date(Date.UTC(y, m + 1, 0))) };
+    }
+    case "Last Month": {
+      const y = now.getUTCFullYear(), m = now.getUTCMonth();
+      return { from: iso(new Date(Date.UTC(y, m - 1, 1))), to: iso(new Date(Date.UTC(y, m, 0))) };
+    }
+    default: return { from: dayShift(-6), to: today };
+  }
+}
+const RANGE_PRESETS = ["Today", "Yesterday", "Last 7 Days", "Last 30 Days", "This Month", "Last Month"];
+
+function DateRangePicker({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [custom, setCustom] = useState(false);
+  const active = RANGE_PRESETS.find((p) => { const r = presetRange(p); return r.from === from && r.to === to; }) ?? "Custom Range";
+  return (
+    <div className="relative">
+      <button
+        onClick={() => { setOpen((o) => !o); setCustom(false); }}
+        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+      >
+        {fmtRangeDate(from)} - {fmtRangeDate(to)}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 z-50 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-xl">
+            {RANGE_PRESETS.map((p) => (
+              <button
+                key={p}
+                onClick={() => { const r = presetRange(p); onChange(r.from, r.to); setOpen(false); }}
+                className={`block w-full px-4 py-2.5 text-left text-sm ${active === p ? "bg-sky-500 font-medium text-white" : "text-slate-700 hover:bg-slate-50"}`}
+              >
+                {p}
+              </button>
+            ))}
+            <button
+              onClick={() => setCustom((c) => !c)}
+              className={`block w-full px-4 py-2.5 text-left text-sm ${active === "Custom Range" || custom ? "bg-sky-500 font-medium text-white" : "text-slate-700 hover:bg-slate-50"}`}
+            >
+              Custom Range
+            </button>
+            {custom && (
+              <div className="space-y-2 border-t border-slate-100 px-4 py-3">
+                <label className="flex items-center justify-between gap-2 text-xs text-slate-500">From
+                  <input type="date" value={from} max={to} onChange={(e) => e.target.value && onChange(e.target.value, to)} className="rounded border border-slate-200 px-2 py-1 text-xs" />
+                </label>
+                <label className="flex items-center justify-between gap-2 text-xs text-slate-500">To
+                  <input type="date" value={to} min={from} onChange={(e) => e.target.value && onChange(from, e.target.value)} className="rounded border border-slate-200 px-2 py-1 text-xs" />
+                </label>
+                <button onClick={() => setOpen(false)} className="w-full rounded-lg bg-slate-900 py-1.5 text-xs font-semibold text-white">Apply</button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 const fmtDate = (s: string | null) => {
   if (!s) return "—";
   const d = new Date(String(s).replace(" ", "T"));
@@ -93,12 +170,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
           <p className="text-xs text-slate-500">every completed order · edit remarks &amp; source of lead · negative outcomes escalate in red</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <label className="flex items-center gap-1 text-slate-500">From
-            <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-          </label>
-          <label className="flex items-center gap-1 text-slate-500">To
-            <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-          </label>
+          <DateRangePicker from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
           <select value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
             <option value="All">All cities</option>
             {cities.map((c) => <option key={c} value={c}>{cityName(c)}</option>)}
