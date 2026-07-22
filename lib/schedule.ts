@@ -71,8 +71,39 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
   const usedMaster = vendors.length > 0;
   if (!usedMaster) vendors = snap.vendors; // fallback to derived teams when no master vendors
 
-  const bookings = snap.bookings; // orders stay whole; big ones get 2 teams (see optimizer)
-  const result = optimize(snap.date, snap.city, bookings, vendors);
+  // ---- NOTIFIED = LOCKED ----
+  // Once "Notify vendor" is clicked, that vendor's trip is FINAL: a regenerate must not touch it.
+  // Their orders are removed from the optimizer's input, the vendor leaves the pool, and their
+  // assignment rows (+ notified state) carry over to the new run untouched.
+  const cLock = db();
+  const lockedRows: any[] = [];
+  const lockedVendorIds = new Set<string>();
+  const lockedOrderSysIds = new Set<string>();
+  try {
+    const { data: prevRuns } = await cLock.from("schedule_runs").select("id").eq("schedule_date", date).eq("city", citySlug).order("generated_at", { ascending: false }).limit(1);
+    const prevRun = prevRuns?.[0];
+    if (prevRun) {
+      const { data: pn } = await cLock.from("notifications").select("vendor_id").eq("run_id", prevRun.id).eq("kind", "vendor");
+      for (const n of pn ?? []) if (n.vendor_id) lockedVendorIds.add(String(n.vendor_id));
+      if (lockedVendorIds.size) {
+        const { data: prevAssigns } = await cLock.from("schedule_assignments").select("*").eq("run_id", prevRun.id);
+        for (const a of (prevAssigns ?? []) as any[]) {
+          if (!a.vendor_id || !lockedVendorIds.has(String(a.vendor_id))) continue;
+          lockedRows.push(a);
+        }
+        // Which system order ids are locked (to drop them from the optimizer input).
+        const lockedUuids = [...new Set(lockedRows.map((a: any) => a.order_id))];
+        if (lockedUuids.length) {
+          const { data: lockedOrders } = await cLock.from("orders").select("id, order_id").in("id", lockedUuids);
+          for (const o of lockedOrders ?? []) lockedOrderSysIds.add(String((o as any).order_id));
+        }
+      }
+    }
+  } catch { /* lock lookup is best-effort — worst case behaves like before */ }
+
+  const bookings = snap.bookings.filter((b) => !lockedOrderSysIds.has(String(b.orderId ?? ""))); // locked orders stay with their notified vendor
+  const poolVendors = vendors.filter((v) => !lockedVendorIds.has(String(v.id))); // notified vendors are done for the day
+  const result = optimize(snap.date, snap.city, bookings, poolVendors);
   const pnl = computePnL(result, { packingPerPallet: await getPackingPerPallet() });
   const c = db();
 
@@ -112,10 +143,13 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
   const orderUuidByOrderId = new Map((orders ?? []).map((o: any) => [o.order_id, o.id]));
   const orderUuidByBooking = new Map(bookings.map((b) => [b.id, orderUuidByOrderId.get(b.orderId!)]));
 
-  // 2) create the run
+  // 2) create the run — locked (already-notified) vendors and their orders count into the totals
+  // even though the optimizer never saw them.
+  const lockedOrderCount = new Set(lockedRows.filter((a: any) => a.stop_seq !== -1).map((a: any) => a.order_id)).size;
+  const lockedVendorCount = new Set(lockedRows.map((a: any) => a.vendor_id)).size;
   const { data: run, error: runErr } = await c.from("schedule_runs").insert({
     schedule_date: date, city: citySlug, trigger, status: "draft",
-    total_orders: result.kpis.totalBookings, total_vendors: result.kpis.vendorsActive,
+    total_orders: result.kpis.totalBookings + lockedOrderCount, total_vendors: result.kpis.vendorsActive + lockedVendorCount,
     total_cost: pnl.cost, total_margin: pnl.margin,
   }).select().single();
   if (runErr || !run) throw new Error(runErr?.message ?? "could not create run");
@@ -154,9 +188,25 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
     const oid = orderUuidByBooking.get(bid);
     if (oid) rows.push({ run_id: run.id, vendor_id: null, vendor_name: null, system_vendor_id: null, system_vendor_name: null, order_id: oid, trip_no: 0, stop_seq: 0 });
   }
+  // Locked vendors' assignments carry over EXACTLY as notified (same trips/stops/system snapshot),
+  // and their notified state carries too — the vendor card stays "Vendor notified ✓" and the
+  // vendor app keeps seeing the same jobs on the new run.
+  if (lockedRows.length) {
+    for (const a of lockedRows) {
+      const { id: _drop, run_id: _drop2, ...rest } = a;
+      rows.push({ ...rest, run_id: run.id });
+    }
+    try {
+      const carried = [...new Set(lockedRows.map((a: any) => String(a.vendor_id)))];
+      await c.from("notifications").insert(carried.map((vid) => ({
+        run_id: run.id, vendor_id: vid, kind: "vendor", channel: "carryover", status: "sent",
+        detail: "locked — vendor was already notified before this regenerate",
+      })));
+    } catch { /* notified badge worst-case missing; assignments still locked */ }
+  }
   await insertAssignments(c, rows);
 
-  return { runId: run.id, orders: result.kpis.totalBookings, vendors: result.kpis.vendorsActive, usedMaster };
+  return { runId: run.id, orders: result.kpis.totalBookings + lockedOrderCount, vendors: result.kpis.vendorsActive + lockedVendorCount, usedMaster };
 }
 
 // One order-snapshot row from a live booking (shared by generate + post-cutoff sync).

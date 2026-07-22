@@ -5,6 +5,7 @@ import { ScheduleData } from "@/lib/schedule";
 import { money } from "@/lib/format";
 import { teamsNeeded } from "@/lib/config";
 import { CITY_CENTER } from "@/lib/geocode";
+import { withBase } from "@/lib/base";
 import { Card } from "./ui";
 import VendorDetails from "./VendorDetails";
 import VendorReport from "./VendorReport";
@@ -23,22 +24,33 @@ const LIVE: Record<string, { label: string; cls: string }> = {
   loaded: { label: "✅ Loaded", cls: "bg-teal-100 text-teal-700" },
   delivered: { label: "🏁 Delivered", cls: "bg-emerald-600 text-white" },
 };
-// The team's official inventory sheet (matches the old SafeStorage PDF): company header,
-// personal information, item/quantity list, blank barcode table, T&Cs, signatures and the
-// damage-requisition / back-office section. Opened in a print window → Save as PDF.
-function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: string | null): string {
+// The team's official inventory sheet — SAME format as the old SafeStorage PDF, logo included,
+// laid out on exactly FOUR A4 pages (page 2 is a mostly-blank inventory table so the crew can add
+// items by hand). Opened in a print window → Save as PDF.
+function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: string | null, logoUrl: string): string {
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const fmtD = new Date((date || "") + "T00:00:00Z");
   const dateStr = isNaN(fmtD.getTime()) ? date : fmtD.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).replace(/ /g, "-");
   const itemRows = items.map((it) => `<tr><td>${esc(it.name)}</td><td style="text-align:center">${esc(it.qty ?? 1)}</td></tr>`).join("");
-  const blank = (n: number) => Array.from({ length: n }, () => `<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>`).join("");
+  const blank = (n: number) => Array.from({ length: n }, () => `<tr style="height:26px"><td></td><td></td><td></td><td></td><td></td></tr>`).join("");
   const lift = o.lift ? (/^(n|no|false|0|na)$/i.test(String(o.lift).trim()) ? "No" : "Yes") : "";
+  const header = `<div class="hdr">
+    <img src="${esc(logoUrl)}" alt="SafeStorage" style="height:52px" onerror="this.style.display='none'"/>
+    <div>
+      <b>SAFESTORAGE TECHNOLOGIES AND SERVICES PRIVATE LIMITED.</b><br/>
+      #130/2, Hanumantha Gowda Compound, Near Anjaneya Anugraha Aptmt,<br/>
+      Immadihalli Road, Immadihalli, Whitefield, Bangalore - 560 066<br/>
+      Phone: +91 8088 84 84 84 / 080-41121686 &nbsp;·&nbsp; Email: info@safestorage.in &nbsp;·&nbsp; www.SafeStorage.in
+    </div>
+  </div>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(o.customer_unique_id)}_safestorage_inventory</title>
   <style>
     @page { size: A4; margin: 12mm; }
     body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #111; margin: 0; }
-    .hdr { text-align: center; line-height: 1.5; border-bottom: 2px solid #222; padding-bottom: 6px; }
-    .hdr b { font-size: 13px; letter-spacing: .4px; }
+    .page { page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    .hdr { display: flex; align-items: center; gap: 14px; text-align: left; line-height: 1.5; border-bottom: 2px solid #222; padding-bottom: 6px; }
+    .hdr b { font-size: 12.5px; letter-spacing: .3px; }
     h2 { text-align: center; font-size: 14px; margin: 10px 0 6px; }
     h3 { font-size: 12px; background: #eef2f7; padding: 4px 8px; margin: 12px 0 4px; border: 1px solid #cbd5e1; }
     table { width: 100%; border-collapse: collapse; margin-top: 4px; }
@@ -46,65 +58,79 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
     th { background: #f1f5f9; text-align: left; }
     .info td { border: none; padding: 2.5px 4px; }
     .info b { display: inline-block; min-width: 130px; }
-    .tc { font-size: 9.5px; line-height: 1.45; margin-top: 6px; }
-    .sig { display: flex; justify-content: space-between; margin-top: 26px; }
+    .tc { font-size: 10px; line-height: 1.55; margin-top: 10px; }
+    .sig { display: flex; justify-content: space-between; margin-top: 48px; }
     .sig div { width: 30%; border-top: 1px solid #333; text-align: center; padding-top: 4px; font-size: 10px; }
-    .chk { margin: 3px 0; }
+    .chk { margin: 6px 0; }
     .line { border-bottom: 1px dotted #64748b; display: inline-block; min-width: 220px; }
   </style></head><body>
-  <div class="hdr">
-    <b>SAFESTORAGE TECHNOLOGIES AND SERVICES PRIVATE LIMITED.</b><br/>
-    #130/2, Hanumantha Gowda Compound, Near Anjaneya Anugraha Aptmt,<br/>
-    Immadihalli Road, Immadihalli, Whitefield, Bangalore - 560 066<br/>
-    Phone: +91 8088 84 84 84 / 080-41121686 &nbsp;·&nbsp; Email: info@safestorage.in &nbsp;·&nbsp; www.SafeStorage.in
+
+  <!-- PAGE 1 — personal information + booked items -->
+  <div class="page">
+    ${header}
+    <h2>SafeStorage Transport — Inventory Sheet</h2>
+    <h3>Personal Information</h3>
+    <table class="info"><tr>
+      <td><b>Date:</b> ${esc(dateStr)}</td><td><b>Customer ID:</b> ${esc(o.customer_unique_id)}</td>
+    </tr><tr>
+      <td><b>Customer Name:</b> ${esc(o.customer_name ?? "")}</td><td><b>Phone:</b> ${esc(String(o.contact ?? "").split(/[\/,]/)[0].trim())}</td>
+    </tr><tr>
+      <td colspan="2"><b>Address:</b> ${esc(address ?? o.locality ?? "")}</td>
+    </tr><tr>
+      <td><b>Floor:</b> ${esc(o.floor ?? "")} &nbsp;&nbsp; <b style="min-width:auto">Lift:</b> ${esc(lift)}</td>
+      <td><b>Order type:</b> ${esc(String(o.order_type ?? "").replace("_", " "))}</td>
+    </tr><tr>
+      <td><b>Vehicle type:</b> ${esc(v.vehicleType ?? "")}</td>
+      <td><b>Supervisor:</b> ${esc(v.supervisorName ?? "")} ${esc(v.supervisorContact ?? "")}</td>
+    </tr></table>
+    <h3>Items (${items.length} item${items.length === 1 ? "" : "s"} · ${items.reduce((s, it) => s + (Number(it.qty) || 1), 0)} pieces)</h3>
+    <table><tr><th>Item</th><th style="width:90px;text-align:center">Quantity</th></tr>${itemRows}</table>
   </div>
-  <h2>SafeStorage Transport — Inventory Sheet</h2>
 
-  <h3>Personal Information</h3>
-  <table class="info"><tr>
-    <td><b>Date:</b> ${esc(dateStr)}</td><td><b>Customer ID:</b> ${esc(o.customer_unique_id)}</td>
-  </tr><tr>
-    <td><b>Customer Name:</b> ${esc(o.customer_name ?? "")}</td><td><b>Phone:</b> ${esc(String(o.contact ?? "").split(/[/,]/)[0].trim())}</td>
-  </tr><tr>
-    <td colspan="2"><b>Address:</b> ${esc(address ?? o.locality ?? "")}</td>
-  </tr><tr>
-    <td><b>Floor:</b> ${esc(o.floor ?? "")} &nbsp;&nbsp; <b style="min-width:auto">Lift:</b> ${esc(lift)}</td>
-    <td><b>Order type:</b> ${esc(String(o.order_type ?? "").replace("_", " "))}</td>
-  </tr><tr>
-    <td><b>Vehicle type:</b> ${esc(v.vehicleType ?? "")}</td>
-    <td><b>Supervisor:</b> ${esc(v.supervisorName ?? "")} ${esc(v.supervisorContact ?? "")}</td>
-  </tr></table>
+  <!-- PAGE 2 — inventory table with blank rows for items added on the ground -->
+  <div class="page">
+    ${header}
+    <h3>Inventory</h3>
+    <table><tr><th style="width:110px">Barcode</th><th>Description</th><th style="width:50px">Qty</th><th style="width:80px">Est. Value</th><th style="width:150px">Remarks / Notes</th></tr>
+    ${blank(24)}<tr><td colspan="2" style="text-align:right"><b>Total</b></td><td></td><td></td><td></td></tr></table>
+  </div>
 
-  <h3>Items (${items.length} item${items.length === 1 ? "" : "s"} · ${items.reduce((s, it) => s + (Number(it.qty) || 1), 0)} pieces)</h3>
-  <table><tr><th>Item</th><th style="width:90px;text-align:center">Quantity</th></tr>${itemRows}</table>
+  <!-- PAGE 3 — terms & conditions + acknowledgement signatures -->
+  <div class="page">
+    ${header}
+    <h3>Terms and Conditions</h3>
+    <div class="tc">1. Customer declares that all the goods are owned by him and authorize Safe Storage Technologies and Services Pvt Ltd to store all his/her goods.<br/>
+    2. Customer declared that there are no hazardous items or illegal content items in his goods.<br/>
+    3. Goods delivery / transport charges born by the customer at the time of retrieval.<br/>
+    4. Bills / Monthly storage charges should be paid with in 7 days from due date.<br/><br/>
+    All other terms and conditions would be as per the Service Agreement.</div>
+    <div style="margin-top:22px;font-size:11px"><b>Received all the Items in good condition</b></div>
+    <div class="sig"><div>Customer / Receiver Signature</div><div>For Safe Storage Signature</div><div>Customer Feedback</div></div>
+  </div>
 
-  <h3>Inventory</h3>
-  <table><tr><th style="width:110px">Barcode</th><th>Description</th><th style="width:50px">Qty</th><th style="width:80px">Est. Value</th><th style="width:140px">Remarks / Notes</th></tr>
-  ${blank(6)}<tr><td colspan="2" style="text-align:right"><b>Total</b></td><td></td><td></td><td></td></tr></table>
-
-  <div class="tc"><b>Terms and Conditions:</b> 1. Customer declares that all the goods are owned by him and authorize Safe Storage Technologies and Services Pvt Ltd to store all his/her goods.
-  2. Customer declared that there are no hazardous items or illegal content items in his goods. 3. Goods delivery / transport charges born by the customer at the time of retrieval.
-  4. Bills / Monthly storage charges should be paid with in 7 days from due date. All other terms and conditions would be as per the Service Agreement.</div>
-  <div style="margin-top:10px;font-size:10.5px">Received all the Items in good condition</div>
-  <div class="sig"><div>Customer / Receiver Signature</div><div>For Safe Storage Signature</div><div>Customer Feedback</div></div>
-
-  <h3>Damage Requisition Form</h3>
-  <div class="chk">☐ Damages found at customer place &nbsp;&nbsp; ☐ Damage done by Transport team at customer place, Transit &amp; WH.</div>
-  <div class="chk">Customer Feedback &amp; Signature: <span class="line"></span></div>
-
-  <h3>Back Office</h3>
-  <table class="info">
-    <tr><td><b>Warehouse Receiver Name:</b> <span class="line"></span></td><td><b>Total Items Received:</b> <span class="line" style="min-width:80px"></span></td></tr>
-    <tr><td><b>Damaged items reported (yes/no):</b> <span class="line" style="min-width:80px"></span></td><td><b>Damage items images collected (yes/no):</b> <span class="line" style="min-width:80px"></span></td></tr>
-    <tr><td colspan="2"><b>Rating for the Packing:</b> Poor ☐ &nbsp; Average ☐ &nbsp; Good ☐ &nbsp; Excellent ☐</td></tr>
-    <tr><td colspan="2"><b>Packing material Quality:</b> Poor ☐ &nbsp; Average ☐ &nbsp; Good ☐ &nbsp; Excellent ☐ &nbsp;&nbsp; <b style="min-width:auto">Packers Attitude:</b> Poor ☐ &nbsp; Average ☐ &nbsp; Good ☐ &nbsp; Excellent ☐</td></tr>
-    <tr><td><b>Acknowledgement call to customer:</b> Yes ☐ &nbsp; No ☐</td><td><b>Important Remarks:</b> <span class="line"></span></td></tr>
-    <tr><td colspan="2"><b>Barcoding (WH executive, Supervisor Names with Timestamp):</b> <span class="line"></span></td></tr>
-    <tr><td colspan="2"><b>Stacking (WH executive, Supervisor Names with Timestamp):</b> <span class="line"></span></td></tr>
-    <tr><td colspan="2"><b>Verified By (Name, signature with Timestamp):</b> <span class="line"></span></td></tr>
-  </table>
-  <div class="sig"><div>Signature of the receiver</div><div>Signature of the Packer / Customer</div><div>&nbsp;</div></div>
-  <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
+  <!-- PAGE 4 — damage requisition + back office -->
+  <div class="page">
+    ${header}
+    <h3>Damage Requisition Form</h3>
+    <div class="chk">☐ Damages found at customer place</div>
+    <div class="chk">☐ Damage done by Transport team at customer place, Transit &amp; WH.</div>
+    <div class="chk">Customer Feedback &amp; Signature: <span class="line"></span></div>
+    <h3>Back Office</h3>
+    <table class="info">
+      <tr><td><b>Warehouse Receiver Name:</b> <span class="line"></span></td><td><b>Total Items Received:</b> <span class="line" style="min-width:80px"></span></td></tr>
+      <tr><td><b>Any Damages done during Transit or warehouse?</b> <span class="line" style="min-width:80px"></span></td><td><b>Damaged items reported (yes/no):</b> <span class="line" style="min-width:80px"></span></td></tr>
+      <tr><td colspan="2"><b>Damage items images collected (yes/no):</b> <span class="line" style="min-width:80px"></span></td></tr>
+      <tr><td colspan="2"><b>Rating for the Packing:</b> Poor ☐ &nbsp; Average ☐ &nbsp; Good ☐ &nbsp; Excellent ☐</td></tr>
+      <tr><td colspan="2"><b>Packing material Quality:</b> Poor ☐ &nbsp; Average ☐ &nbsp; Good ☐ &nbsp; Excellent ☐</td></tr>
+      <tr><td colspan="2"><b>Packers Attitude:</b> Poor ☐ &nbsp; Average ☐ &nbsp; Good ☐ &nbsp; Excellent ☐</td></tr>
+      <tr><td><b>Acknowledgement call to customer:</b> Yes ☐ &nbsp; No ☐</td><td><b>Important Remarks:</b> <span class="line"></span></td></tr>
+      <tr><td colspan="2"><b>Barcoding (WH executive, Supervisor Names with Timestamp):</b> <span class="line"></span></td></tr>
+      <tr><td colspan="2"><b>Stacking (WH executive, Supervisor Names with Timestamp):</b> <span class="line"></span></td></tr>
+      <tr><td colspan="2"><b>Verified By (Name, signature with Timestamp):</b> <span class="line"></span></td></tr>
+    </table>
+    <div class="sig"><div>Signature of the receiver</div><div>Signature of the Packer / Customer</div><div>&nbsp;</div></div>
+  </div>
+  <script>window.onload = () => setTimeout(() => window.print(), 400);</script>
   </body></html>`;
 }
 
@@ -707,7 +733,7 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                                 } catch { /* sheet still prints with the locality */ }
                                 const w = window.open("", "_blank");
                                 if (!w) { alert("Please allow pop-ups to download the inventory PDF."); return; }
-                                w.document.write(inventoryPdfHtml(o, v, items, sched.date, address));
+                                w.document.write(inventoryPdfHtml(o, v, items, sched.date, address, `${location.origin}${withBase("/safestorage-logo.png")}`));
                                 w.document.close();
                               }}
                               className="rounded bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
