@@ -38,12 +38,32 @@ function bookingRows(o: any, v: any, address: string | null): Row[] {
   ];
 }
 
+// Slot start in minutes ("10am_11am" → 600, "1:30pm…" → 810) — morning bookings sort first,
+// no-slot bookings last.
+function slotStartMin(s: string | null | undefined): number {
+  const m = String(s ?? "").trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (!m) return 24 * 60;
+  let h = Number(m[1]) % 12;
+  if (/pm/i.test(m[3])) h += 12;
+  return h * 60 + Number(m[2] ?? 0);
+}
+// Per-type block labels: pickups are "Booking", retrievals say what they are.
+const blockLabel = (t: string | null | undefined) =>
+  /partial/i.test(String(t ?? "")) ? "Partial Retrieval" : /retriev/i.test(String(t ?? "")) ? "Retrieval" : "Booking";
+function orderedForReport(v: any): any[] {
+  return [...(v.orders ?? [])].filter((o: any) => o.stop_seq !== -1)
+    .sort((a: any, b: any) => slotStartMin(a.time_slot) - slotStartMin(b.time_slot));
+}
+
 // Inline-styled HTML (shared by the modal preview and the print window, so what you print is
 // exactly what you see).
 function reportHtml(v: any, addresses: Record<string, string>): string {
-  const orders = (v.orders ?? []).filter((o: any) => o.stop_seq !== -1);
+  const orders = orderedForReport(v);
   const cell = "padding:8px 10px;border:1px solid #e2e8f0;font-size:13px;vertical-align:top;";
-  const blocks = orders.map((o: any, i: number) => {
+  const typeCount: Record<string, number> = {};
+  const blocks = orders.map((o: any) => {
+    const label = blockLabel(o.order_type);
+    typeCount[label] = (typeCount[label] ?? 0) + 1;
     const rows = bookingRows(o, v, addresses[o.customer_unique_id] ?? null)
       .map((r) => `<tr>
         <td style="${cell}font-weight:700;white-space:nowrap;width:52px">${esc(r.label)}</td>
@@ -51,7 +71,7 @@ function reportHtml(v: any, addresses: Record<string, string>): string {
         <td style="${cell}${r.rightHl ? `background:${r.rightHl};` : ""}color:#334155">${esc(r.right)}</td>
       </tr>`).join("");
     return `<table style="border-collapse:collapse;width:100%;margin-bottom:16px">
-      <tr><td colspan="3" style="background:#22c55e;color:#fff;font-weight:800;text-align:center;padding:8px;font-size:14px;border:1px solid #16a34a">Booking ${i + 1}</td></tr>
+      <tr><td colspan="3" style="background:#22c55e;color:#fff;font-weight:800;text-align:center;padding:8px;font-size:14px;border:1px solid #16a34a">${label} ${typeCount[label]}</td></tr>
       ${rows}
     </table>`;
   }).join("");
@@ -63,10 +83,13 @@ function reportHtml(v: any, addresses: Record<string, string>): string {
 
 // Plain-text version (for WhatsApp / SMS / anywhere without table support).
 function reportText(v: any, addresses: Record<string, string>): string {
-  const orders = (v.orders ?? []).filter((o: any) => o.stop_seq !== -1);
+  const orders = orderedForReport(v);
   const lines: string[] = [`Supervisor: ${v.supervisorName || v.vendorName} (${orders.length} order${orders.length === 1 ? "" : "s"})`];
-  orders.forEach((o: any, i: number) => {
-    lines.push("", `— Booking ${i + 1} —`);
+  const tCount: Record<string, number> = {};
+  orders.forEach((o: any) => {
+    const label = blockLabel(o.order_type);
+    tCount[label] = (tCount[label] ?? 0) + 1;
+    lines.push("", `— ${label} ${tCount[label]} —`);
     for (const r of bookingRows(o, v, addresses[o.customer_unique_id] ?? null)) {
       const right = ["Pallets", "Floor / Lift", "Customer Notes", "N/A"].includes(r.right) ? "" : `  (${r.right})`;
       lines.push(`${r.label}: ${r.value}${right}`);
