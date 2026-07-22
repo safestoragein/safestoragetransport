@@ -42,7 +42,8 @@ export async function orderInventory(orderUuid: string): Promise<{ items: any[] 
     const q = new URLSearchParams({ customer_id: String(entry.customer_id ?? ""), quotation_id: String(entry.quotation_id) });
     if (entry.supervisor_id) q.set("supervisor_id", String(entry.supervisor_id));
     raw = arrOf(await fetch(`${API_BASE}/app/get_inventory_quotation_for_app?${q.toString()}`).then((r) => r.json()));
-    return { items: raw.map((it) => ({ name: it.storage_item_name ?? it.item_name ?? "Item", qty: Number(it.storage_item_qty ?? it.quantity ?? 0) || null, slug: it.storage_item_slug ?? null })) };
+    // Quantity comes as `item_count` on the quotation endpoint (e.g. 5 × SafeStorage box).
+    return { items: raw.map((it) => ({ name: it.storage_item_name ?? it.item_name ?? "Item", qty: Number(it.item_count ?? it.storage_item_qty ?? it.quantity ?? 0) || null, slug: it.storage_item_slug ?? null })) };
   } catch {
     return { items: [] };
   }

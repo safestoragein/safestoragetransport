@@ -606,12 +606,32 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                         <span className="text-slate-400">No inventory items found for this booking.</span>
                       ) : (
                         <div>
-                          <div className="mb-1 font-semibold text-slate-600">Inventory · {inv[o.id]!.items!.length} item{inv[o.id]!.items!.length > 1 ? "s" : ""}</div>
+                          <div className="mb-1 flex items-center gap-2">
+                            <span className="font-semibold text-slate-600">
+                              Inventory · {inv[o.id]!.items!.length} item{inv[o.id]!.items!.length > 1 ? "s" : ""}
+                              {(() => { const tq = inv[o.id]!.items!.reduce((s: number, it: any) => s + (Number(it.qty) || 1), 0); return tq > inv[o.id]!.items!.length ? ` · ${tq} pieces` : ""; })()}
+                            </span>
+                            <button
+                              onClick={() => {
+                                const items = inv[o.id]!.items!;
+                                const csv = ["Item,Quantity", ...items.map((it: any) => `"${String(it.name).replace(/"/g, '""')}",${it.qty ?? 1}`)].join("\n");
+                                const a = document.createElement("a");
+                                a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+                                a.download = `inventory-${o.customer_unique_id}.csv`;
+                                a.click();
+                                setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+                              }}
+                              className="rounded bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+                              title="Download this booking's inventory as a CSV (opens in Excel)"
+                            >
+                              ⬇ Download
+                            </button>
+                          </div>
                           <ul className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-3">
                             {inv[o.id]!.items!.map((it: any, i: number) => (
                               <li key={i} className="flex items-center justify-between gap-2 text-slate-700">
                                 <span className="truncate">{it.name}</span>
-                                {it.qty != null && <span className="shrink-0 text-slate-400">×{it.qty}</span>}
+                                {it.qty != null && it.qty > 0 && <span className={`shrink-0 ${it.qty > 1 ? "font-bold text-slate-700" : "text-slate-400"}`}>×{it.qty}</span>}
                               </li>
                             ))}
                           </ul>
