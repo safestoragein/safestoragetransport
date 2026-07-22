@@ -237,6 +237,9 @@ export interface AvailableVendor { id: string; name: string; vehicleType: string
 export interface ScheduleData {
   runId: string; date: string; city: string; status: string; generatedAt: string;
   totals: { orders: number; vendors: number; cost: number; margin: number; resources: number; extraTrips: number };
+  // P&L of the SYSTEM plan (the optimizer's snapshot at Generate) + the vendor-pay split of both
+  // plans, so the UI can show Final vs System vs difference. hasSnapshot=false on pre-migration runs.
+  systemTotals?: { hasSnapshot: boolean; cost: number; margin: number; vendors: number; vendorPay: number; finalVendorPay: number };
   resourceCost: number; extraTripCost: number;
   availableVendors: AvailableVendor[];
   vendors: ScheduleVendor[];
@@ -408,13 +411,57 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
   const totalExtraTrips = vendors.reduce((s, v) => s + (v.extraTrips || 0), 0);
   const addOnCost = totalResources * resourceCost + totalExtraTrips * extraTripCost;
 
+  // ---- SYSTEM-plan vs FINAL-plan P&L ----
+  // run.total_cost/margin are frozen at Generate = the SYSTEM plan's numbers. The FINAL plan's cost
+  // moves when the team reassigns orders (different vendors → different day rates / transactions),
+  // so we compute the vendor-pay of BOTH groupings with the same formula (non-general/intercity →
+  // per-transaction × orders, general → flat daily) and shift the final cost by the difference.
+  const priceByName = new Map((avRows ?? []).map((v: any) => [String(v.name), v]));
+  const payFor = (groups: Map<string, number>) => {
+    let pay = 0;
+    for (const [name, n] of groups) {
+      const v: any = priceByName.get(name);
+      if (!v || n <= 0) continue;
+      const perTxn = v.tier === "non_general" || !!v.is_intercity_vendor;
+      pay += perTxn ? (Number(v.per_transaction) || 0) * n : (Number(v.daily_price) || 0);
+    }
+    return pay;
+  };
+  const isRegular = (o: any) => o && !o.is_intercity && !o.is_shifting;
+  const finalGroups = new Map<string, number>();
+  for (const v of vendors) {
+    if (v.isUnassigned || v.isCoTeam) continue;
+    const n = (v.orders as any[]).filter(isRegular).length;
+    if (n > 0) finalGroups.set(String(v.vendorName), (finalGroups.get(String(v.vendorName)) ?? 0) + n);
+  }
+  const systemGroups = new Map<string, number>();
+  let hasSnapshot = false;
+  for (const a of (assigns ?? []) as any[]) {
+    if (a.stop_seq === -1) continue;
+    if (a.system_vendor_name != null) hasSnapshot = true;
+    const o: any = orderById.get(a.order_id);
+    if (!isRegular(o) || !a.system_vendor_name) continue;
+    systemGroups.set(String(a.system_vendor_name), (systemGroups.get(String(a.system_vendor_name)) ?? 0) + 1);
+  }
+  const finalVendorPay = payFor(finalGroups);
+  const systemVendorPay = payFor(systemGroups);
+  const payDelta = hasSnapshot ? finalVendorPay - systemVendorPay : 0;
+
   return {
     runId: run.id, date, city: citySlug, status: run.status, generatedAt: run.generated_at,
     totals: {
       orders: run.total_orders, vendors: run.total_vendors,
-      cost: Number(run.total_cost) + addOnCost,
-      margin: Number(run.total_margin) - addOnCost,
+      cost: Number(run.total_cost) + addOnCost + payDelta,
+      margin: Number(run.total_margin) - addOnCost - payDelta,
       resources: totalResources, extraTrips: totalExtraTrips,
+    },
+    systemTotals: {
+      hasSnapshot,
+      cost: Number(run.total_cost),
+      margin: Number(run.total_margin),
+      vendors: systemGroups.size,
+      vendorPay: systemVendorPay,
+      finalVendorPay,
     },
     resourceCost, extraTripCost,
     availableVendors,

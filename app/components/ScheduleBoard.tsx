@@ -669,6 +669,23 @@ function planRows(c: ScheduleData) {
   return rows;
 }
 
+// P&L strip for a plan — revenue is the same either way (same orders); cost/margin differ by
+// which vendors carry them.
+function PlanPnl({ title, revenue, cost, margin, vendors, accent }: { title: string; revenue: number; cost: number; margin: number; vendors: number; accent?: boolean }) {
+  const cell = "rounded-xl border border-slate-200 bg-white p-3";
+  return (
+    <div className="mb-3">
+      <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${accent ? "text-violet-600" : "text-slate-400"}`}>{title}</div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className={cell}><div className="text-[11px] uppercase text-slate-400">Vendors</div><div className="text-lg font-bold text-slate-900">{vendors}</div></div>
+        <div className={cell}><div className="text-[11px] uppercase text-slate-400">Revenue</div><div className="text-lg font-bold text-slate-900">{money(revenue)}</div></div>
+        <div className={cell}><div className="text-[11px] uppercase text-slate-400">Cost</div><div className="text-lg font-bold text-slate-900">{money(cost)}</div></div>
+        <div className={cell}><div className="text-[11px] uppercase text-slate-400">Margin</div><div className={`text-lg font-bold ${margin < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(margin)}</div></div>
+      </div>
+    </div>
+  );
+}
+
 function PlanViews({ cities, mode }: { cities: ScheduleData[]; mode: "system" | "compare" }) {
   return (
     <div className="space-y-6">
@@ -676,6 +693,8 @@ function PlanViews({ cities, mode }: { cities: ScheduleData[]; mode: "system" | 
         const rows = planRows(c);
         const hasSnap = rows.some((r) => r.o.system_vendor_name != null);
         const label = cityName(c.city);
+        const revenue = c.vendors.reduce((s, v) => s + (v.revenue || 0), 0);
+        const st = c.systemTotals;
         if (!hasSnap) {
           return (
             <Card key={c.city} className="p-5 text-sm text-slate-500">
@@ -697,6 +716,9 @@ function PlanViews({ cities, mode }: { cities: ScheduleData[]; mode: "system" | 
                 <h2 className="text-base font-bold text-slate-900">{label}</h2>
                 <span className="text-xs text-slate-500">system plan (read-only) — what the optimizer produced at Generate</span>
               </div>
+              {st?.hasSnapshot && (
+                <PlanPnl title="System plan P&L" revenue={revenue} cost={st.cost} margin={st.margin} vendors={st.vendors} accent />
+              )}
               <div className="space-y-3">
                 {[...by.entries()].map(([vn, orders]) => (
                   <Card key={vn} className="p-3">
@@ -722,6 +744,10 @@ function PlanViews({ cities, mode }: { cities: ScheduleData[]; mode: "system" | 
         // compare
         const diff = rows.filter((r) => ((r.o.system_vendor_name as string | null) ?? null) !== (r.cur ?? null));
         const pct = rows.length ? Math.round((diff.length / rows.length) * 100) : 0;
+        const finalVendors = c.vendors.filter((v) => !v.isUnassigned && !(v as any).isCoTeam && v.orders.length > 0).length;
+        const dCost = st ? c.totals.cost - st.cost : 0;
+        const dMargin = st ? c.totals.margin - st.margin : 0;
+        const money0 = (n: number) => `${n < 0 ? "−" : n > 0 ? "+" : ""}${money(Math.abs(n))}`;
         return (
           <section key={c.city}>
             <div className="mb-2 flex flex-wrap items-baseline gap-x-3 border-b border-slate-200 pb-1">
@@ -730,6 +756,47 @@ function PlanViews({ cities, mode }: { cities: ScheduleData[]; mode: "system" | 
                 {rows.length} orders · {rows.length - diff.length} kept as system · <b className={diff.length ? "text-amber-600" : "text-emerald-600"}>{diff.length} overridden by team ({pct}%)</b>
               </span>
             </div>
+            {st?.hasSnapshot && (
+              <Card className="mb-3 overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
+                      <th className="px-3 py-2">P&amp;L</th>
+                      <th className="px-3 py-2">Vendors</th>
+                      <th className="px-3 py-2">Vendor pay</th>
+                      <th className="px-3 py-2">Total cost</th>
+                      <th className="px-3 py-2">Margin</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-slate-50">
+                      <td className="px-3 py-2 font-semibold text-slate-800">Final (team-edited)</td>
+                      <td className="px-3 py-2">{finalVendors}</td>
+                      <td className="px-3 py-2">{money(st.finalVendorPay)}</td>
+                      <td className="px-3 py-2">{money(c.totals.cost)}</td>
+                      <td className={`px-3 py-2 font-semibold ${c.totals.margin < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(c.totals.margin)}</td>
+                    </tr>
+                    <tr className="border-b border-slate-50">
+                      <td className="px-3 py-2 font-semibold text-violet-700">System plan</td>
+                      <td className="px-3 py-2">{st.vendors}</td>
+                      <td className="px-3 py-2">{money(st.vendorPay)}</td>
+                      <td className="px-3 py-2">{money(st.cost)}</td>
+                      <td className={`px-3 py-2 font-semibold ${st.margin < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(st.margin)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-semibold text-slate-500">Difference (team − system)</td>
+                      <td className="px-3 py-2">{finalVendors - st.vendors > 0 ? "+" : ""}{finalVendors - st.vendors}</td>
+                      <td className="px-3 py-2">{money0(st.finalVendorPay - st.vendorPay)}</td>
+                      <td className={`px-3 py-2 font-semibold ${dCost > 0 ? "text-red-600" : dCost < 0 ? "text-emerald-600" : "text-slate-500"}`}>{money0(dCost)}</td>
+                      <td className={`px-3 py-2 font-semibold ${dMargin < 0 ? "text-red-600" : dMargin > 0 ? "text-emerald-600" : "text-slate-500"}`}>{money0(dMargin)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-400">
+                  Revenue is identical in both plans (same orders). The difference comes from WHICH vendors carry the day — day rates / per-transaction pay — plus any resources &amp; extra trips the team added.
+                </p>
+              </Card>
+            )}
             {diff.length === 0 ? (
               <Card className="p-4 text-sm text-emerald-700">✓ The team kept the system plan exactly as generated.</Card>
             ) : (
