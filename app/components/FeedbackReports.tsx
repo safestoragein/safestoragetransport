@@ -183,7 +183,7 @@ export default function FeedbackReports({ rows, from, to }: { rows: any[]; from:
       </div>
 
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={() => setModal(null)}>
+        <div className="fixed inset-0 z-[10000] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={() => setModal(null)}>
           <div className={`my-4 w-full rounded-xl bg-white shadow-2xl ${modal === "report" ? "max-w-5xl" : "max-w-md"}`} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
               <span className="text-sm font-bold text-slate-800">Report preview</span>

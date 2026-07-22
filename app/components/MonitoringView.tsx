@@ -140,7 +140,7 @@ function OrderFlow({ o, live, photos }: { o: any; live: LiveMap; photos?: { id: 
         ))}
       </div>
       {viewPhoto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4" onClick={() => setViewPhoto(null)}>
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/70 p-4" onClick={() => setViewPhoto(null)}>
           <div className="max-h-full max-w-2xl overflow-auto rounded-xl bg-white p-3" onClick={(e) => e.stopPropagation()}>
             <div className="mb-2 flex items-center gap-2">
               <span className="text-sm font-bold text-slate-800">{viewPhoto.label}</span>

@@ -168,7 +168,7 @@ export default function VendorReport({ vendor, city, date, onClose }: { vendor: 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[10000] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={onClose}>
       <div className="my-4 w-full max-w-md rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
           <span className="text-sm font-bold text-slate-800">📄 {vendor.vendorName} — {date}</span>
