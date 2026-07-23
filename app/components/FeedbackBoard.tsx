@@ -176,7 +176,9 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
     if (r?.ok) {
       setEscMap((m) => ({ ...m, [escFor.id]: { id: r.id, status: "open" } }));
       setEscFor(null); setEscIssue("");
-      alert("⚠ Escalation raised — manage it on the Escalations page.");
+      alert(r.wmsReported
+        ? "⚠ Escalation raised — the WAREHOUSE team has ALREADY reported an issue for this customer, so it's marked as a WMS issue (🏭) on the Escalations page."
+        : "⚠ Escalation raised — manage it on the Escalations page.");
     } else {
       alert(r?.error || "Could not raise the escalation.");
     }

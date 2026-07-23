@@ -173,6 +173,11 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
                     <td className="px-3 py-2 font-semibold text-slate-800">
                       {r.customer_unique_id ?? "—"}
                       <div className="text-[10px] font-normal text-slate-400">{cityName(String(r.city ?? ""))}{r.is_intercity ? " · intercity" : ""}</div>
+                      {!!r.wms_reported && (
+                        <span className="mt-0.5 inline-block rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-700" title={r.wms_live ?? r.wms_ref ?? "The warehouse team has reported an issue for this customer in the WMS"}>
+                          🏭 WMS reported
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-slate-700">
                       {r.customer_name ?? "—"}

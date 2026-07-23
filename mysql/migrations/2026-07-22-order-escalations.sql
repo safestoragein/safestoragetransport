@@ -26,3 +26,8 @@ CREATE TABLE IF NOT EXISTS sst_order_escalations (
   KEY idx_sst_escalations_status (status),
   KEY idx_sst_escalations_raised (raised_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- WMS-reported linkage: the warehouse team raises missing/damage issues in their own system
+-- (get_wms_reported_issues). If one exists for the customer when we escalate, it's auto-marked.
+ALTER TABLE sst_order_escalations ADD COLUMN IF NOT EXISTS wms_reported TINYINT(1) NOT NULL DEFAULT 0;
+ALTER TABLE sst_order_escalations ADD COLUMN IF NOT EXISTS wms_ref TEXT NULL;
