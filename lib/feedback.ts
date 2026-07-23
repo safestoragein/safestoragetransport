@@ -9,6 +9,7 @@ import { allLiveOrders } from "./safestorage-api";
 
 export interface FeedbackRow {
   id: string; // orders.id (uuid), or "wms:<order_id>" for orders only the WMS knows
+  is_intercity: boolean;
   sys_order_id: string | null;   // WMS numeric order_id (for mirroring edits to their store)
   wms_customer_id: string | null;// WMS numeric customer_id (idem)
   customer_unique_id: string;
@@ -41,8 +42,8 @@ async function wmsFeedbackOrders(from: string, to: string): Promise<any[]> {
     const res = await fetch(`${FEEDBACK_ORDERS_API}?from_date=${from}&to_date=${to}`, { cache: "no-store", headers: { Accept: "application/json" } });
     const j: any = await res.json();
     const arr: any[] = Array.isArray(j) ? j : (j?.data ?? []);
-    // Same rule as their page: intercity orders are excluded from feedback calls.
-    return arr.filter((r: any) => String(r.is_intercity ?? "") !== "1");
+    // Intercity orders are INCLUDED here (team asked) — an Is-Intercity column/filter marks them.
+    return arr;
   } catch { return []; }
 }
 
@@ -107,6 +108,7 @@ export async function loadFeedbackBoard(from: string, to: string, city?: string 
     const f = fb.get(id) ?? {};
     return {
       id,
+      is_intercity: String(w?.is_intercity ?? "") === "1" || !!o?.is_intercity,
       sys_order_id: w?.order_id != null ? String(w.order_id) : (o?.order_id != null ? String(o.order_id) : null),
       wms_customer_id: w?.customer_id != null ? String(w.customer_id) : null,
       customer_unique_id: o?.customer_unique_id ?? w?.customer_unique_id ?? String(w?.order_id ?? ""),

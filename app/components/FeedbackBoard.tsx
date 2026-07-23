@@ -113,10 +113,17 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
   const [fType, setFType] = useState("All");
   const [fOutcome, setFOutcome] = useState("All");
   const [fResolved, setFResolved] = useState("All");
+  const [fIntercity, setFIntercity] = useState("All");
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [tableMissing, setTableMissing] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
+  // Escalations: which rows already have one (chip) + the raise-escalation mini form.
+  const [escMap, setEscMap] = useState<Record<string, { id: string; status: string }>>({});
+  const [escFor, setEscFor] = useState<any | null>(null);
+  const [escType, setEscType] = useState("damage");
+  const [escIssue, setEscIssue] = useState("");
+  const [escSaving, setEscSaving] = useState(false);
   const country = useCountry();
 
   const load = useCallback(async () => {
@@ -146,6 +153,35 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
     setPending(null);
   }
 
+  useEffect(() => {
+    const keys = rows.map((r: any) => r.id).filter(Boolean);
+    if (!keys.length) { setEscMap({}); return; }
+    fetch(`/api/escalations?keys=${keys.join(",")}`).then((x) => x.json())
+      .then((j) => { if (j?.ok) setEscMap(j.keys ?? {}); })
+      .catch(() => {});
+  }, [rows]);
+
+  async function raiseEscalation() {
+    if (!escFor || !escIssue.trim()) return;
+    setEscSaving(true);
+    const r = await fetch("/api/escalations", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        orderKey: escFor.id, customerUniqueId: escFor.customer_unique_id, customerName: escFor.customer_name,
+        contact: escFor.contact, city: escFor.city, orderType: escFor.order_type, isIntercity: !!escFor.is_intercity,
+        escalationType: escType, issue: escIssue.trim(),
+      }),
+    }).then((x) => x.json()).catch(() => null);
+    setEscSaving(false);
+    if (r?.ok) {
+      setEscMap((m) => ({ ...m, [escFor.id]: { id: r.id, status: "open" } }));
+      setEscFor(null); setEscIssue("");
+      alert("⚠ Escalation raised — manage it on the Escalations page.");
+    } else {
+      alert(r?.error || "Could not raise the escalation.");
+    }
+  }
+
   const countryRows = rows.filter((r) => countryOfCity(r.city) === country);
   const cities = [...new Set(countryRows.map((r) => String(r.city ?? "")))].filter(Boolean).sort();
   const statuses = [...new Set(countryRows.map((r) => String(r.order_status ?? "")))].filter(Boolean).sort();
@@ -156,7 +192,8 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
     .filter((r) => fStatus === "All" || String(r.order_status ?? "") === fStatus)
     .filter((r) => fType === "All" || String(r.order_type ?? "") === fType)
     .filter((r) => fOutcome === "All" || (fOutcome === "notset" ? !r.outcome : r.outcome === fOutcome))
-    .filter((r) => fResolved === "All" || (fResolved === "notset" ? !r.resolved_status : (r.resolved_status ?? "") === fResolved));
+    .filter((r) => fResolved === "All" || (fResolved === "notset" ? !r.resolved_status : (r.resolved_status ?? "") === fResolved))
+    .filter((r) => fIntercity === "All" || (fIntercity === "yes" ? !!(r as any).is_intercity : !(r as any).is_intercity));
   const neg = shown.filter((r) => r.outcome === "negative");
   const open = neg.filter((r) => (r.resolved_status ?? "active") !== "resolved");
 
@@ -166,8 +203,8 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
     <AppShell active="feedback" user={user}>
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold text-slate-900">Feedback &amp; escalations</h1>
-          <p className="text-xs text-slate-500">every completed order · edit remarks &amp; source of lead · negative outcomes escalate in red</p>
+          <h1 className="text-lg font-bold text-slate-900">Feedback</h1>
+          <p className="text-xs text-slate-500">every completed order (intercity included) · edit remarks &amp; source of lead · escalate any order to the Escalations page</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <DateRangePicker from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
@@ -186,6 +223,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
           { label: "Order Type", v: fType, set: setFType, opts: [["All", "All Types"], ...types.map((t) => [t, t.replace("_", " ")] as [string, string])] },
           { label: "Outcome", v: fOutcome, set: setFOutcome, opts: [["All", "All Outcomes"], ["positive", "Positive"], ["negative", "Negative"], ["notset", "Not set"]] },
           { label: "Resolved Status", v: fResolved, set: setFResolved, opts: [["All", "All Statuses"], ["active", "Active"], ["working", "Working on it"], ["resolved", "Resolved"], ["notset", "Not set"]] },
+          { label: "Intercity", v: fIntercity, set: setFIntercity, opts: [["All", "All Orders"], ["yes", "Intercity only"], ["no", "Local only"]] },
         ].map((f) => (
           <label key={f.label} className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-500">
             {f.label}
@@ -231,6 +269,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                 <th className="px-3 py-2">Customer</th>
                 <th className="px-3 py-2">Contact</th>
                 <th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2">Intercity</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Completed on</th>
                 <th className="w-[24%] px-3 py-2">Remarks (feedback)</th>
@@ -238,6 +277,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                 <th className="px-3 py-2">Outcome</th>
                 <th className="px-3 py-2">Assigned team</th>
                 <th className="px-3 py-2">Resolved</th>
+                <th className="px-3 py-2">Escalation</th>
               </tr>
             </thead>
             <tbody>
@@ -249,6 +289,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                     <td className="px-3 py-2 text-slate-700">{r.customer_name ?? "—"}</td>
                     <td className="px-3 py-2">{r.contact ? <a className="text-blue-600 hover:underline" href={`tel:${String(r.contact).split(/[/,]/)[0].trim()}`}>{String(r.contact).split(/[/,]/)[0].trim()}</a> : "—"}</td>
                     <td className="px-3 py-2 text-slate-600">{String(r.order_type ?? "—").replace("_", " ")}</td>
+                    <td className="px-3 py-2">{(r as any).is_intercity ? <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">Intercity</span> : <span className="text-slate-300">—</span>}</td>
                     <td className="px-3 py-2 text-slate-600">{r.order_status ?? "—"}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-600">{fmtDate(r.completed_at)}</td>
                     <td className="px-3 py-2">
@@ -314,6 +355,17 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         <span className="text-slate-300">—</span>
                       )}
                     </td>
+                    <td className="px-3 py-2">
+                      {escMap[r.id] ? (
+                        <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Open the Escalations page">
+                          ⚠ {escMap[r.id].status === "resolved" ? "resolved" : "escalated"}
+                        </a>
+                      ) : (
+                        <button onClick={() => { setEscFor(r); setEscType("damage"); setEscIssue(""); }} className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50" title="Raise an escalation for this order (damage found later, missing item, negative review…)">
+                          ＋ Escalate
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -321,6 +373,34 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
           </table>
           <datalist id="lead-sources">{LEADS.map((l) => <option key={l} value={l} />)}</datalist>
         </Card>
+      )}
+      {escFor && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setEscFor(null)}>
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 text-sm font-bold text-slate-800">⚠ Raise escalation — {escFor.customer_unique_id}</div>
+            <p className="mb-3 text-xs text-slate-500">{escFor.customer_name} · even a positive-feedback order can be escalated later (damage discovered, missing item, negative review…).</p>
+            <label className="mb-2 block text-xs font-medium text-slate-600">Escalation type
+              <select value={escType} onChange={(e) => setEscType(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
+                <option value="damage">Damaged item</option>
+                <option value="missing_item">Missing item</option>
+                <option value="negative_review">Negative review</option>
+                <option value="payment">Payment issue</option>
+                <option value="behaviour">Team behaviour</option>
+                <option value="delay">Delay</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label className="mb-3 block text-xs font-medium text-slate-600">What happened?
+              <textarea value={escIssue} onChange={(e) => setEscIssue(e.target.value)} rows={3} placeholder="e.g. customer found the fridge door dented after unpacking…" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEscFor(null)} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50">Cancel</button>
+              <button onClick={raiseEscalation} disabled={escSaving || !escIssue.trim()} className="rounded-lg bg-red-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50">
+                {escSaving ? "Raising…" : "Raise escalation"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </AppShell>
   );

@@ -1,5 +1,6 @@
 import CommandCenter from "./components/CommandCenter";
 import FeedbackBoard from "./components/FeedbackBoard";
+import EscalationsBoard from "@/app/components/EscalationsBoard";
 import UsageBoard from "./components/UsageBoard";
 import ScheduleBoard from "./components/ScheduleBoard";
 import VendorPanel from "./components/VendorPanel";
@@ -37,6 +38,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
 
   // Feedback & escalations — every completed order with editable feedback / escalation fields
   if (view === "feedback") return <FeedbackBoard user={user} />;
+
+  // Escalations — post-completion issues raised from the Feedback page, worked to resolution
+  if (view === "escalations") return <EscalationsBoard user={user} />;
 
   // Team usage insights — ADMIN only (the component itself refuses non-admins too)
   if (view === "usage") return <UsageBoard user={user} />;
