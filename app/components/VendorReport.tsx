@@ -50,6 +50,10 @@ function slotStartMin(s: string | null | undefined): number {
 // Block labels by booking TYPE — Pickup / Retrieval / Partial Retrieval (never a generic "Booking").
 const blockLabel = (t: string | null | undefined) =>
   /partial/i.test(String(t ?? "")) ? "Partial Retrieval" : /retriev/i.test(String(t ?? "")) ? "Retrieval" : "Pickup";
+// Header colour by type — matches the board's colour language: pickup blue, retrieval green,
+// partial amber.
+const blockColor = (label: string) =>
+  label === "Pickup" ? { bg: "#2563eb", border: "#1d4ed8" } : label === "Partial Retrieval" ? { bg: "#f59e0b", border: "#d97706" } : { bg: "#22c55e", border: "#16a34a" };
 function orderedForReport(v: any): any[] {
   return [...(v.orders ?? [])].filter((o: any) => o.stop_seq !== -1)
     .sort((a: any, b: any) => slotStartMin(a.time_slot) - slotStartMin(b.time_slot));
@@ -70,8 +74,9 @@ function reportHtml(v: any, addresses: Record<string, string>): string {
         <td style="${cell}${r.valueHl ? `background:${r.valueHl};` : ""}max-width:220px">${esc(r.value)}</td>
         <td style="${cell}${r.rightHl ? `background:${r.rightHl};` : ""}color:#334155">${esc(r.right)}</td>
       </tr>`).join("");
+    const col = blockColor(label);
     return `<table style="border-collapse:collapse;width:100%;margin-bottom:16px">
-      <tr><td colspan="3" style="background:#22c55e;color:#fff;font-weight:800;text-align:center;padding:8px;font-size:14px;border:1px solid #16a34a">${label} ${typeCount[label]}</td></tr>
+      <tr><td colspan="3" style="background:${col.bg};color:#fff;font-weight:800;text-align:center;padding:8px;font-size:14px;border:1px solid ${col.border}">${label} ${typeCount[label]}</td></tr>
       ${rows}
     </table>`;
   }).join("");
