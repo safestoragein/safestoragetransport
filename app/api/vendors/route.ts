@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { listVendors, addVendor, updateVendor, deleteVendor, diagnose } from "@/lib/vendors";
+import { normCity } from "@/lib/safestorage-api";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const body = await req.json();
   // accept a single `city` or a list of `cities` — one independent record is created per city
-  const cities: string[] = Array.isArray(body?.cities) && body.cities.length ? body.cities : (body?.city ? [body.city] : []);
+  // City names normalise to canonical slugs (lowercase + alias fixes like "Luknow"→"lucknow") —
+  // a misspelt city would silently hide the vendor from that city's schedule.
+  const rawCities: string[] = Array.isArray(body?.cities) && body.cities.length ? body.cities : (body?.city ? [body.city] : []);
+  const cities: string[] = [...new Set(rawCities.map((c) => normCity(c)).filter(Boolean))];
   if (!body?.name || cities.length === 0 || !body?.vehicleType) {
     return NextResponse.json({ error: "name, at least one city, and vehicleType are required" }, { status: 400 });
   }
@@ -63,6 +67,7 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   if (!body?.id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const { id, ...patch } = body;
+  if (patch.city != null) patch.city = normCity(patch.city); // canonical slug — see POST
   try {
     await updateVendor(id, patch);
     return NextResponse.json({ ok: true });

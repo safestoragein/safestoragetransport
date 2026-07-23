@@ -26,7 +26,7 @@ const API_BASE = process.env.SAFESTORAGE_API_BASE || "https://safestorage.in/bac
 
 // The feed spells cities inconsistently ("Bengaluru" vs "bangalore", …). Normalise to our slugs —
 // without this, a "Bengaluru" order silently belongs to no city and never gets scheduled.
-const CITY_ALIAS: Record<string, string> = { bengaluru: "bangalore", bombay: "mumbai", gurugram: "gurgaon", "new delhi": "delhi" };
+const CITY_ALIAS: Record<string, string> = { bengaluru: "bangalore", bombay: "mumbai", gurugram: "gurgaon", "new delhi": "delhi", luknow: "lucknow", lakhnau: "lucknow" };
 export function normCity(c: unknown): string {
   const s = String(c ?? "").toLowerCase().trim();
   return CITY_ALIAS[s] ?? s;
