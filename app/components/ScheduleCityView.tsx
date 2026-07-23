@@ -32,6 +32,10 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
   const fmtD = new Date((date || "") + "T00:00:00Z");
   const dateStr = isNaN(fmtD.getTime()) ? date : fmtD.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).replace(/ /g, "-");
   const lift = o.lift ? (/^(n|no|false|0|na)$/i.test(String(o.lift).trim()) ? "No" : "Yes") : "";
+  // RETRIEVALS get delivery wording + a delivery-confirmation back office — the pure pickup sheet
+  // made the team read a retrieval download as "the pickup inventory".
+  const isRet = /retriev/i.test(String(o.order_type ?? ""));
+  const docType = /partial/i.test(String(o.order_type ?? "")) ? "PARTIAL RETRIEVAL — DELIVERY SHEET" : isRet ? "RETRIEVAL — DELIVERY SHEET" : "PICKUP — INVENTORY SHEET";
   // "Personal box - Large 5, Bucket 2," — the items inline with bold quantities, like the original.
   const itemsInline = items.map((it) => `${esc(it.name)} <b>${esc(it.qty ?? 1)}</b>`).join(", ") + (items.length ? "," : "");
   const invRow = `<tr style="height:24px"><td></td><td></td><td></td><td></td><td></td></tr>`;
@@ -63,6 +67,7 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
       </td>
       <td style="width:90px;text-align:center;font-weight:bold;border-left:none">SafeStorage Transport</td>
     </tr></table>
+    <div class="band" style="letter-spacing:2px">${docType}</div>
     <table class="box">
       <tr><td style="width:55%;text-align:center;font-weight:bold">Personal Information</td><td style="text-align:center"><b>Date:</b> ${esc(dateStr)}</td></tr>
       <tr><td><b>Customer Name:</b> ${esc(o.customer_name ?? "")}</td><td><b>Customer ID:</b> ${esc(o.customer_unique_id)}</td></tr>
@@ -102,7 +107,7 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
       should be paid with in 7 days from due date. <b>All other terms and conditions would be as per the Service Agreement.</b>
     </td></tr></table>
     <table class="box"><tr>
-      <td style="width:50%;height:34px"><b>Received all the Items in good condition</b><br/>Customer/Receiver Signature</td>
+      <td style="width:50%;height:34px"><b>${isRet ? "Delivered all the Items in good condition" : "Received all the Items in good condition"}</b><br/>Customer/Receiver Signature</td>
       <td style="vertical-align:top">For Safe Storage Signature</td>
     </tr></table>
     <table class="box"><tr>
@@ -126,11 +131,11 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
 
   <!-- PAGE 4 — back office -->
   <div class="page">
-    <div class="band">Back Office</div>
-    <div style="font-weight:bold;margin:26px 0 0">Warehouse Receiver Name:</div>
-    <div style="margin:22px 0 0">Any Damages done during Transit or warehouse ?</div>
+    <div class="band">${isRet ? "Delivery Confirmation" : "Back Office"}</div>
+    <div style="font-weight:bold;margin:26px 0 0">${isRet ? "Delivered / Received by (customer):" : "Warehouse Receiver Name:"}</div>
+    <div style="margin:22px 0 0">${isRet ? "Any Damages found at delivery ?" : "Any Damages done during Transit or warehouse ?"}</div>
     <div style="margin:38px 0 0;line-height:1.7">
-      Total Items Received :<br/>
+      ${isRet ? "Total Items Delivered :" : "Total Items Received :"}<br/>
       Damaged items reported (yes/no) :<br/>
       Damage items images collected (yes/no) :
     </div>
