@@ -34,6 +34,14 @@ const RES_LABEL: Record<string, string> = {
   apology_call: "Apology call", waiver: "Charge waiver", other: "Other",
 };
 const FAULT_LABEL: Record<string, string> = { ours: "Our side", vendor: "Vendor side", customer: "Customer side", unknown: "Unknown" };
+// Status options — the SAME list as the WMS missing/damage page dropdown.
+const STATUS_OPTS: [string, string][] = [
+  ["open", "Open"], ["in_progress", "In Progress"], ["outsource", "Outsource"],
+  ["vendor_transport", "Vendor Transport"], ["arrange_transport", "Arrange Transport"],
+  ["yet_to_repair", "Yet to Repair"], ["insurance_raised", "Insurance Raised"], ["hold", "Hold"],
+  ["wms_reported", "WMS Reported"], ["refund_initiated", "Refund Initiated"], ["resolved", "Resolved"],
+];
+const STATUS_LABEL = Object.fromEntries(STATUS_OPTS);
 
 export default function EscalationsBoard({ user }: { user: SessionUser | null }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -78,7 +86,7 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
     .filter((r) => fFault === "All" || r.fault_side === fFault);
 
   const open = countryRows.filter((r) => (r.status ?? "open") === "open").length;
-  const working = countryRows.filter((r) => r.status === "working").length;
+  const working = countryRows.filter((r) => r.status && r.status !== "open" && r.status !== "resolved").length;
   const resolved = countryRows.filter((r) => r.status === "resolved").length;
   const spent = countryRows.reduce((s, r) => s + (Number(r.amount_spent) || 0), 0);
   const vendorFault = countryRows.filter((r) => r.fault_side === "vendor").length;
@@ -125,7 +133,7 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
 
       <div className="mb-3 flex flex-wrap items-end gap-2 text-xs">
         {[
-          { label: "Status", v: fStatus, set: setFStatus, opts: [["All", "All Statuses"], ["open", "Open"], ["working", "Working on it"], ["resolved", "Resolved"]] },
+          { label: "Status", v: fStatus, set: setFStatus, opts: [["All", "All Statuses"], ...STATUS_OPTS] },
           { label: "Escalation Type", v: fType, set: setFType, opts: [["All", "All Types"], ...Object.entries(TYPE_LABEL)] },
           { label: "Issue side", v: fFault, set: setFFault, opts: [["All", "All"], ...Object.entries(FAULT_LABEL)] },
         ].map((f) => (
@@ -146,21 +154,21 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
         </Card>
       ) : (
         <Card className="overflow-x-auto">
-          <table className="w-full min-w-[1500px] text-left text-xs">
+          <table className="w-full table-fixed text-left text-[11px]">
             <thead>
-              <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="px-3 py-2">Booking</th>
-                <th className="px-3 py-2">Customer</th>
-                <th className="px-3 py-2">Raised</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="w-[16%] px-3 py-2">Issue</th>
-                <th className="px-3 py-2">Vendor</th>
-                <th className="px-3 py-2">ETA</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Issue side</th>
-                <th className="px-3 py-2">Resolution</th>
-                <th className="px-3 py-2">₹ Spent</th>
-                <th className="w-[16%] px-3 py-2">How resolved</th>
+              <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400">
+                <th className="w-[6%] px-2 py-1.5">Booking</th>
+                <th className="w-[8%] px-2 py-1.5">Customer</th>
+                <th className="w-[7%] px-2 py-1.5">Raised</th>
+                <th className="w-[8%] px-2 py-1.5">Type</th>
+                <th className="w-[15%] px-2 py-1.5">Issue</th>
+                <th className="w-[6%] px-2 py-1.5">Vendor</th>
+                <th className="w-[8%] px-2 py-1.5">ETA</th>
+                <th className="w-[9%] px-2 py-1.5">Status</th>
+                <th className="w-[7%] px-2 py-1.5">Side</th>
+                <th className="w-[8%] px-2 py-1.5">Resolution</th>
+                <th className="w-[5%] px-2 py-1.5">₹ Spent</th>
+                <th className="w-[13%] px-2 py-1.5">How resolved</th>
               </tr>
             </thead>
             <tbody>
@@ -169,8 +177,8 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
                 const age = daysOpen(r.raised_at, r.resolved_at);
                 const late = st !== "resolved" && r.eta && String(r.eta).slice(0, 10) < today;
                 return (
-                  <tr key={r.id} className={`border-b border-slate-50 align-top ${st === "resolved" ? "" : st === "working" ? "bg-amber-50/60" : "bg-red-50/60"}`}>
-                    <td className="px-3 py-2 font-semibold text-slate-800">
+                  <tr key={r.id} className={`border-b border-slate-50 align-top ${st === "resolved" ? "" : st === "open" ? "bg-red-50/60" : "bg-amber-50/60"}`}>
+                    <td className="px-2 py-1.5 font-semibold text-slate-800">
                       {r.customer_unique_id ?? "—"}
                       <div className="text-[10px] font-normal text-slate-400">{cityName(String(r.city ?? ""))}{r.is_intercity ? " · intercity" : ""}</div>
                       {!!r.wms_reported && (
@@ -179,64 +187,62 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slate-700">
+                    <td className="px-2 py-1.5 text-slate-700">
                       {r.customer_name ?? "—"}
                       {r.contact && <div className="text-[10px]"><a className="text-blue-600 hover:underline" href={`tel:${String(r.contact).split(/[/,]/)[0].trim()}`}>{String(r.contact).split(/[/,]/)[0].trim()}</a></div>}
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-slate-600">
+                    <td className="px-2 py-1.5 whitespace-nowrap text-slate-600">
                       {fmtDT(r.raised_at)}
                       {r.raised_by && <div className="text-[10px] text-slate-400">by {r.raised_by}</div>}
                       {age != null && <div className={`text-[10px] font-semibold ${st === "resolved" ? "text-emerald-600" : age > 3 ? "text-red-600" : "text-slate-400"}`}>{st === "resolved" ? `closed in ${age}d` : `${age}d open`}</div>}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <select value={r.escalation_type ?? ""} disabled={pending === `${r.id}:escalation_type`} onChange={(e) => save(r.id, "escalation_type", e.target.value)} className={sel}>
                         <option value="">—</option>
                         {Object.entries(TYPE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <textarea key={`${r.id}:i:${r.issue ?? ""}`} defaultValue={r.issue ?? ""} rows={2} disabled={pending === `${r.id}:issue`}
                         onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(r.issue ?? "")) save(r.id, "issue", v); }}
                         className="w-full resize-y rounded border border-slate-200 bg-white px-2 py-1 text-[11.5px]" />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <input key={`${r.id}:v:${r.vendor_name ?? ""}`} defaultValue={r.vendor_name ?? ""} placeholder="vendor" disabled={pending === `${r.id}:vendor_name`}
                         onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(r.vendor_name ?? "")) save(r.id, "vendor_name", v); }}
-                        className="w-24 rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px]" />
+                        className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px]" />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <input type="date" value={r.eta ? String(r.eta).slice(0, 10) : ""} disabled={pending === `${r.id}:eta`}
                         onChange={(e) => save(r.id, "eta", e.target.value)}
-                        className={`rounded border px-1.5 py-1 text-[11px] ${late ? "border-red-300 bg-red-50 text-red-700 font-semibold" : "border-slate-200 bg-white text-slate-700"}`} />
+                        className={`w-full rounded border px-1 py-1 text-[10.5px] ${late ? "border-red-300 bg-red-50 text-red-700 font-semibold" : "border-slate-200 bg-white text-slate-700"}`} />
                       {late && <div className="text-[10px] font-bold text-red-600">past ETA</div>}
                     </td>
-                    <td className="px-3 py-2">
-                      <select value={st} disabled={pending === `${r.id}:status`} onChange={(e) => save(r.id, "status", e.target.value)}
-                        className={`${sel} font-semibold ${st === "resolved" ? "text-emerald-600" : st === "working" ? "text-amber-700" : "text-red-600"}`}>
-                        <option value="open">Open</option>
-                        <option value="working">Working on it</option>
-                        <option value="resolved">Resolved</option>
+                    <td className="px-2 py-1.5">
+                      <select value={STATUS_LABEL[st] ? st : "open"} disabled={pending === `${r.id}:status`} onChange={(e) => save(r.id, "status", e.target.value)}
+                        className={`${sel} font-semibold ${st === "resolved" ? "text-emerald-600" : st === "open" ? "text-red-600" : "text-amber-700"}`}>
+                        {STATUS_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
                       {r.resolved_at && <div className="text-[10px] text-emerald-600">on {fmtDT(r.resolved_at)}</div>}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <select value={r.fault_side ?? ""} disabled={pending === `${r.id}:fault_side`} onChange={(e) => save(r.id, "fault_side", e.target.value)} className={sel}>
                         <option value="">—</option>
                         {Object.entries(FAULT_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <select value={r.resolution_type ?? ""} disabled={pending === `${r.id}:resolution_type`} onChange={(e) => save(r.id, "resolution_type", e.target.value)} className={sel}>
                         <option value="">—</option>
                         {Object.entries(RES_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <input key={`${r.id}:a:${r.amount_spent ?? ""}`} type="number" min="0" defaultValue={r.amount_spent ?? ""} placeholder="0" disabled={pending === `${r.id}:amount_spent`}
                         onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(r.amount_spent ?? "")) save(r.id, "amount_spent", v); }}
-                        className="w-20 rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px]" />
+                        className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px]" />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <textarea key={`${r.id}:n:${r.resolution_notes ?? ""}`} defaultValue={r.resolution_notes ?? ""} rows={2} placeholder="how we resolved it…" disabled={pending === `${r.id}:resolution_notes`}
                         onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(r.resolution_notes ?? "")) save(r.id, "resolution_notes", v); }}
                         className="w-full resize-y rounded border border-slate-200 bg-white px-2 py-1 text-[11.5px]" />
