@@ -55,7 +55,7 @@ async function importWmsIssues(): Promise<void> {
   const issues: any[] = [...wms.values()].flat();
   if (!issues.length) return;
   const c = db();
-  const { data: existing } = await c.from("order_escalations").select("order_key").like("order_key", "wmsissue:%");
+  const { data: existing } = await c.from("order_escalations").select("order_key").ilike("order_key", "wmsissue:%");
   const have = new Set((existing ?? []).map((r: any) => String(r.order_key)));
   for (const it of issues) {
     const key = `wmsissue:${it.id}`;
