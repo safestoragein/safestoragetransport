@@ -41,9 +41,58 @@ const EDITABLE = new Set([
   "resolution_type", "amount_spent", "resolution_notes",
 ]);
 
+// AUTO-IMPORT: every issue the WAREHOUSE team raises in their system becomes an escalation row
+// here — no manual step. Deduped by their issue id (order_key "wmsissue:<id>"); runs on every
+// Escalations page load, so new WMS reports appear on the next refresh.
+const WMS_TYPE_MAP: Record<string, string> = { damage: "damage", missing: "missing_item" };
+function wmsStatusToOurs(s: unknown): string {
+  const k = String(s ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+  const known = ["open", "in_progress", "outsource", "vendor_transport", "arrange_transport", "yet_to_repair", "insurance_raised", "hold", "wms_reported", "refund_initiated", "resolved"];
+  return known.includes(k) ? k : "wms_reported";
+}
+async function importWmsIssues(): Promise<void> {
+  const wms = await wmsIssuesByCustomer();
+  const issues: any[] = [...wms.values()].flat();
+  if (!issues.length) return;
+  const c = db();
+  const { data: existing } = await c.from("order_escalations").select("order_key").like("order_key", "wmsissue:%");
+  const have = new Set((existing ?? []).map((r: any) => String(r.order_key)));
+  for (const it of issues) {
+    const key = `wmsissue:${it.id}`;
+    if (!it.id || have.has(key)) continue;
+    let row: Record<string, unknown> = {
+      id: randomUUID(),
+      order_key: key,
+      customer_unique_id: it.customer_unique_id ?? null,
+      customer_name: it.name ?? null,
+      contact: null,
+      city: String(it.customer_local_city ?? "").toLowerCase() || null,
+      order_type: null,
+      is_intercity: 0,
+      escalation_type: WMS_TYPE_MAP[String(it.type ?? "").toLowerCase()] ?? "other",
+      issue: `${it.description ?? ""}${it.warehouse_location ? ` — ${it.warehouse_location}` : ""}${it.priority ? ` (priority: ${it.priority})` : ""}`,
+      raised_by: "WMS team",
+      ...(it.reported_date ? { raised_at: `${String(it.reported_date).slice(0, 10)} 00:00:00` } : {}),
+      status: wmsStatusToOurs(it.status),
+      fault_side: "ours",
+      ...(Number(it.Compensation_Amount) > 0 ? { amount_spent: Number(it.Compensation_Amount) } : {}),
+      wms_reported: 1,
+      wms_ref: wmsRefOf([it]),
+    };
+    for (let i = 0; i < 6; i++) {
+      const { error } = await c.from("order_escalations").insert(row);
+      if (!error) break;
+      const col = (String(error.message || "").match(/[Uu]nknown column '([a-z_]+)'/) || [])[1];
+      if (!col || !(col in row)) break; // duplicate/table-missing → skip silently
+      const { [col]: _drop, ...rest } = row; row = rest;
+    }
+  }
+}
+
 export async function listEscalations(from?: string | null, to?: string | null): Promise<{ rows: any[]; tableMissing: boolean }> {
   if (!hasDb) return { rows: [], tableMissing: false };
   try {
+    try { await importWmsIssues(); } catch { /* import is best-effort — the list still loads */ }
     let q = db().from("order_escalations").select("*").order("raised_at", { ascending: false }).limit(500);
     if (from) q = q.gte("raised_at", `${from} 00:00:00`);
     if (to) q = q.lte("raised_at", `${to} 23:59:59`);
