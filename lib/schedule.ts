@@ -135,7 +135,7 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
     required_time: b.requiredTimeText ?? null,
     team_notes: b.teamNotes ?? null,
     order_status: b.orderStatus ?? null,
-    booking_date: b.bookingDate ?? null,
+    booking_date: b.bookingDate ?? null, relationship_manager: b.relationshipManager ?? null,
   }));
   await upsertOrders(c, orderRows);
 
@@ -219,7 +219,7 @@ function orderRowOf(b: Booking, date: string, citySlug: string) {
     locality: b.location.label ?? null, lat: b.location.lat, lng: b.location.lng,
     warehouse_name: b.warehouse.label ?? null, warehouse_lat: b.warehouse.lat ?? null, warehouse_lng: b.warehouse.lng ?? null,
     time_slot: b.timeSlot ?? null, required_time: b.requiredTimeText ?? null, team_notes: b.teamNotes ?? null, order_status: b.orderStatus ?? null,
-    booking_date: b.bookingDate ?? null,
+    booking_date: b.bookingDate ?? null, relationship_manager: b.relationshipManager ?? null,
   };
 }
 
@@ -257,6 +257,7 @@ export interface ScheduleOrder {
   order_type: string; is_intercity: boolean; is_shifting?: boolean; intercity_profit?: number | null; pallets: number | null; stated_pallets: number | null; transport_charge: number | null; storage_charges?: number | null;
   locality: string | null; lat?: number | null; lng?: number | null; time_slot: string | null; required_time: string | null; team_notes: string | null; lift: string | null; floor?: string | null; manual_seq?: number | null;
   booking_date: string | null; // order_created_at — when the customer booked
+  relationship_manager?: string | null; // RM handling this customer (from the feed)
   trip_no: number; stop_seq: number; resources: number;
   live_status?: string | null; live_status_at?: string | null; // vendor app: en_route/arrived/packing/loaded/delivered
   app_events?: Record<string, string> | null; // event -> tap time (from order_events)

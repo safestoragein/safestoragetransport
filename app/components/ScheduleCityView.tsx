@@ -603,6 +603,9 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                       );
                     })()}
                     <span className="text-sm text-slate-600">{o.customer_name}</span>
+                    {(o as any).relationship_manager && (
+                      <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200" title="Relationship manager for this customer">👤 RM: {(o as any).relationship_manager}</span>
+                    )}
                     {o.contact && (
                       <a href={`tel:${String(o.contact).split(/[/,]/)[0].trim()}`} className="text-xs font-medium text-blue-600 hover:underline" title="Call customer">📞 {o.contact}</a>
                     )}

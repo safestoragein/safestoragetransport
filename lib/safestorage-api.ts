@@ -208,6 +208,7 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
       timeSlot: o.order_timeslot || undefined,
       orderStatus: o.order_status || undefined,
       bookingDate: o.order_created_at || undefined,
+      relationshipManager: o.relationship_manager_name || undefined,
       contact: [o.customer_contact1, o.customer_contact2].filter(Boolean).join(" / ") || undefined,
       // Transport charged to the customer, from the work-order feed:
       //   retrieval → retrieval_transport_charges ; pickup → transport_cost

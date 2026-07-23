@@ -105,6 +105,7 @@ function OrderFlow({ o, live, photos }: { o: any; live: LiveMap; photos?: { id: 
         <span className={`rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-white ${pk ? "bg-blue-600" : "bg-emerald-600"}`}>{pk ? "Pickup" : "Retrieval"}</span>
         <span className="text-[13px] font-bold text-slate-900">{o.customer_unique_id}</span>
         <span className="text-slate-600">{o.customer_name}</span>
+        {o.relationship_manager && <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200" title="Relationship manager">👤 {o.relationship_manager}</span>}
         {o.locality && <span className="text-slate-400">📍 {o.locality}</span>}
         {o.contact && <a className="font-medium text-blue-600 hover:underline" href={`tel:${String(o.contact).split(/[/,]/)[0].trim()}`}>📞 {String(o.contact).split(/[/,]/)[0].trim()}</a>}
         {(o.stated_pallets ?? o.pallets) != null && <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200"><b>{o.stated_pallets ?? o.pallets}p</b></span>}
