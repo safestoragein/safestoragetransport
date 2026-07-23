@@ -31,12 +31,12 @@ export async function listEscalations(from?: string | null, to?: string | null):
 }
 
 // Which of the given order keys already have an escalation (for the Feedback page's chips).
-export async function escalationKeys(keys: string[]): Promise<Record<string, { id: string; status: string }>> {
+export async function escalationKeys(keys: string[]): Promise<Record<string, { id: string; status: string; type: string | null }>> {
   if (!hasDb || !keys.length) return {};
   try {
-    const { data } = await db().from("order_escalations").select("id, order_key, status").in("order_key", keys.slice(0, 400));
-    const out: Record<string, { id: string; status: string }> = {};
-    for (const r of data ?? []) out[(r as any).order_key] = { id: (r as any).id, status: (r as any).status };
+    const { data } = await db().from("order_escalations").select("id, order_key, status, escalation_type").in("order_key", keys.slice(0, 400));
+    const out: Record<string, { id: string; status: string; type: string | null }> = {};
+    for (const r of data ?? []) out[(r as any).order_key] = { id: (r as any).id, status: (r as any).status, type: (r as any).escalation_type ?? null };
     return out;
   } catch { return {}; }
 }

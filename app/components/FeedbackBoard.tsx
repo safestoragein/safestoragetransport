@@ -119,7 +119,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
   const [tableMissing, setTableMissing] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   // Escalations: which rows already have one (chip) + the raise-escalation mini form.
-  const [escMap, setEscMap] = useState<Record<string, { id: string; status: string }>>({});
+  const [escMap, setEscMap] = useState<Record<string, { id: string; status: string; type?: string | null }>>({});
   const [escFor, setEscFor] = useState<any | null>(null);
   const [escType, setEscType] = useState("damage");
   const [escIssue, setEscIssue] = useState("");
@@ -277,6 +277,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                 <th className="px-3 py-2">Outcome</th>
                 <th className="px-3 py-2">Assigned team</th>
                 <th className="px-3 py-2">Resolved</th>
+                <th className="px-3 py-2">Google Review</th>
                 <th className="px-3 py-2">Escalation</th>
               </tr>
             </thead>
@@ -356,6 +357,19 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                       )}
                     </td>
                     <td className="px-3 py-2">
+                      {escMap[r.id]?.type === "negative_review" ? (
+                        <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Negative Google review — tracked on the Escalations page">
+                          👎 negative
+                        </a>
+                      ) : escMap[r.id] ? (
+                        <span className="text-slate-300" title="This order already has a different escalation — add the review detail there.">—</span>
+                      ) : (
+                        <button onClick={() => { setEscFor(r); setEscType("negative_review"); setEscIssue(""); }} className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50" title="Mark that this customer left a negative Google review — it will be tracked on the Escalations page">
+                          👎 mark
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
                       {escMap[r.id] ? (
                         <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Open the Escalations page">
                           ⚠ {escMap[r.id].status === "resolved" ? "resolved" : "escalated"}
@@ -391,7 +405,9 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
               </select>
             </label>
             <label className="mb-3 block text-xs font-medium text-slate-600">What happened?
-              <textarea value={escIssue} onChange={(e) => setEscIssue(e.target.value)} rows={3} placeholder="e.g. customer found the fridge door dented after unpacking…" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+              <textarea value={escIssue} onChange={(e) => setEscIssue(e.target.value)} rows={3}
+                placeholder={escType === "negative_review" ? "paste the Google review text (or summarise it)…" : "e.g. customer found the fridge door dented after unpacking…"}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
             </label>
             <div className="flex justify-end gap-2">
               <button onClick={() => setEscFor(null)} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50">Cancel</button>
