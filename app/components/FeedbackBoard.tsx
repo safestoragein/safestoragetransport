@@ -277,10 +277,10 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                 <th className="w-[24%] px-3 py-2">Remarks (feedback)</th>
                 <th className="px-3 py-2">Source of lead</th>
                 <th className="px-3 py-2">Outcome</th>
-                <th className="px-3 py-2">Assigned team</th>
-                <th className="px-3 py-2">Resolved</th>
                 <th className="px-3 py-2">Google Review</th>
                 <th className="px-3 py-2">Escalation</th>
+                <th className="px-3 py-2">Assigned team</th>
+                <th className="px-3 py-2">Resolved</th>
               </tr>
             </thead>
             <tbody>
@@ -329,6 +329,30 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         <option value="negative">Negative</option>
                       </select>
                     </td>
+                    <td className="px-3 py-2">
+                      {escMap[r.id]?.type === "negative_review" ? (
+                        <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Negative Google review — tracked on the Escalations page">
+                          👎 negative
+                        </a>
+                      ) : escMap[r.id] ? (
+                        <span className="text-slate-300" title="This order already has a different escalation — add the review detail there.">—</span>
+                      ) : (
+                        <button onClick={() => { setEscFor(r); setEscType("negative_review"); setEscIssue(""); }} className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50" title="Mark that this customer left a negative Google review — it will be tracked on the Escalations page">
+                          👎 mark
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {escMap[r.id] ? (
+                        <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Open the Escalations page">
+                          ⚠ {escMap[r.id].status === "resolved" ? "resolved" : "escalated"}
+                        </a>
+                      ) : (
+                        <button onClick={() => { setEscFor(r); setEscType("damage"); setEscIssue(""); }} className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50" title="Raise an escalation for this order (damage found later, missing item, negative review…)">
+                          ＋ Escalate
+                        </button>
+                      )}
+                    </td>
                     {/* Escalation fields appear ONLY on negative outcomes. Picking a team on a
                         negative row auto-raises the internal complaint ticket (once). */}
                     <td className="px-3 py-2">
@@ -356,30 +380,6 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         </select>
                       ) : (
                         <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      {escMap[r.id]?.type === "negative_review" ? (
-                        <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Negative Google review — tracked on the Escalations page">
-                          👎 negative
-                        </a>
-                      ) : escMap[r.id] ? (
-                        <span className="text-slate-300" title="This order already has a different escalation — add the review detail there.">—</span>
-                      ) : (
-                        <button onClick={() => { setEscFor(r); setEscType("negative_review"); setEscIssue(""); }} className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50" title="Mark that this customer left a negative Google review — it will be tracked on the Escalations page">
-                          👎 mark
-                        </button>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      {escMap[r.id] ? (
-                        <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Open the Escalations page">
-                          ⚠ {escMap[r.id].status === "resolved" ? "resolved" : "escalated"}
-                        </a>
-                      ) : (
-                        <button onClick={() => { setEscFor(r); setEscType("damage"); setEscIssue(""); }} className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50" title="Raise an escalation for this order (damage found later, missing item, negative review…)">
-                          ＋ Escalate
-                        </button>
                       )}
                     </td>
                   </tr>
