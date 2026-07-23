@@ -24,111 +24,129 @@ const LIVE: Record<string, { label: string; cls: string }> = {
   loaded: { label: "✅ Loaded", cls: "bg-teal-100 text-teal-700" },
   delivered: { label: "🏁 Delivered", cls: "bg-emerald-600 text-white" },
 };
-// The team's official inventory sheet — SAME format as the old SafeStorage PDF, logo included,
-// laid out on exactly FOUR A4 pages (page 2 is a mostly-blank inventory table so the crew can add
-// items by hand). Opened in a print window → Save as PDF.
+// The team's official inventory sheet — an EXACT replica of the WMS-generated mPDF document
+// (BH…_safestorage_….pdf): bordered logo header on PAGE 1 ONLY, serif type, the same tables,
+// grey section bands, star ratings — 4 A4 pages. Opened in a print window → Save as PDF.
 function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: string | null, logoUrl: string): string {
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const fmtD = new Date((date || "") + "T00:00:00Z");
   const dateStr = isNaN(fmtD.getTime()) ? date : fmtD.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).replace(/ /g, "-");
-  const itemRows = items.map((it) => `<tr><td>${esc(it.name)}</td><td style="text-align:center">${esc(it.qty ?? 1)}</td></tr>`).join("");
-  const blank = (n: number) => Array.from({ length: n }, () => `<tr style="height:26px"><td></td><td></td><td></td><td></td><td></td></tr>`).join("");
   const lift = o.lift ? (/^(n|no|false|0|na)$/i.test(String(o.lift).trim()) ? "No" : "Yes") : "";
-  const header = `<div class="hdr">
-    <img src="${esc(logoUrl)}" alt="SafeStorage" style="height:52px" onerror="this.style.display='none'"/>
-    <div>
-      <b>SAFESTORAGE TECHNOLOGIES AND SERVICES PRIVATE LIMITED.</b><br/>
-      #130/2, Hanumantha Gowda Compound, Near Anjaneya Anugraha Aptmt,<br/>
-      Immadihalli Road, Immadihalli, Whitefield, Bangalore - 560 066<br/>
-      Phone: +91 8088 84 84 84 / 080-41121686 &nbsp;·&nbsp; Email: info@safestorage.in &nbsp;·&nbsp; www.SafeStorage.in
-    </div>
-  </div>`;
+  // "Personal box - Large 5, Bucket 2," — the items inline with bold quantities, like the original.
+  const itemsInline = items.map((it) => `${esc(it.name)} <b>${esc(it.qty ?? 1)}</b>`).join(", ") + (items.length ? "," : "");
+  const invRow = `<tr style="height:24px"><td></td><td></td><td></td><td></td><td></td></tr>`;
+  const invCols = `<colgroup><col style="width:15%"/><col style="width:35%"/><col style="width:10%"/><col style="width:10%"/><col style="width:30%"/></colgroup>`;
+  const lineRow = `<tr style="height:24px"><td style="border-left:1px solid #000;border-right:1px solid #000;border-bottom:1px solid #000"></td></tr>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(o.customer_unique_id)}_safestorage_inventory</title>
   <style>
-    @page { size: A4; margin: 12mm; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #111; margin: 0; }
+    @page { size: A4; margin: 11mm 12mm; }
+    body { font-family: Georgia, "Times New Roman", serif; font-size: 12px; color: #000; margin: 0; }
     .page { page-break-after: always; }
     .page:last-child { page-break-after: auto; }
-    .hdr { display: flex; align-items: center; gap: 14px; text-align: left; line-height: 1.5; border-bottom: 2px solid #222; padding-bottom: 6px; }
-    .hdr b { font-size: 12.5px; letter-spacing: .3px; }
-    h2 { text-align: center; font-size: 14px; margin: 10px 0 6px; }
-    h3 { font-size: 12px; background: #eef2f7; padding: 4px 8px; margin: 12px 0 4px; border: 1px solid #cbd5e1; }
-    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-    td, th { border: 1px solid #94a3b8; padding: 4px 6px; vertical-align: top; }
-    th { background: #f1f5f9; text-align: left; }
-    .info td { border: none; padding: 2.5px 4px; }
-    .info b { display: inline-block; min-width: 130px; }
-    .tc { font-size: 10px; line-height: 1.55; margin-top: 10px; }
-    .sig { display: flex; justify-content: space-between; margin-top: 48px; }
-    .sig div { width: 30%; border-top: 1px solid #333; text-align: center; padding-top: 4px; font-size: 10px; }
-    .chk { margin: 6px 0; }
-    .line { border-bottom: 1px dotted #64748b; display: inline-block; min-width: 220px; }
+    table { width: 100%; border-collapse: collapse; }
+    .box td { border: 1px solid #000; padding: 3px 6px; }
+    .band { background: #ddd; text-align: center; font-weight: bold; padding: 4px; font-size: 12.5px; }
+    .stars { color: #bbb; font-size: 20px; letter-spacing: 6px; }
   </style></head><body>
 
-  <!-- PAGE 1 — personal information + booked items -->
+  <!-- PAGE 1 — header (only here), personal information, items, details, inventory table -->
   <div class="page">
-    ${header}
-    <h2>SafeStorage Transport — Inventory Sheet</h2>
-    <h3>Personal Information</h3>
-    <table class="info"><tr>
-      <td><b>Date:</b> ${esc(dateStr)}</td><td><b>Customer ID:</b> ${esc(o.customer_unique_id)}</td>
-    </tr><tr>
-      <td><b>Customer Name:</b> ${esc(o.customer_name ?? "")}</td><td><b>Phone:</b> ${esc(String(o.contact ?? "").split(/[\/,]/)[0].trim())}</td>
-    </tr><tr>
-      <td colspan="2"><b>Address:</b> ${esc(address ?? o.locality ?? "")}</td>
-    </tr><tr>
-      <td><b>Floor:</b> ${esc(o.floor ?? "")} &nbsp;&nbsp; <b style="min-width:auto">Lift:</b> ${esc(lift)}</td>
-      <td><b>Order type:</b> ${esc(String(o.order_type ?? "").replace("_", " "))}</td>
-    </tr><tr>
-      <td><b>Vehicle type:</b> ${esc(v.vehicleType ?? "")}</td>
-      <td><b>Supervisor:</b> ${esc(v.supervisorName ?? "")} ${esc(v.supervisorContact ?? "")}</td>
+    <table class="box"><tr>
+      <td style="width:130px;text-align:center;border-right:none"><img src="${esc(logoUrl)}" alt="SafeStorage" style="height:56px" onerror="this.style.display='none'"/></td>
+      <td style="text-align:center;line-height:1.5;border-left:none;border-right:none">
+        <b>SAFESTORAGE TECHNOLOGIES AND SERVICES PRIVATE LIMITED.</b><br/>
+        #130/2, Hanumantha Gowda Compound, Near Anjaneya Anugraha Aptmt,<br/>
+        Immadihalli Road, Immadihalli, Whitefield, Bangalore - 560 066<br/>
+        Phone: +91 8088 84 84 84 / 080-41121686<br/>
+        Email: info@safestorage.in<br/>
+        www.SafeStorage.in
+      </td>
+      <td style="width:90px;text-align:center;font-weight:bold;border-left:none">SafeStorage Transport</td>
     </tr></table>
-    <h3>Items (${items.length} item${items.length === 1 ? "" : "s"} · ${items.reduce((s, it) => s + (Number(it.qty) || 1), 0)} pieces)</h3>
-    <table><tr><th>Item</th><th style="width:90px;text-align:center">Quantity</th></tr>${itemRows}</table>
-  </div>
-
-  <!-- PAGE 2 — inventory table with blank rows for items added on the ground -->
-  <div class="page">
-    ${header}
-    <h3>Inventory</h3>
-    <table><tr><th style="width:110px">Barcode</th><th>Description</th><th style="width:50px">Qty</th><th style="width:80px">Est. Value</th><th style="width:150px">Remarks / Notes</th></tr>
-    ${blank(24)}<tr><td colspan="2" style="text-align:right"><b>Total</b></td><td></td><td></td><td></td></tr></table>
-  </div>
-
-  <!-- PAGE 3 — terms & conditions + acknowledgement signatures -->
-  <div class="page">
-    ${header}
-    <h3>Terms and Conditions</h3>
-    <div class="tc">1. Customer declares that all the goods are owned by him and authorize Safe Storage Technologies and Services Pvt Ltd to store all his/her goods.<br/>
-    2. Customer declared that there are no hazardous items or illegal content items in his goods.<br/>
-    3. Goods delivery / transport charges born by the customer at the time of retrieval.<br/>
-    4. Bills / Monthly storage charges should be paid with in 7 days from due date.<br/><br/>
-    All other terms and conditions would be as per the Service Agreement.</div>
-    <div style="margin-top:22px;font-size:11px"><b>Received all the Items in good condition</b></div>
-    <div class="sig"><div>Customer / Receiver Signature</div><div>For Safe Storage Signature</div><div>Customer Feedback</div></div>
-  </div>
-
-  <!-- PAGE 4 — damage requisition + back office -->
-  <div class="page">
-    ${header}
-    <h3>Damage Requisition Form</h3>
-    <div class="chk">☐ Damages found at customer place</div>
-    <div class="chk">☐ Damage done by Transport team at customer place, Transit &amp; WH.</div>
-    <div class="chk">Customer Feedback &amp; Signature: <span class="line"></span></div>
-    <h3>Back Office</h3>
-    <table class="info">
-      <tr><td><b>Warehouse Receiver Name:</b> <span class="line"></span></td><td><b>Total Items Received:</b> <span class="line" style="min-width:80px"></span></td></tr>
-      <tr><td><b>Any Damages done during Transit or warehouse?</b> <span class="line" style="min-width:80px"></span></td><td><b>Damaged items reported (yes/no):</b> <span class="line" style="min-width:80px"></span></td></tr>
-      <tr><td colspan="2"><b>Damage items images collected (yes/no):</b> <span class="line" style="min-width:80px"></span></td></tr>
-      <tr><td colspan="2"><b>Rating for the Packing:</b> Poor ☐ &nbsp; Average ☐ &nbsp; Good ☐ &nbsp; Excellent ☐</td></tr>
-      <tr><td colspan="2"><b>Packing material Quality:</b> Poor ☐ &nbsp; Average ☐ &nbsp; Good ☐ &nbsp; Excellent ☐</td></tr>
-      <tr><td colspan="2"><b>Packers Attitude:</b> Poor ☐ &nbsp; Average ☐ &nbsp; Good ☐ &nbsp; Excellent ☐</td></tr>
-      <tr><td><b>Acknowledgement call to customer:</b> Yes ☐ &nbsp; No ☐</td><td><b>Important Remarks:</b> <span class="line"></span></td></tr>
-      <tr><td colspan="2"><b>Barcoding (WH executive, Supervisor Names with Timestamp):</b> <span class="line"></span></td></tr>
-      <tr><td colspan="2"><b>Stacking (WH executive, Supervisor Names with Timestamp):</b> <span class="line"></span></td></tr>
-      <tr><td colspan="2"><b>Verified By (Name, signature with Timestamp):</b> <span class="line"></span></td></tr>
+    <table class="box">
+      <tr><td style="width:55%;text-align:center;font-weight:bold">Personal Information</td><td style="text-align:center"><b>Date:</b> ${esc(dateStr)}</td></tr>
+      <tr><td><b>Customer Name:</b> ${esc(o.customer_name ?? "")}</td><td><b>Customer ID:</b> ${esc(o.customer_unique_id)}</td></tr>
+      <tr><td><b>Address:</b> ${esc(address ?? o.locality ?? "")}</td><td><b>Permanent Address:</b></td></tr>
+      <tr><td><b>City:</b> ${esc(o.city ? String(o.city).replace(/(^|[\s-])\w/g, (m: string) => m.toUpperCase()) : "")}</td><td><b>Phone:</b> ${esc(String(o.contact ?? "").split(/[\/,]/)[0].trim())} /</td></tr>
+      <tr><td><b>Email:</b></td><td><b>Floor:</b> ${esc(o.floor ?? "")} / <b>Lift:</b> ${esc(lift)}</td></tr>
     </table>
-    <div class="sig"><div>Signature of the receiver</div><div>Signature of the Packer / Customer</div><div>&nbsp;</div></div>
+    <div style="text-align:center;font-weight:bold;margin:14px 0 8px">${esc(String(o.order_type ?? "").replace("_", " ").replace(/(^|\s)\w/g, (m: string) => m.toUpperCase()))}</div>
+    <div style="font-weight:bold;margin:0 0 4px">${esc(v.vehicleType ?? "")} Vehicle</div>
+    <table><tr>
+      <td style="width:72px;font-weight:bold;vertical-align:top">Item<br/>Quantity</td>
+      <td style="padding-left:8px">${itemsInline}</td>
+    </tr></table>
+    <table class="box" style="margin-top:6px">
+      <tr><td style="width:55%"><b>Floor :</b></td><td><b>Vehicle type :</b> ${esc(v.vehicleType ?? "")}</td></tr>
+      <tr><td><b>Lift :</b> ${esc(lift)}</td><td><b>Home type :</b></td></tr>
+      <tr><td><b>Lift to loading distance :</b></td><td><b>Pickup type :</b></td></tr>
+      <tr><td><b>Supervisor name :</b> ${esc(v.supervisorName ?? "")}</td><td><b>Supervisor contact:</b> ${esc(v.supervisorContact ?? "")}</td></tr>
+    </table>
+    <div style="text-align:center;font-weight:bold;margin:14px 0 6px">Inventory</div>
+    <table class="box">${invCols}
+      <tr style="text-align:center;font-weight:bold"><td>Barcode</td><td>Description</td><td>Qty</td><td>Est.Value</td><td>Remarks/Notes</td></tr>
+      ${invRow.repeat(19)}
+    </table>
+  </div>
+
+  <!-- PAGE 2 — inventory table continues (no header), Total, T&C, signatures -->
+  <div class="page">
+    <table class="box">${invCols}
+      ${invRow.repeat(20)}
+      <tr style="height:24px"><td></td><td style="text-align:right;font-weight:bold">Total</td><td></td><td></td><td></td></tr>
+    </table>
+    <table class="box"><tr><td style="font-size:11.5px;line-height:1.5">
+      <b>Terms and Conditions:</b> 1. Customer declares that all the goods are owned by him and authorize Safe Storage Technologies and
+      Services Pvt Ltd to store all his/her goods. 2. Customer declared that there are no hazardous items or illegal content items in his
+      goods. 3 . Goods delivery / transport charges born by the customer at the time of retrieval. 4. Bills /Monthly storage charges
+      should be paid with in 7 days from due date. <b>All other terms and conditions would be as per the Service Agreement.</b>
+    </td></tr></table>
+    <table class="box"><tr>
+      <td style="width:50%;height:34px"><b>Received all the Items in good condition</b><br/>Customer/Receiver Signature</td>
+      <td style="vertical-align:top">For Safe Storage Signature</td>
+    </tr></table>
+    <table class="box"><tr>
+      <td style="width:30%;height:44px;vertical-align:middle"><b>Customer Feedback</b></td>
+      <td></td>
+    </tr></table>
+  </div>
+
+  <!-- PAGE 3 — damage requisition form -->
+  <div class="page">
+    <div class="band">Damage Requisition Form</div>
+    <table style="margin-top:34px">
+      <tr><td style="border:1px solid #000;text-align:center;font-weight:bold;padding:3px">Damages found at customer place</td></tr>
+      ${lineRow.repeat(9)}
+      <tr><td style="border:1px solid #000;text-align:center;font-weight:bold;padding:3px">Damage done by Transport team at customer place,Transit &amp; WH.</td></tr>
+      ${lineRow.repeat(9)}
+    </table>
+    <div style="text-align:center;font-weight:bold;margin:22px 0 6px">Customer Feedback &amp; Signature</div>
+    <div style="border:1px solid #000;height:110px"></div>
+  </div>
+
+  <!-- PAGE 4 — back office -->
+  <div class="page">
+    <div class="band">Back Office</div>
+    <div style="font-weight:bold;margin:26px 0 0">Warehouse Receiver Name:</div>
+    <div style="margin:22px 0 0">Any Damages done during Transit or warehouse ?</div>
+    <div style="margin:38px 0 0;line-height:1.7">
+      Total Items Received :<br/>
+      Damaged items reported (yes/no) :<br/>
+      Damage items images collected (yes/no) :
+    </div>
+    <div style="border:1px solid #000;margin-top:20px;padding:10px 12px;width:62%">
+      <table><tr><td style="width:46%">Rating for the Packing :</td><td class="stars">☆☆☆☆☆</td></tr></table>
+      <table style="margin-top:12px"><tr><td style="width:46%">Packing material Quality :</td><td class="stars">☆☆☆☆☆</td></tr></table>
+      <div style="margin-top:14px">Packers Attitude : &nbsp;&nbsp;&nbsp;&nbsp; Poor &nbsp;&nbsp; Average &nbsp;&nbsp; Good &nbsp;&nbsp; Excellent</div>
+      <div style="margin-top:12px">Acknowledgement call to customer : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Yes &nbsp;&nbsp; No</div>
+      <div style="margin-top:12px">Important Remarks :</div>
+      <table style="margin-top:26px"><tr><td>Signature of the receiver</td><td style="text-align:center">Signature of the Packer/Customer</td></tr></table>
+    </div>
+    <div class="band" style="text-align:left;padding-left:8px;margin-top:26px">Barcoding(WH executive, Supervisor Names with Timestamp):</div>
+    <div style="height:96px"></div>
+    <div class="band" style="text-align:left;padding-left:8px">Stacking (WH executive, Supervisor Names with Timestamp):</div>
+    <div style="height:96px"></div>
+    <div class="band" style="text-align:left;padding-left:8px">Verified By: (Name, signature with Timestamp)</div>
   </div>
   <script>window.onload = () => setTimeout(() => window.print(), 400);</script>
   </body></html>`;
