@@ -260,6 +260,7 @@ export async function updateVendor(id: string, patch: Partial<VendorMaster>): Pr
       securityDeposit: "security_deposit", serviceAgreementUrl: "service_agreement_url",
       gstDocumentUrl: "gst_document_url", active: "active",
       notes: "notes", priorityGroup: "priority_group", billingCycle: "billing_cycle",
+      city: "city", // canonical slug (normalised in the API route)
     };
     for (const [k, col] of Object.entries(M)) if (k in patch) row[col] = (patch as any)[k];
     // Starting point changed → re-geocode the depot so day plans / allocation stay correct.
