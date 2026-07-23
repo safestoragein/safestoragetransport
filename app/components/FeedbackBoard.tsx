@@ -274,12 +274,11 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                 <th className="w-[3%] px-2 py-1.5" title="Intercity">IC</th>
                 <th className="w-[6%] px-2 py-1.5">Status</th>
                 <th className="w-[5%] px-2 py-1.5">Done</th>
-                <th className="w-[16%] px-2 py-1.5">Remarks (feedback)</th>
+                <th className="w-[18%] px-2 py-1.5">Remarks (feedback)</th>
                 <th className="w-[7%] px-2 py-1.5">Lead</th>
-                <th className="w-[8%] px-2 py-1.5">Outcome</th>
-                <th className="w-[6%] px-2 py-1.5">Review</th>
-                <th className="w-[7%] px-2 py-1.5">Escalation</th>
-                <th className="w-[8%] px-2 py-1.5">Team</th>
+                <th className="w-[9%] px-2 py-1.5">Outcome</th>
+                <th className="w-[8%] px-2 py-1.5">Escalation</th>
+                <th className="w-[9%] px-2 py-1.5">Team</th>
                 <th className="w-[6%] px-2 py-1.5">Resolved</th>
               </tr>
             </thead>
@@ -328,19 +327,6 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         <option value="positive">Positive</option>
                         <option value="negative">Negative</option>
                       </select>
-                    </td>
-                    <td className="px-2 py-1.5">
-                      {escMap[r.id]?.type === "negative_review" ? (
-                        <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Negative Google review — tracked on the Escalations page">
-                          👎 negative
-                        </a>
-                      ) : escMap[r.id] ? (
-                        <span className="text-slate-300" title="This order already has a different escalation — add the review detail there.">—</span>
-                      ) : (
-                        <button onClick={() => { setEscFor(r); setEscType("negative_review"); setEscIssue(""); }} className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50" title="Mark that this customer left a negative Google review — it will be tracked on the Escalations page">
-                          👎 mark
-                        </button>
-                      )}
                     </td>
                     <td className="px-2 py-1.5">
                       {escMap[r.id] ? (
@@ -399,7 +385,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
               <select value={escType} onChange={(e) => setEscType(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
                 <option value="damage">Damaged item</option>
                 <option value="missing_item">Missing item</option>
-                <option value="negative_review">Negative review</option>
+                <option value="negative_review">Negative Google review</option>
                 <option value="payment">Payment issue</option>
                 <option value="behaviour">Team behaviour</option>
                 <option value="delay">Delay</option>

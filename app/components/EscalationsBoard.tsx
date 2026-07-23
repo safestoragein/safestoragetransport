@@ -26,7 +26,7 @@ const daysOpen = (raised: string | null, resolved: string | null) => {
 };
 
 const TYPE_LABEL: Record<string, string> = {
-  damage: "Damaged item", missing_item: "Missing item", negative_review: "Negative review",
+  damage: "Damaged item", missing_item: "Missing item", negative_review: "Negative Google review",
   payment: "Payment issue", behaviour: "Team behaviour", delay: "Delay", other: "Other",
 };
 const RES_LABEL: Record<string, string> = {
