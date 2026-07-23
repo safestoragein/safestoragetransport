@@ -108,7 +108,7 @@ export async function loadFeedbackBoard(from: string, to: string, city?: string 
     const f = fb.get(id) ?? {};
     return {
       id,
-      is_intercity: String(w?.is_intercity ?? "") === "1" || !!o?.is_intercity,
+      is_intercity: /^(1|true|yes|y)$/i.test(String(w?.is_intercity ?? "").trim()) || /^(1|true|yes|y)$/i.test(String(o?.is_intercity ?? "").trim()),
       sys_order_id: w?.order_id != null ? String(w.order_id) : (o?.order_id != null ? String(o.order_id) : null),
       wms_customer_id: w?.customer_id != null ? String(w.customer_id) : null,
       customer_unique_id: o?.customer_unique_id ?? w?.customer_unique_id ?? String(w?.order_id ?? ""),

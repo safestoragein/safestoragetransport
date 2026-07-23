@@ -264,23 +264,23 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
         <Card className="p-8 text-center text-sm text-slate-500">No completed orders between {from} and {to}.</Card>
       ) : (
         <Card className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-left text-xs">
+          <table className="w-full table-fixed text-left text-[11px]">
             <thead>
-              <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="px-3 py-2">Booking</th>
-                <th className="px-3 py-2">Customer</th>
-                <th className="px-3 py-2">Contact</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2">Intercity</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Completed on</th>
-                <th className="w-[24%] px-3 py-2">Remarks (feedback)</th>
-                <th className="px-3 py-2">Source of lead</th>
-                <th className="px-3 py-2">Outcome</th>
-                <th className="px-3 py-2">Google Review</th>
-                <th className="px-3 py-2">Escalation</th>
-                <th className="px-3 py-2">Assigned team</th>
-                <th className="px-3 py-2">Resolved</th>
+              <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400">
+                <th className="w-[7%] px-2 py-1.5">Booking</th>
+                <th className="w-[8%] px-2 py-1.5">Customer</th>
+                <th className="w-[7%] px-2 py-1.5">Contact</th>
+                <th className="w-[6%] px-2 py-1.5">Type</th>
+                <th className="w-[3%] px-2 py-1.5" title="Intercity">IC</th>
+                <th className="w-[6%] px-2 py-1.5">Status</th>
+                <th className="w-[5%] px-2 py-1.5">Done</th>
+                <th className="w-[16%] px-2 py-1.5">Remarks (feedback)</th>
+                <th className="w-[7%] px-2 py-1.5">Lead</th>
+                <th className="w-[8%] px-2 py-1.5">Outcome</th>
+                <th className="w-[6%] px-2 py-1.5">Review</th>
+                <th className="w-[7%] px-2 py-1.5">Escalation</th>
+                <th className="w-[8%] px-2 py-1.5">Team</th>
+                <th className="w-[6%] px-2 py-1.5">Resolved</th>
               </tr>
             </thead>
             <tbody>
@@ -288,14 +288,14 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                 const negRow = r.outcome === "negative";
                 return (
                   <tr key={r.id} className={`border-b border-slate-50 align-top ${negRow ? "bg-red-50" : ""}`}>
-                    <td className="px-3 py-2 font-semibold text-slate-800">{r.customer_unique_id}<div className="text-[10px] font-normal text-slate-400">{cityName(String(r.city ?? ""))}</div></td>
-                    <td className="px-3 py-2 text-slate-700">{r.customer_name ?? "—"}</td>
-                    <td className="px-3 py-2">{r.contact ? <a className="text-blue-600 hover:underline" href={`tel:${String(r.contact).split(/[/,]/)[0].trim()}`}>{String(r.contact).split(/[/,]/)[0].trim()}</a> : "—"}</td>
-                    <td className="px-3 py-2 text-slate-600">{String(r.order_type ?? "—").replace("_", " ")}</td>
-                    <td className="px-3 py-2">{(r as any).is_intercity ? <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">Intercity</span> : <span className="text-slate-300">—</span>}</td>
-                    <td className="px-3 py-2 text-slate-600">{r.order_status ?? "—"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-slate-600">{fmtDate(r.completed_at)}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5 font-semibold text-slate-800">{r.customer_unique_id}<div className="text-[9.5px] font-normal text-slate-400">{cityName(String(r.city ?? ""))}</div></td>
+                    <td className="truncate px-2 py-1.5 text-slate-700" title={r.customer_name ?? ""}>{r.customer_name ?? "—"}</td>
+                    <td className="truncate px-2 py-1.5">{r.contact ? <a className="text-blue-600 hover:underline" href={`tel:${String(r.contact).split(/[/,]/)[0].trim()}`}>{String(r.contact).split(/[/,]/)[0].trim()}</a> : "—"}</td>
+                    <td className="px-2 py-1.5 text-slate-600">{/partial/i.test(String(r.order_type)) ? "Partial" : /retriev/i.test(String(r.order_type)) ? "Retrieval" : "Pickup"}</td>
+                    <td className="px-2 py-1.5">{(r as any).is_intercity ? <b className="text-violet-700" title="Intercity order">Y</b> : <span className="text-slate-400" title="Local order">N</span>}</td>
+                    <td className="truncate px-2 py-1.5 text-slate-600" title={r.order_status ?? ""}>{r.order_status ?? "—"}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-slate-600">{fmtDate(r.completed_at)}</td>
+                    <td className="px-2 py-1.5">
                       <textarea
                         key={`${r.id}:${r.remarks ?? ""}`}
                         defaultValue={r.remarks ?? ""}
@@ -306,18 +306,18 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         className="w-full resize-y rounded border border-slate-200 bg-white px-2 py-1 text-[11.5px] text-slate-800 disabled:opacity-50"
                       />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <input
                         key={`${r.id}:${r.source_of_lead ?? ""}`}
                         list="lead-sources"
                         defaultValue={r.source_of_lead ?? ""}
-                        placeholder="e.g. google"
+                        placeholder="google"
                         disabled={pending === `${r.id}:source_of_lead`}
                         onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(r.source_of_lead ?? "")) save(r.id, "source_of_lead", v); }}
-                        className="w-24 rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-700 disabled:opacity-50"
+                        className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-700 disabled:opacity-50"
                       />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <select
                         value={r.outcome ?? ""}
                         disabled={pending === `${r.id}:outcome`}
@@ -329,7 +329,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         <option value="negative">Negative</option>
                       </select>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       {escMap[r.id]?.type === "negative_review" ? (
                         <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Negative Google review — tracked on the Escalations page">
                           👎 negative
@@ -342,7 +342,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         </button>
                       )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       {escMap[r.id] ? (
                         <a href="/?view=escalations" className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${escMap[r.id].status === "resolved" ? "bg-emerald-100 text-emerald-700" : "bg-red-600 text-white"}`} title="Open the Escalations page">
                           ⚠ {escMap[r.id].status === "resolved" ? "resolved" : "escalated"}
@@ -355,7 +355,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                     </td>
                     {/* Escalation fields appear ONLY on negative outcomes. Picking a team on a
                         negative row auto-raises the internal complaint ticket (once). */}
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       {negRow ? (
                         <>
                           <select value={r.assigned_team ?? ""} disabled={pending === `${r.id}:assigned_team`} onChange={(e) => save(r.id, "assigned_team", e.target.value)} className={sel} title="Selecting a team raises the internal complaint ticket">
@@ -370,7 +370,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
                         <span className="text-slate-300">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       {negRow ? (
                         <select value={r.resolved_status ?? ""} disabled={pending === `${r.id}:resolved_status`} onChange={(e) => save(r.id, "resolved_status", e.target.value)} className={sel}>
                           <option value="">—</option>
