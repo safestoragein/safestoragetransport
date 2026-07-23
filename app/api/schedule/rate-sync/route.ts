@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get("date") || istNow.toISOString().slice(0, 10);
   try {
     const { data: runs } = await db().from("schedule_runs").select("city").eq("schedule_date", date);
-    const cities = [...new Set((runs ?? []).map((r: any) => String(r.city)))];
+    const cities: string[] = [...new Set<string>((runs ?? []).map((r: any) => String(r.city)))];
     const results: any[] = [];
     for (const city of cities) {
       try {
