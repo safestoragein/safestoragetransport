@@ -93,7 +93,9 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
   } catch { /* feed down → ids stay null; the app falls back gracefully */ }
   const seenJob = new Set<string>();
   const jobs = rows
-    .filter((a: any) => { if (a.stop_seq === -1) return false; const k = String(a.order_id); if (seenJob.has(k)) return false; seenJob.add(k); return true; })
+    // Dedupe by order — a vendor's rowset is either main rows (primary team) or co-team rows
+    // (their copy of a big order), never both for one order, so keep-first is safe for both.
+    .filter((a: any) => { const k = String(a.order_id); if (seenJob.has(k)) return false; seenJob.add(k); return true; })
     .sort((a: any, b: any) => a.trip_no - b.trip_no || a.stop_seq - b.stop_seq)
     .map((a: any) => {
       const o: any = byId.get(a.order_id) || {};
