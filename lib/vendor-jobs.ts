@@ -91,7 +91,9 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
   try {
     for (const f of await allLiveOrders()) { const id = String(f.order_id ?? ""); if (id) feedById.set(id, f); }
   } catch { /* feed down → ids stay null; the app falls back gracefully */ }
+  const seenJob = new Set<string>();
   const jobs = rows
+    .filter((a: any) => { if (a.stop_seq === -1) return false; const k = String(a.order_id); if (seenJob.has(k)) return false; seenJob.add(k); return true; })
     .sort((a: any, b: any) => a.trip_no - b.trip_no || a.stop_seq - b.stop_seq)
     .map((a: any) => {
       const o: any = byId.get(a.order_id) || {};

@@ -204,7 +204,16 @@ export async function generateSchedule(citySlug: string, date: string, trigger: 
       })));
     } catch { /* notified badge worst-case missing; assignments still locked */ }
   }
-  await insertAssignments(c, rows);
+  // Never write the same (vendor, order) twice into one run — duplicated feed rows / carried-over
+  // duplicates otherwise multiply into identical stops.
+  const seenRow = new Set<string>();
+  const dedupedRows = rows.filter((r: any) => {
+    const k = `${r.vendor_id ?? r.vendor_name ?? "un"}|${r.order_id}|${r.stop_seq === -1 ? "co" : "main"}`;
+    if (seenRow.has(k)) return false;
+    seenRow.add(k);
+    return true;
+  });
+  await insertAssignments(c, dedupedRows);
 
   return { runId: run.id, orders: result.kpis.totalBookings + lockedOrderCount, vendors: result.kpis.vendorsActive + lockedVendorCount, usedMaster };
 }
@@ -371,8 +380,13 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
   const byVendor = new Map<string, ScheduleVendor>();
   const ensureVendor = (key: string, init: () => ScheduleVendor) => { if (!byVendor.has(key)) byVendor.set(key, init()); return byVendor.get(key)!; };
 
+  const seenAssign = new Set<string>();
   (assigns ?? []).sort((a: any, b: any) => a.trip_no - b.trip_no || a.stop_seq - b.stop_seq).forEach((a: any) => {
     if (a.stop_seq === -1) return; // co-team row — handled above
+    // Skip exact duplicates (same vendor + order) — old runs may carry doubled rows.
+    const dk = `${a.vendor_id ?? a.vendor_name ?? "un"}|${a.order_id}`;
+    if (seenAssign.has(dk)) return;
+    seenAssign.add(dk);
     const o: any = orderById.get(a.order_id);
     if (!o) return;
     // An intercity order must never sit under a regular vendor — if a stale assignment put it there,

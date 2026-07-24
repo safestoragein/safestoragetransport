@@ -141,9 +141,19 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
   ]);
   const wh: GeoPoint = CITY_WAREHOUSE[citySlug] ?? { ...CITY_CENTER[citySlug], label: `${cap(citySlug)} WH` };
 
-  const dayOrders = orders.filter(
+  const dayOrdersRaw = orders.filter(
     (o) => normCity(o.customer_local_city) === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date,
   );
+  // The feed occasionally returns the SAME order multiple times (join artefact on their side) —
+  // without this, one booking becomes several identical schedule stops.
+  const seenOrderIds = new Set<string>();
+  const dayOrders = dayOrdersRaw.filter((o) => {
+    const k = String(o.order_id ?? "");
+    if (!k) return true;
+    if (seenOrderIds.has(k)) return false;
+    seenOrderIds.add(k);
+    return true;
+  });
 
   // PALLETS ARE NOT PULLED FROM THE FEED. Business rule: storage is billed at ~₹1,000 per pallet,
   // so the ACTUAL pallet count is DERIVED as storage_charges / 1000 (rounded to 0.1). The only
