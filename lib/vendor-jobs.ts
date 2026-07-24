@@ -123,7 +123,7 @@ export async function vendorJobs(vendorId: string, date?: string | null): Promis
         warehouseLng: o.warehouse_lng ?? null,
         // Pallet counts are internal (pricing-sensitive) — never sent to the vendor app.
         pallets: null,
-        timeSlot: o.time_slot ?? null,
+        timeSlot: o.time_slot_override ?? o.time_slot ?? null,
         lift: o.lift ?? null,
         floor: o.floor ?? null,
         teamNotes: o.team_notes ?? null,
@@ -165,7 +165,7 @@ async function tentativeJobs(c: any, vendorId: string, date: string): Promise<{ 
           lat: null, lng: null, // exact pin masked
           warehouseName: null, warehouseLat: null, warehouseLng: null,
           pallets: null, // internal — not shown to vendors
-          timeSlot: o.time_slot ?? null,
+          timeSlot: o.time_slot_override ?? o.time_slot ?? null,
           lift: null, floor: o.floor ?? null, teamNotes: null,
           tripNo: a.trip_no ?? 0, stopSeq: a.stop_seq ?? 0,
           liveStatus: null, liveStatusAt: null,

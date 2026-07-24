@@ -410,7 +410,7 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
         vendorNotifiedAt: a.vendor_id ? vendorNotified.get(a.vendor_id) ?? null : null,
       };
     });
-    sv.orders.push({ ...o, trip_no: a.trip_no, stop_seq: a.stop_seq, manual_seq: a.manual_seq ?? null, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null, coTeams: coByOrder.get(a.order_id) ?? null, app_events: eventsByOrder.get(a.order_id) ?? null, system_vendor_name: a.system_vendor_name ?? null } as any);
+    sv.orders.push({ ...o, time_slot: o.time_slot_override ?? o.time_slot, trip_no: a.trip_no, stop_seq: a.stop_seq, manual_seq: a.manual_seq ?? null, intercity_profit: a.intercity_profit ?? null, customerNotifiedAt: customerNotified.get(a.order_id) ?? null, coTeams: coByOrder.get(a.order_id) ?? null, app_events: eventsByOrder.get(a.order_id) ?? null, system_vendor_name: a.system_vendor_name ?? null } as any);
     sv.pallets += Number(o.pallets) || 0;
     sv.actualPallets += Number(o.stated_pallets ?? o.pallets) || 0;
     sv.revenue += Number(o.transport_charge) || 0;
@@ -434,7 +434,7 @@ export async function loadSchedule(citySlug: string, date: string): Promise<Sche
       perTransaction: v?.per_transaction != null ? Number(v.per_transaction) : null, pricingNote: v?.pricing_note ?? null,
       orders: [], pallets: 0, actualPallets: 0, revenue: 0, resources: 0, extraTrips: 0, tripCount: 0, vendorNotifiedAt: null,
     }));
-    sv.orders.push({ ...o, trip_no: 1, stop_seq: 1, isCoTeamOrder: true, coTeams: null } as any);
+    sv.orders.push({ ...o, time_slot: o.time_slot_override ?? o.time_slot, trip_no: 1, stop_seq: 1, isCoTeamOrder: true, coTeams: null } as any);
     sv.pallets += Number(o.pallets) || 0;
     sv.actualPallets += Number(o.stated_pallets ?? o.pallets) || 0;
   });
@@ -554,12 +554,21 @@ export async function removeStaleFromRun(citySlug: string, date: string): Promis
        .map((o: any) => String(o.order_id)), // eslint-disable-line @typescript-eslint/no-explicit-any
   );
 
-  const { data: assigns } = await c.from("schedule_assignments").select("order_id").eq("run_id", run.id);
+  const { data: assigns } = await c.from("schedule_assignments").select("order_id, vendor_id").eq("run_id", run.id);
+  // NOTIFIED = FINAL: a vendor already notified keeps their trip exactly as sent — their orders are
+  // never auto-removed here, even if the feed no longer lists them (the team handles cancellations
+  // on a notified trip manually, with the vendor in the loop).
+  const lockedOrderUuids = new Set<string>();
+  try {
+    const { data: pn } = await c.from("notifications").select("vendor_id").eq("run_id", run.id).eq("kind", "vendor");
+    const notified = new Set((pn ?? []).map((n: any) => String(n.vendor_id)).filter(Boolean));
+    for (const a of (assigns ?? []) as any[]) if (a.vendor_id && notified.has(String(a.vendor_id))) lockedOrderUuids.add(a.order_id);
+  } catch { /* best-effort */ }
   const orderUuids = [...new Set((assigns ?? []).map((a: any) => a.order_id))]; // eslint-disable-line @typescript-eslint/no-explicit-any
   if (!orderUuids.length) return { removed: 0 };
   const { data: orders } = await c.from("orders").select("id, order_id").in("id", orderUuids);
   // Compare on the BASE id so auto-split parts (…-p1of2) match the whole order in the live feed.
-  const stale = (orders ?? []).filter((o: any) => !liveIds.has(baseOrderId(o.order_id))).map((o: any) => o.id); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const stale = (orders ?? []).filter((o: any) => !liveIds.has(baseOrderId(o.order_id)) && !lockedOrderUuids.has(o.id)).map((o: any) => o.id); // eslint-disable-line @typescript-eslint/no-explicit-any
 
   let removed = 0;
   for (const uuid of stale) {

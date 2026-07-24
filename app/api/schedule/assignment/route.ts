@@ -58,7 +58,12 @@ export async function PATCH(req: NextRequest) {
     // Persisted on the order itself; the day plan re-sequences on the next reload.
     if (b.action === "timeslot") {
       const slot = b.timeSlot === "" || b.timeSlot == null ? null : String(b.timeSlot).trim();
-      const { error } = await c.from("orders").update({ time_slot: slot }).eq("id", b.orderUuid);
+      // The override survives feed re-pulls (Pull changes / nightly rate sync) — without it the
+      // team's manual timing reset to the booking system's slot, and the vendor app followed.
+      let { error } = await c.from("orders").update({ time_slot: slot, time_slot_override: slot }).eq("id", b.orderUuid);
+      if (error && /[Uu]nknown column '(time_slot_override)'/.test(error.message || "")) {
+        ({ error } = await c.from("orders").update({ time_slot: slot }).eq("id", b.orderUuid)); // pre-migration fallback
+      }
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true, timeSlot: slot });
     }
