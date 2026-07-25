@@ -262,7 +262,8 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
   async function reassign(orderUuid: string, vendorId: string) {
     const av = sched.availableVendors.find((x) => x.id === vendorId);
     setPending(`assign:${orderUuid}`);
-    await fetch("/api/schedule/assignment", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, orderUuid, action: "reassign", vendorId: vendorId || null, vendorName: av?.name ?? null }) });
+    const r = await fetch("/api/schedule/assignment", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, orderUuid, action: "reassign", vendorId: vendorId || null, vendorName: av?.name ?? null }) }).then((x) => x.json()).catch(() => null);
+    if (r?.warning) alert(r.warning);
     await reload();
     setPending(null);
   }
@@ -669,10 +670,24 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                         />
                       </label>
                     )}
-                    {teamsNeeded(Number(o.pallets) || 0) > 1 ? (
-                      // Big order = 2 teams of one vendor. Show BOTH allocated teams, ticked (auto-assigned).
-                      <span className="inline-flex flex-wrap items-center gap-1" title="Big order — 2 teams of this vendor are allocated (auto)">
-                        <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">✓ {v.vendorName}{v.vehicleType ? ` (${v.vehicleType})` : ""}</span>
+                    {teamsNeeded(Number(o.pallets) || 0) > 1 && !v.isUnassigned ? (
+                      // Big order = 2 teams of one vendor. Show BOTH allocated teams, ticked — plus a
+                      // change-dropdown so the team can move it manually (the 2nd team follows).
+                      <span className="inline-flex flex-wrap items-center gap-1" title="Big order — 2 teams of this vendor are allocated. Change the vendor and its 2nd team follows automatically.">
+                        {!readOnly && (
+                          <select
+                            value={v.vendorId ?? ""}
+                            disabled={pending === `assign:${o.id}`}
+                            onChange={(e) => reassign(o.id, e.target.value)}
+                            className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                          >
+                            <option value="">— team to assign —</option>
+                            {sched.availableVendors.filter((av) => (o.is_intercity ? av.isIntercity : !av.isIntercity)).map((av) => (
+                              <option key={av.id} value={av.id}>{av.name}</option>
+                            ))}
+                          </select>
+                        )}
+                        {readOnly && <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">✓ {v.vendorName}{v.vehicleType ? ` (${v.vehicleType})` : ""}</span>}
                         {(o.coTeams ?? []).map((ct: any, i: number) => (
                           <span key={i} className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">✓ {ct.vendorName}{ct.vehicleType ? ` (${ct.vehicleType})` : ""}</span>
                         ))}

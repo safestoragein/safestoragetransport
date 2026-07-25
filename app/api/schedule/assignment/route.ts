@@ -14,7 +14,8 @@
 //        - set a vendor's manual stop order (the team interchanges stops); 1..N in array order
 import { NextRequest, NextResponse } from "next/server";
 import { db, isUuid } from "@/lib/db";
-import { bufferedPickupPallets } from "@/lib/config";
+import { bufferedPickupPallets, teamsNeeded } from "@/lib/config";
+import { vendorFamily } from "@/lib/split";
 
 export const dynamic = "force-dynamic";
 
@@ -89,7 +90,10 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, pallets: stated });
     }
 
-    const { data: existing } = await c.from("schedule_assignments").select("*").eq("run_id", b.runId).eq("order_id", b.orderUuid).maybeSingle();
+    // A big order has one MAIN row plus co-team rows (stop_seq = -1) — edits always target the main
+    // row, never a co-team row.
+    const { data: allRows } = await c.from("schedule_assignments").select("*").eq("run_id", b.runId).eq("order_id", b.orderUuid);
+    const existing = ((allRows ?? []) as any[]).find((r) => r.stop_seq !== -1) ?? null;
 
     // manual intercity profit on an order
     if (b.action === "profit") {
@@ -106,6 +110,7 @@ export async function PATCH(req: NextRequest) {
       // unassign -> keep a null-vendor row so the order stays in the "team to assign" bucket
       if (existing) await c.from("schedule_assignments").update({ vendor_id: null, vendor_name: null }).eq("id", existing.id);
       else await c.from("schedule_assignments").insert({ run_id: b.runId, order_id: b.orderUuid, vendor_id: null, vendor_name: null, trip_no: 0, stop_seq: 0 });
+      await c.from("schedule_assignments").delete().eq("run_id", b.runId).eq("order_id", b.orderUuid).eq("stop_seq", -1); // drop reserved co-teams too
       return NextResponse.json({ ok: true, vendorId: null });
     }
     if (existing) {
@@ -115,7 +120,33 @@ export async function PATCH(req: NextRequest) {
       const { error } = await c.from("schedule_assignments").insert({ run_id: b.runId, order_id: b.orderUuid, vendor_id: vendorId, vendor_name: vendorName, trip_no: 1, stop_seq: 1 });
       if (error) throw new Error(error.message);
     }
-    return NextResponse.json({ ok: true, vendorId, vendorName });
+
+    // BIG order (needs 2+ teams): the previous vendor's reserved co-teams no longer apply — re-pick
+    // them from the NEW vendor's family (sibling teams in the same city), preferring teams that are
+    // still free on this run. Mirrors what the optimizer does automatically, so the team can assign
+    // big orders manually too.
+    let warning: string | undefined;
+    const { data: ordRow } = await c.from("orders").select("pallets").eq("id", b.orderUuid).maybeSingle();
+    const need = teamsNeeded(Number(ordRow?.pallets) || 0);
+    await c.from("schedule_assignments").delete().eq("run_id", b.runId).eq("order_id", b.orderUuid).eq("stop_seq", -1);
+    if (need > 1) {
+      const { data: runRow } = await c.from("schedule_runs").select("city").eq("id", b.runId).maybeSingle();
+      const fam = vendorFamily(vendorName);
+      const { data: vRows } = await c.from("vendors").select("id, name").eq("active", true).ilike("city", String(runRow?.city ?? ""));
+      const siblings = ((vRows ?? []) as any[]).filter((v) => vendorFamily(v.name) === fam && String(v.id) !== String(vendorId ?? "") && v.name !== vendorName);
+      // teams already carrying something on this run go last — free siblings first
+      const { data: used } = await c.from("schedule_assignments").select("vendor_id, vendor_name").eq("run_id", b.runId);
+      const busy = new Set(((used ?? []) as any[]).flatMap((r) => [String(r.vendor_id ?? ""), String(r.vendor_name ?? "")]));
+      const ordered = [...siblings.filter((s) => !busy.has(String(s.id)) && !busy.has(String(s.name))), ...siblings.filter((s) => busy.has(String(s.id)) || busy.has(String(s.name)))];
+      const picked = ordered.slice(0, need - 1);
+      for (const s of picked) {
+        await c.from("schedule_assignments").insert({ run_id: b.runId, order_id: b.orderUuid, vendor_id: isUuid(s.id) ? s.id : null, vendor_name: s.name, system_vendor_id: null, system_vendor_name: null, trip_no: existing?.trip_no ?? 1, stop_seq: -1 });
+      }
+      if (picked.length < need - 1) {
+        warning = `Big order needs ${need} teams but ${vendorName} has ${picked.length + 1} team(s) in this city — the vendor will need extra trips, or add another "${vendorName} Team 2" in the vendor panel.`;
+      }
+    }
+    return NextResponse.json({ ok: true, vendorId, vendorName, ...(warning ? { warning } : {}) });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }
