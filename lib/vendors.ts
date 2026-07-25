@@ -5,6 +5,7 @@
 import seed from "./data/vendor-master.json";
 import { put, list } from "@vercel/blob";
 import { db, hasDb } from "./db";
+import { normCity } from "./safestorage-api";
 
 // Local vans are 10ft/14ft/others. Intercity vendors are stored as "others" and shown as a truck
 // RANGE ("10–32 ft") in the UI — their exact size doesn't drive local scheduling.
@@ -103,7 +104,7 @@ async function supa() {
 function fromRow(r: any): VendorMaster {
   return {
     id: r.id,
-    city: r.city,
+    city: normCity(r.city) || r.city, // canonical slug — "Hyderabad" and "hyderabad" are ONE city
     name: r.name,
     vehicleType: r.vehicle_type,
     palletCapacity: Number(r.pallet_capacity),
@@ -196,6 +197,12 @@ export async function listVendors(): Promise<{ vendors: VendorMaster[]; source: 
       // active separately (masterVendorsForCity).
       const { data, error } = await c.from(TABLE).select("*").order("city").order("name");
       if (error) throw new Error(error.message);
+      // Self-heal legacy casing: rows saved before city normalisation ("Hyderabad", "Pune") are
+      // rewritten to the canonical slug once, so filters/counts never show the same city twice.
+      for (const r of (data ?? []) as any[]) {
+        const canon = normCity(r.city);
+        if (canon && r.city !== canon) { try { await c.from(TABLE).update({ city: canon }).eq("id", r.id); } catch { /* next load retries */ } }
+      }
       return { vendors: (data ?? []).map(fromRow), source: "supabase" };
     } catch (e) {
       console.error("[vendors] MySQL read failed (is the 'safestoragetransport' schema reachable?):", (e as Error).message);

@@ -25,6 +25,9 @@ type Sup = { name: string; phone: string };
 const primarySup = (v: VendorMaster): Sup | null =>
   (v.supervisors && v.supervisors[0]) || (v.supervisorName ? { name: v.supervisorName, phone: v.supervisorContact || "" } : null);
 
+// Cities are STORED as canonical lowercase slugs ("hyderabad") and DISPLAYED Title-cased.
+const cityLabel = (s: string) => String(s ?? "").replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
+
 export default function VendorPanel({ initial, source, user }: { initial: VendorMaster[]; source: "supabase" | "seed"; user: SessionUser | null }) {
   const [vendors, setVendors] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
@@ -42,7 +45,8 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
   // created with city "Dubai" and show under the Dubai tab).
   const country = useCountry();
   const countryVendors = vendors.filter((v) => countryOfCity(v.city) === country);
-  const cities = [...new Set(countryVendors.map((v) => v.city))].sort();
+  const citySlug = (s: string) => String(s ?? "").toLowerCase().trim();
+  const cities = [...new Set(countryVendors.map((v) => citySlug(v.city)))].sort();
   const [cityFilter, setCityFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState<"All" | "intercity" | "local" | "both">("All");
   const [vehicleFilter, setVehicleFilter] = useState<"All" | "14ft" | "10ft" | "others">("All");
@@ -55,7 +59,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
     return true;
   };
   const shown = countryVendors.filter((v) =>
-    (cityFilter === "All" || v.city === cityFilter) &&
+    (cityFilter === "All" || citySlug(v.city) === cityFilter) &&
     matchType(v) &&
     (vehicleFilter === "All" || v.vehicleType === vehicleFilter),
   );
@@ -187,7 +191,7 @@ export default function VendorPanel({ initial, source, user }: { initial: Vendor
         <label className="text-xs font-medium text-slate-500">City</label>
         <select value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700">
           <option value="All">All cities ({vendors.length})</option>
-          {cities.map((c) => <option key={c} value={c}>{c} ({vendors.filter((v) => v.city === c).length})</option>)}
+          {cities.map((c) => <option key={c} value={c}>{cityLabel(c)} ({vendors.filter((v) => citySlug(v.city) === c).length})</option>)}
         </select>
 
         <label className="text-xs font-medium text-slate-500">Type</label>
@@ -308,7 +312,7 @@ function Row({ v, showAll, mode, busy, canEdit, onToggleIntercity, onToggleLocal
   return (
     <>
       <tr className={`border-t border-slate-100 hover:bg-slate-50 ${isActive ? "" : "opacity-60"}`}>
-        <td className="px-3 py-2.5 text-slate-600">{v.city}</td>
+        <td className="px-3 py-2.5 text-slate-600">{cityLabel(v.city)}</td>
         <td className="cursor-pointer px-3 py-2.5 font-medium text-slate-800" onClick={onDetails}>
           <span className="mr-1 text-slate-400">{open ? "▾" : "▸"}</span>{v.name}
           {(!v.serviceAgreementUrl || !v.gstDocumentUrl) && (
@@ -602,7 +606,13 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
   const set = (k: string, v: string | boolean) => setF((p) => ({ ...p, [k]: v }));
   // ONE city per add — a vendor record belongs to a single city (add again for another city).
   const toggleCity = (c: string) => setSelCities((s) => (s[0] === c ? [] : [c]));
-  const addNewCity = () => { const c = newCity.trim(); if (c) setSelCities([c]); setNewCity(""); };
+  // New-city input normalises to the canonical slug and matches an existing chip case-insensitively —
+  // typing "Hyderabad" when a hyderabad chip exists selects that chip instead of creating a duplicate.
+  const addNewCity = () => {
+    const c = newCity.trim().toLowerCase();
+    if (c) setSelCities([existingCities.find((x) => x.toLowerCase() === c) ?? c]);
+    setNewCity("");
+  };
 
   async function submit() {
     if (!f.name || selCities.length !== 1) { setErr("Vendor name and ONE city are required"); return; }
@@ -647,14 +657,14 @@ function AddForm({ existingCities, onAdded }: { existingCities: string[]; onAdde
       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">City <span className="text-red-500">*</span> (pick ONE — a vendor record belongs to a single city; add the vendor again for another city)</div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         {existingCities.map((c) => (
-          <button key={c} type="button" onClick={() => toggleCity(c)} className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ${selCities.includes(c) ? "bg-blue-600 text-white ring-blue-600" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}>{c}</button>
+          <button key={c} type="button" onClick={() => toggleCity(c)} className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ${selCities.includes(c) ? "bg-blue-600 text-white ring-blue-600" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}>{cityLabel(c)}</button>
         ))}
         <span className="flex items-center gap-1">
           <input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" placeholder="+ new city" value={newCity} onChange={(e) => setNewCity(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addNewCity(); } }} />
           <button type="button" onClick={addNewCity} className="rounded-lg px-2 py-1 text-xs font-medium text-blue-600 ring-1 ring-slate-200 hover:bg-blue-50">Add</button>
         </span>
       </div>
-      {selCities.length > 0 && <div className="mb-3 text-[11px] text-slate-500">Vendor will be created in: <b>{selCities[0]}</b></div>}
+      {selCities.length > 0 && <div className="mb-3 text-[11px] text-slate-500">Vendor will be created in: <b>{cityLabel(selCities[0])}</b></div>}
 
       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Vendor &amp; pricing</div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
