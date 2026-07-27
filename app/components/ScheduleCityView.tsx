@@ -298,7 +298,8 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
   // Admin shifts an order's customer time window (e.g. move an afternoon stop into the morning).
   async function setTimeslot(orderUuid: string, val: string) {
     setPending(`slot:${orderUuid}`);
-    await fetch("/api/schedule/assignment", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, orderUuid, action: "timeslot", timeSlot: val || null }) });
+    const r = await fetch("/api/schedule/assignment", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: sched.runId, orderUuid, action: "timeslot", timeSlot: val || null }) }).then((x) => x.json()).catch(() => null);
+    if (r?.warning) alert(r.warning);
     await reload();
     setPending(null);
   }

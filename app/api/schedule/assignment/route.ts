@@ -61,12 +61,14 @@ export async function PATCH(req: NextRequest) {
       const slot = b.timeSlot === "" || b.timeSlot == null ? null : String(b.timeSlot).trim();
       // The override survives feed re-pulls (Pull changes / nightly rate sync) — without it the
       // team's manual timing reset to the booking system's slot, and the vendor app followed.
+      let warn: string | undefined;
       let { error } = await c.from("orders").update({ time_slot: slot, time_slot_override: slot }).eq("id", b.orderUuid);
       if (error && /[Uu]nknown column '(time_slot_override)'/.test(error.message || "")) {
         ({ error } = await c.from("orders").update({ time_slot: slot }).eq("id", b.orderUuid)); // pre-migration fallback
+        if (!error) warn = "Saved — but run the 2026-07-24-order-timeslot-override.sql migration (phpMyAdmin) so manual timings survive Pull changes before the vendor is notified.";
       }
       if (error) throw new Error(error.message);
-      return NextResponse.json({ ok: true, timeSlot: slot });
+      return NextResponse.json({ ok: true, timeSlot: slot, ...(warn ? { warning: warn } : {}) });
     }
 
     // Team corrects the ACTUAL pallet count. Pallets are otherwise DERIVED (storage_charges/1000),

@@ -245,6 +245,22 @@ export async function syncNewOrders(citySlug: string, date: string): Promise<{ a
   const snap = await loadLive(citySlug, date, true); // fresh feed — pick up reschedules/edits since the run
   const bookings = snap.bookings;
   const orderRows = bookings.map((b) => orderRowOf(b, date, citySlug));
+  // NOTIFIED = FINAL: a notified vendor's orders keep their exact timing through every pull — the
+  // trip was already sent to the vendor (and the app follows orders.time_slot), so the feed refresh
+  // must not move it. Works with or without the time_slot_override migration.
+  try {
+    const { data: pn } = await c.from("notifications").select("vendor_id").eq("run_id", run.id).eq("kind", "vendor");
+    const notified = new Set((pn ?? []).map((n: any) => String(n.vendor_id)).filter(Boolean)); // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (notified.size) {
+      const { data: asg } = await c.from("schedule_assignments").select("order_id, vendor_id").eq("run_id", run.id);
+      const lockedUuids = [...new Set(((asg ?? []) as any[]).filter((a) => a.vendor_id && notified.has(String(a.vendor_id))).map((a) => a.order_id))]; // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (lockedUuids.length) {
+        const { data: cur } = await c.from("orders").select("order_id, time_slot").in("id", lockedUuids);
+        const keep = new Map(((cur ?? []) as any[]).map((o) => [String(o.order_id), o.time_slot])); // eslint-disable-line @typescript-eslint/no-explicit-any
+        for (const r of orderRows) if (keep.has(String(r.order_id))) r.time_slot = keep.get(String(r.order_id)) ?? null;
+      }
+    }
+  } catch { /* best-effort — worst case the slot refreshes as before */ }
   await upsertOrders(c, orderRows);
   const { data: orders } = await c.from("orders").select("id, order_id").in("order_id", orderRows.map((o) => o.order_id));
   const uuidByOrderId = new Map((orders ?? []).map((o: any) => [o.order_id, o.id]));
