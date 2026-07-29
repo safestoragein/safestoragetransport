@@ -155,10 +155,9 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     return true;
   });
 
-  // PALLETS ARE NOT PULLED FROM THE FEED. Business rule: storage is billed at ~₹1,000 per pallet,
-  // so the ACTUAL pallet count is DERIVED as storage_charges / 1000 (rounded to 0.1). The only
-  // thing that beats the formula is an explicit manual edit made on the schedule, persisted in
-  // orders.pallet_override.
+  // Pallets: the feed's total_pallet (the WMS's own count) is the primary source; when the feed
+  // has no count, fall back to the billing rule (storage ≈ ₹1,000/pallet → storage_charges/1000,
+  // rounded to 0.1). An explicit manual edit on the schedule (orders.pallet_override) beats both.
   const overrides = new Map<string, number>();
   if (hasDb && dayOrders.length) {
     try {
@@ -178,18 +177,22 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     // SHIFTING orders (house shifting: order_type "shifting" / is_shifting_order=1) have no
     // storage relationship — their pallet count comes from the feed's total_pallet directly.
     const isShifting = /shifting/i.test(o.order_type || "") || flag(o.is_shifting_order);
-    // Derived pallets: storage ₹1,000 ≈ 1 pallet. No storage charge on record → null (scheduler
-    // falls back to its ~3.5 average). A manual edit (pallet_override) wins over the formula.
+    // Pallet source order: the feed's total_pallet (the WMS's own count) wins when present;
+    // storage ₹1,000 ≈ 1 pallet only as a fallback when the feed has no count. A manual edit
+    // (pallet_override) beats both. (Team-verified 2026-07-30: BH47432 feed said 4p, the
+    // storage formula said 3.2p — the feed count was right.)
     const storageC = parseFloat(o.storage_charges) || 0;
     const feedPallet = parseFloat(o.total_pallet) || 0;
     // PARTIAL retrievals: only the requested items travel, so pallets come from those items'
-    // POINTS (16 points = 1 pallet) — the storage-charges formula (whole storage) only as a
-    // fallback when the item list is unavailable.
+    // POINTS (16 points = 1 pallet) — total_pallet/storage cover the WHOLE storage, so they're
+    // only a fallback when the item list is unavailable.
     const isPartial = /partial/i.test(o.order_type || "");
     const pointsPallets = isPartial && o.order_id ? await partialRetrievalPointsPallets(String(o.order_id)) : null;
     const formulaStated = isShifting
       ? (feedPallet > 0 ? Math.round(feedPallet * 10) / 10 : null)
-      : (pointsPallets ?? (storageC > 0 ? Math.round((storageC / 1000) * 10) / 10 : null));
+      : (pointsPallets ??
+         (feedPallet > 0 ? Math.round(feedPallet * 10) / 10 :
+          storageC > 0 ? Math.round((storageC / 1000) * 10) / 10 : null));
     const stated = overrides.get(String(o.order_id ?? "")) ?? formulaStated;
     // Pickups: customers under-report, so schedule for stated + buffer and size the vehicle off the
     // stated count. Retrievals are exact from the warehouse (no buffer). Missing count -> ~3.5 avg

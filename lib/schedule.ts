@@ -611,9 +611,18 @@ export async function diffSchedule(date: string): Promise<ScheduleDiff> {
   const cities: ScheduleDiff["cities"] = [];
   let total = 0;
   for (const [city, run] of latest) {
-    const { data: assigns } = await c.from("schedule_assignments").select("order_id").eq("run_id", run.id);
+    const { data: assigns } = await c.from("schedule_assignments").select("order_id, vendor_id").eq("run_id", run.id);
+    // NOTIFIED = FINAL: a notified vendor's orders are intentionally frozen — Pull never re-times
+    // or removes them. The banner must not count them either, or it would never clear.
+    const lockedUuids = new Set<string>();
+    try {
+      const { data: pn } = await c.from("notifications").select("vendor_id").eq("run_id", run.id).eq("kind", "vendor");
+      const notified = new Set((pn ?? []).map((n: any) => String(n.vendor_id)).filter(Boolean));
+      for (const a of (assigns ?? []) as any[]) if (a.vendor_id && notified.has(String(a.vendor_id))) lockedUuids.add(a.order_id);
+    } catch { /* best-effort */ }
     const uuids = [...new Set((assigns ?? []).map((a: any) => a.order_id))];
-    const persisted: any[] = uuids.length ? ((await c.from("orders").select("order_id, customer_unique_id, time_slot").in("id", uuids)).data ?? []) : [];
+    const persisted: any[] = uuids.length ? ((await c.from("orders").select("id, order_id, customer_unique_id, time_slot").in("id", uuids)).data ?? []) : [];
+    const lockedBase = new Set(persisted.filter((o: any) => lockedUuids.has(o.id)).map((o: any) => baseOrderId(o.order_id)));
     // Key by BASE id so the two halves of an auto-split order collapse back to the one live order.
     const persById = new Map<string, any>(persisted.map((o: any) => [baseOrderId(o.order_id), o]));
 
@@ -623,10 +632,10 @@ export async function diffSchedule(date: string): Promise<ScheduleDiff> {
 
     const newOrders: string[] = [], removed: string[] = [], rescheduled: string[] = [];
     for (const [id, lo] of liveById) if (!persById.has(id)) newOrders.push(String(lo.customer_unique_id || id));
-    for (const [id, po] of persById) if (!liveById.has(id)) removed.push(String(po.customer_unique_id || id));
+    for (const [id, po] of persById) if (!liveById.has(id) && !lockedBase.has(id)) removed.push(String(po.customer_unique_id || id));
     for (const [id, lo] of liveById) {
       const po = persById.get(id);
-      if (po && String(lo.order_timeslot || "").trim() !== String(po.time_slot || "").trim()) rescheduled.push(String(lo.customer_unique_id || id));
+      if (po && !lockedBase.has(id) && String(lo.order_timeslot || "").trim() !== String(po.time_slot || "").trim()) rescheduled.push(String(lo.customer_unique_id || id));
     }
     const n = newOrders.length + removed.length + rescheduled.length;
     if (n > 0) { cities.push({ city, newOrders, removed, rescheduled }); total += n; }
