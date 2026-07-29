@@ -235,6 +235,27 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
   const [pending, setPending] = useState<string | null>(null);
   const [openPlan, setOpenPlan] = useState<string | null>(null);
   const [reportFor, setReportFor] = useState<string | null>(null); // vendor key → supervisor report modal
+  // Full customer addresses (the snapshot only keeps a short locality) — hover tooltip + 📋 copy.
+  const [fullAddr, setFullAddr] = useState<Record<string, string>>({});
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/schedule/report?city=${initial.city}&date=${initial.date}`)
+      .then((x) => x.json())
+      .then((r) => { if (alive && r?.addresses) setFullAddr(r.addresses); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [initial.city, initial.date]);
+  async function copyAddress(ref: string, locality: string | null) {
+    const text = fullAddr[ref] || locality || "";
+    if (!text) return;
+    try { await navigator.clipboard.writeText(text); } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); document.body.removeChild(ta);
+    }
+    setCopiedRef(ref); setTimeout(() => setCopiedRef((c) => (c === ref ? null : c)), 1500);
+  }
 
   // Sync when the parent hands down fresh data (e.g. Today's 45s live poll). Local optimistic
   // edits (reassign/notify) keep the same `initial` object, so they're not clobbered mid-action.
@@ -617,7 +638,18 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                       <a href={`tel:${String(o.contact).split(/[/,]/)[0].trim()}`} className="text-xs font-medium text-blue-600 hover:underline" title="Call customer">📞 {o.contact}</a>
                     )}
                     {o.locality && (
-                      <a href={mapsUrl(o.lat, o.lng, o.locality)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline" title="Open customer location in Google Maps">📍 {o.locality}</a>
+                      <span className="inline-flex items-center gap-0.5">
+                        <a
+                          href={mapsUrl(o.lat, o.lng, o.locality)} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-blue-600 hover:underline"
+                          title={fullAddr[o.customer_unique_id] ? `${fullAddr[o.customer_unique_id]}\n\n(click to open in Google Maps)` : "Open customer location in Google Maps"}
+                        >📍 {o.locality}</a>
+                        <button
+                          onClick={() => copyAddress(o.customer_unique_id, o.locality)}
+                          className="rounded px-1 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          title={fullAddr[o.customer_unique_id] ? `Copy full address:\n${fullAddr[o.customer_unique_id]}` : "Copy address"}
+                        >{copiedRef === o.customer_unique_id ? <span className="font-semibold text-emerald-600">✓ copied</span> : "📋"}</button>
+                      </span>
                     )}
                     {isApproxPin(o.lat, o.lng, sched.city) && (
                       <span className="rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700" title="The address could not be located on the map — this order is pinned at the city centre, so its distances and arrival times in the day plan are NOT reliable. Re-pull orders to retry, or verify the address.">
