@@ -1,4 +1,4 @@
-name: FTP debug (inspect server files)
+name: AWS debug (inspect server)
 
 on:
   workflow_dispatch: {}
@@ -7,13 +7,22 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: Compare FTP target vs live DNS
+      - name: Inspect AWS box over SSH
         env:
-          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER }}
+          AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
+          AWS_APP_DIR: ${{ secrets.AWS_APP_DIR }}
         run: |
-          echo "== IP of FTP_SERVER secret =="
-          python3 -c "import socket,os;print(sorted({i[4][0] for i in socket.getaddrinfo(os.environ['FTP_SERVER'],21)}))"
-          echo "== IP of safestorage.in (live site) =="
-          python3 -c "import socket;print(sorted({i[4][0] for i in socket.getaddrinfo('safestorage.in',443)}))"
-          echo "== IP of d4017.bom1.stableserver.net (new cPanel host) =="
-          python3 -c "import socket;print(sorted({i[4][0] for i in socket.getaddrinfo('d4017.bom1.stableserver.net',443)}))" || true
+          mkdir -p ~/.ssh && printf '%s\n' "$AWS_SSH_KEY" > ~/.ssh/id && chmod 600 ~/.ssh/id
+          ssh -i ~/.ssh/id -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" '
+            echo "== whoami / node =="; whoami; node -v 2>&1; which node npm pm2 2>&1
+            echo "== APP_DIR ('"$AWS_APP_DIR"') =="; ls -la '"$AWS_APP_DIR"' 2>&1 | head -30
+            echo "== .next build id =="; cat '"$AWS_APP_DIR"'/.next/BUILD_ID 2>&1
+            echo "== env file? =="; ls -la '"$AWS_APP_DIR"'/.env* 2>&1
+            echo "== pm2 =="; pm2 list 2>&1 | head -15
+            echo "== systemd node services =="; systemctl list-units --type=service --no-pager 2>/dev/null | grep -iE "node|safestorage|transport|next" || echo none
+            echo "== node processes =="; ps aux | grep -iE "node|next" | grep -v grep | head -8
+            echo "== nginx site config mentioning transport =="; grep -rls "safestorage-transport" /etc/nginx 2>/dev/null | head -5
+            echo "== disk =="; df -h '"$AWS_APP_DIR"' 2>/dev/null | tail -1
+          '
