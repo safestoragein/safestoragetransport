@@ -1,7 +1,11 @@
-name: Build and Deploy to cPanel
+name: Build and Deploy to AWS
 
-# Every push to main: build in the cloud (clean env — no CloudLinux/Turbopack issues),
-# then upload the build + source to the cPanel server over FTP and restart Passenger.
+# Every push to main: build in the cloud, rsync the build + source to the AWS server
+# over SSH, then restart the systemd service (next-safestorage-transport).
+#
+# Secrets: AWS_HOST, AWS_USER, AWS_SSH_KEY (private key), AWS_APP_DIR (absolute app path).
+# The server's .env is NEVER touched by deploys — it is the source of truth for env vars
+# (server.js loads it at boot).
 on:
   push:
     branches: [main]
@@ -28,49 +32,53 @@ jobs:
         env:
           NODE_ENV: production
 
-      - name: Stamp restart trigger (forces Passenger to restart after deploy)
-        run: mkdir -p tmp && echo "${{ github.sha }}" > tmp/restart.txt
+      - name: Set up SSH
+        env:
+          AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$AWS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
 
-      - name: Deploy over FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          # Plain FTP: this host's FTPS sessions drop mid-transfer ("FIN packet"), and the
-          # per-file TLS handshakes are slow. Plain FTP is much faster for many small files.
-          protocol: ftp
-          port: 21
-          timeout: 120000
-          # The FTP account (developer@safestorage.in) is rooted at /home/safestor/public_html,
-          # so the app dir is relative to that. (Using public_html/... here would nest into
-          # /home/safestor/public_html/public_html/... and the running app would never see it.)
-          server-dir: safestorage-transport/
-          local-dir: ./
-          # node_modules stays on the server (CloudLinux symlink); never upload it.
-          # .next/cache is build-only and huge — skip it.
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
-            .github/**
-            **/.next/cache/**
-            **/*.map
-            **/*.nft.json
-            tmp/**
-            .env
-            .env.*
+      - name: Rsync app to server
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER }}
+          AWS_APP_DIR: ${{ secrets.AWS_APP_DIR }}
+        run: |
+          rsync -az --omit-dir-times --no-perms --no-owner --no-group \
+            -e "ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o ConnectTimeout=20" \
+            --exclude '.git*' \
+            --exclude '.github' \
+            --exclude 'node_modules' \
+            --exclude '.next/cache' \
+            --exclude '*.map' \
+            --exclude '*.nft.json' \
+            --exclude 'tmp' \
+            --exclude '.env' \
+            --exclude '.env.*' \
+            ./ "$AWS_USER@$AWS_HOST:$AWS_APP_DIR/"
 
-      # Upload the restart stamp LAST, in its own pass, so Passenger only restarts
-      # after every app file is in place (avoids restarting onto a half-uploaded build).
-      - name: Trigger Passenger restart
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          protocol: ftp
-          port: 21
-          local-dir: ./tmp/
-          server-dir: safestorage-transport/tmp/
-          state-name: .ftp-deploy-tmp-state.json
+      - name: Install prod deps + restart service
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER }}
+          AWS_APP_DIR: ${{ secrets.AWS_APP_DIR }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" '
+            set -e
+            cd '"$AWS_APP_DIR"'
+            # No-op in seconds when the lockfile is unchanged; installs new deps when it is.
+            npm install --omit=dev --no-audit --no-fund 2>&1 | tail -2
+            # Restart: systemd via passwordless sudo, else kill the node process and let
+            # systemd auto-revive it with the new code.
+            if sudo -n systemctl restart next-safestorage-transport.service 2>/dev/null; then
+              echo "restarted via sudo systemctl"
+            elif pkill -f "'"$AWS_APP_DIR"'/server.js" || pkill -f "server.js"; then
+              echo "killed node process; systemd will revive it"
+            else
+              echo "WARNING: could not restart — grant NOPASSWD sudo for: systemctl restart next-safestorage-transport.service"
+            fi
+            sleep 6
+            systemctl is-active next-safestorage-transport.service || true
+          '
