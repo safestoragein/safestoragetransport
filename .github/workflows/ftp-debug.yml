@@ -7,19 +7,13 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: List deployed files over FTP
+      - name: Read htaccess + passenger config
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
-          c() { curl -sS --connect-timeout 20 --max-time 120 --user "$FTP_USERNAME:$FTP_PASSWORD" "ftp://$FTP_SERVER/$1" 2>&1 | head -n "${2:-30}"; }
-          echo "== root listing =="; c "" 40
-          echo "== safestorage-transport/ =="; c "safestorage-transport/" 60
-          echo "== restart.txt content =="; c "safestorage-transport/tmp/restart.txt" 5
-          echo "== .next/BUILD_ID =="; c "safestorage-transport/.next/BUILD_ID" 5
-          echo "== .next/ listing =="; c "safestorage-transport/.next/" 30
-          echo "== .next/static/chunks: newest entries =="
-          curl -sS --connect-timeout 20 --max-time 240 --user "$FTP_USERNAME:$FTP_PASSWORD" "ftp://$FTP_SERVER/safestorage-transport/.next/static/chunks/" 2>&1 | sort -k6,8 | tail -25
-          echo "== looking for 271x chunk =="
-          curl -sS --connect-timeout 20 --max-time 240 --user "$FTP_USERNAME:$FTP_PASSWORD" "ftp://$FTP_SERVER/safestorage-transport/.next/static/chunks/" 2>&1 | grep -i "271x" || echo "271x NOT FOUND"
+          c() { curl -sS --connect-timeout 20 --max-time 120 --user "$FTP_USERNAME:$FTP_PASSWORD" "ftp://$FTP_SERVER/$1" 2>&1; }
+          echo "== ROOT .htaccess (current) =="; c ".htaccess"
+          echo; echo "== transport .htaccess =="; c "safestorage-transport/.htaccess"
+          echo; echo "== ROOT .htaccess pre-maint backup (first 60 lines) =="; c ".htaccess.pre-maint-20260724183401" | head -60
