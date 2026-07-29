@@ -7,13 +7,13 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: Read htaccess + passenger config
+      - name: Compare FTP target vs live DNS
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
-          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
-          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
-          c() { curl -sS --connect-timeout 20 --max-time 120 --user "$FTP_USERNAME:$FTP_PASSWORD" "ftp://$FTP_SERVER/$1" 2>&1; }
-          echo "== ROOT .htaccess (current) =="; c ".htaccess"
-          echo; echo "== transport .htaccess =="; c "safestorage-transport/.htaccess"
-          echo; echo "== ROOT .htaccess pre-maint backup (first 60 lines) =="; c ".htaccess.pre-maint-20260724183401" | head -60
+          echo "== IP of FTP_SERVER secret =="
+          python3 -c "import socket,os;print(sorted({i[4][0] for i in socket.getaddrinfo(os.environ['FTP_SERVER'],21)}))"
+          echo "== IP of safestorage.in (live site) =="
+          python3 -c "import socket;print(sorted({i[4][0] for i in socket.getaddrinfo('safestorage.in',443)}))"
+          echo "== IP of d4017.bom1.stableserver.net (new cPanel host) =="
+          python3 -c "import socket;print(sorted({i[4][0] for i in socket.getaddrinfo('d4017.bom1.stableserver.net',443)}))" || true
