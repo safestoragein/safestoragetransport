@@ -1,0 +1,28 @@
+name: FTP debug (inspect server files)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List deployed files over FTP
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          u="ftp://$FTP_USERNAME:$FTP_PASSWORD@$FTP_SERVER"
+          echo "== root listing =="
+          curl -s --max-time 60 "$u/" | head -30
+          echo "== safestorage-transport/ =="
+          curl -s --max-time 60 "$u/safestorage-transport/" | head -40
+          echo "== restart.txt =="
+          curl -s --max-time 60 "$u/safestorage-transport/tmp/restart.txt" || true
+          echo "== .next/BUILD_ID =="
+          curl -s --max-time 60 "$u/safestorage-transport/.next/BUILD_ID" || true
+          echo "== .next/static/chunks (grep new chunk) =="
+          curl -s --max-time 120 "$u/safestorage-transport/.next/static/chunks/" | grep -i "271x\|^total\|\.js" | head -20
+          echo "== .next/static/ (build-id folders) =="
+          curl -s --max-time 60 "$u/safestorage-transport/.next/static/" | head -20
