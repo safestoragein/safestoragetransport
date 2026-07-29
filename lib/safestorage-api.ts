@@ -155,9 +155,10 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     return true;
   });
 
-  // Pallets: the feed's total_pallet (the WMS's own count) is the primary source; when the feed
-  // has no count, fall back to the billing rule (storage ≈ ₹1,000/pallet → storage_charges/1000,
-  // rounded to 0.1). An explicit manual edit on the schedule (orders.pallet_override) beats both.
+  // Pallets (team rule): PICKUPS take the feed's total_pallet EXACTLY as the endpoint shows it;
+  // RETRIEVALS are derived (full → storage ≈ ₹1,000/pallet, partial → item points). The billing
+  // formula is only a pickup fallback when the feed has no count. An explicit manual edit on the
+  // schedule (orders.pallet_override) beats everything.
   const overrides = new Map<string, number>();
   if (hasDb && dayOrders.length) {
     try {
@@ -188,11 +189,13 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     // only a fallback when the item list is unavailable.
     const isPartial = /partial/i.test(o.order_type || "");
     const pointsPallets = isPartial && o.order_id ? await partialRetrievalPointsPallets(String(o.order_id)) : null;
-    const formulaStated = isShifting
-      ? (feedPallet > 0 ? Math.round(feedPallet * 10) / 10 : null)
-      : (pointsPallets ??
-         (feedPallet > 0 ? Math.round(feedPallet * 10) / 10 :
-          storageC > 0 ? Math.round((storageC / 1000) * 10) / 10 : null));
+    // PICKUPS (and shifting): the feed's total_pallet EXACTLY as the endpoint shows it (team rule,
+    // 2026-07-30); storage/1000 only when the feed has no count. RETRIEVALS: always storage/1000
+    // (full) or item points (partial) — the feed count covers the whole storage, not this trip.
+    const storagePallets = storageC > 0 ? Math.round((storageC / 1000) * 10) / 10 : null;
+    const formulaStated = isShifting || (isPickup && !isPartial)
+      ? (feedPallet > 0 ? Math.round(feedPallet * 10) / 10 : storagePallets)
+      : (pointsPallets ?? storagePallets);
     const stated = overrides.get(String(o.order_id ?? "")) ?? formulaStated;
     // Pickups: customers under-report, so schedule for stated + buffer and size the vehicle off the
     // stated count. Retrievals are exact from the warehouse (no buffer). Missing count -> ~3.5 avg
