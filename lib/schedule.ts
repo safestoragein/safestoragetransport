@@ -3,7 +3,7 @@
 // loads the schedule back from those tables.
 
 import { db, isUuid } from "./db";
-import { loadLive, loadLiveRaw, allLiveOrders } from "./safestorage-api";
+import { loadLive, loadLiveRaw, allLiveOrders, normCity } from "./safestorage-api";
 import { masterVendorsForCity } from "./vendor-source";
 import { optimize } from "./optimizer";
 import { computePnL } from "./economics";
@@ -565,8 +565,10 @@ export async function removeStaleFromRun(citySlug: string, date: string): Promis
   let all: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
   try { all = await allLiveOrders(); } catch { return { removed: 0 }; }
   if (!all.length) return { removed: 0 };
+  // normCity, NOT a plain lowercase compare — a "Bengaluru" order is alive in the bangalore run;
+  // without the alias it looked stale and was deleted on every pull (then re-added by the sync).
   const liveIds = new Set(
-    all.filter((o: any) => (o.customer_local_city || "").toLowerCase().trim() === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date) // eslint-disable-line @typescript-eslint/no-explicit-any
+    all.filter((o: any) => normCity(o.customer_local_city) === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date) // eslint-disable-line @typescript-eslint/no-explicit-any
        .map((o: any) => String(o.order_id)), // eslint-disable-line @typescript-eslint/no-explicit-any
   );
 

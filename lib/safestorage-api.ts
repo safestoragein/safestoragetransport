@@ -284,8 +284,10 @@ function deriveTeams(vehicles: any[], citySlug: string, wh: GeoPoint): Vendor[] 
 // original column (contact, charges, notes, floor/lift, timeslot) alongside our recommended team.
 export async function loadLiveRaw(citySlug: string, date: string, fresh = false): Promise<any[]> {
   const orders = await getJson("transport_controller_Dev0/get_work_order_list_api_new", fresh);
+  // normCity, NOT a plain lowercase compare — a "Bengaluru" order must match the bangalore run,
+  // or the diff banner flags it as "removed" forever while the sync keeps re-adding it.
   return orders.filter(
-    (o) => (o.customer_local_city || "").toLowerCase().trim() === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date,
+    (o) => normCity(o.customer_local_city) === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date,
   );
 }
 
@@ -402,7 +404,7 @@ export async function pMap<T, R>(items: T[], fn: (x: T) => Promise<R>, concurren
 
 export function liveIntercityRefs(citySlug: string, date: string, orders: any[]): string[] {
   return orders
-    .filter((o) => (o.customer_local_city || "").toLowerCase().trim() === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date)
+    .filter((o) => normCity(o.customer_local_city) === citySlug && String(o.order_schedule_date || "").slice(0, 10) === date)
     .filter((o) => o.is_intercity || /intercity|shifting/i.test(o.order_type || ""))
     .map((o) => o.customer_unique_id);
 }
