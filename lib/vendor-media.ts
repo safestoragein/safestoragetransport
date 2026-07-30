@@ -31,7 +31,18 @@ export async function orderInventory(orderUuid: string): Promise<{ items: any[] 
     const type = String(entry.order_type || rows?.[0]?.order_type || "");
     let raw: any[] = [];
     if (/retriev/i.test(type)) {
-      // Retrievals: goods list (goods_name / goods_quantity)
+      // Retrievals: the BARCODE inventory (check_inventory_retrieval — the same source the old
+      // WMS sheet printed). The warehouse/vendor team finds items BY BARCODE, so name+qty alone
+      // is useless on the floor. The old goods-list endpoints stay as a barcode-less fallback.
+      try {
+        const q = new URLSearchParams({ order_id: String(sysOrderId), customer_id: String(entry.customer_id ?? ""), order_type: type });
+        const txt = await fetch(`${API_BASE}/app/check_inventory_retrieval?${q.toString()}`, { cache: "no-store" }).then((r) => r.text());
+        const cut = txt.lastIndexOf("]"); // the WMS sometimes appends a stray '1' after the JSON
+        const bc = arrOf(JSON.parse(cut > 0 ? txt.slice(0, cut + 1) : txt));
+        if (bc.length) {
+          return { items: bc.map((it: any) => ({ name: it.goods_name ?? "Item", qty: Number(it.goods_quantity ?? 0) || null, barcode: it.barcode ?? null })) };
+        }
+      } catch { /* fall through to the legacy goods list */ }
       raw = /partial/i.test(type)
         ? arrOf(await postForm("transport_controller_Dev0/get_pickup_order_list_of_partial_retrieval", { order_id: String(sysOrderId) }))
         : arrOf(await postForm("transport_controller_Dev0/get_full_retrieval_order_list_of_items", { customer_id: String(entry.customer_id ?? "") }));

@@ -36,8 +36,19 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
   // made the team read a retrieval download as "the pickup inventory".
   const isRet = /retriev/i.test(String(o.order_type ?? ""));
   const docType = /partial/i.test(String(o.order_type ?? "")) ? "PARTIAL RETRIEVAL — DELIVERY SHEET" : isRet ? "RETRIEVAL — DELIVERY SHEET" : "PICKUP — INVENTORY SHEET";
-  // "Personal box - Large 5, Bucket 2," — the items inline with bold quantities, like the original.
-  const itemsInline = items.map((it) => `${esc(it.name)} <b>${esc(it.qty ?? 1)}</b>`).join(", ") + (items.length ? "," : "");
+  // Items in a PROPER boxed table (team feedback: the comma-separated free text was unreadable).
+  const itemsTable = `<table class="box" style="margin-top:2px"><colgroup><col style="width:72%"/><col style="width:28%"/></colgroup>
+    <tr style="text-align:center;font-weight:bold"><td>Item</td><td>Quantity</td></tr>
+    ${items.length
+      ? items.map((it: any) => `<tr><td>${esc(it.name)}</td><td style="text-align:center">${esc(it.qty ?? 1)}</td></tr>`).join("")
+      : `<tr style="height:24px"><td></td><td></td></tr>`}
+  </table>`;
+  // Retrieval items carry their WAREHOUSE BARCODE (DH35659P01 …) — pre-fill the inventory table
+  // one row per item like the old WMS sheet, so the WH/vendor team can find items by barcode.
+  const hasBarcodes = items.some((it: any) => it.barcode);
+  const barcodeRows = items
+    .map((it: any) => `<tr style="height:24px"><td>${esc(it.barcode ?? "")}</td><td>${esc(it.name)}</td><td style="text-align:center">${esc(it.qty ?? 1)}</td><td></td><td></td></tr>`)
+    .join("");
   const invRow = `<tr style="height:24px"><td></td><td></td><td></td><td></td><td></td></tr>`;
   const invCols = `<colgroup><col style="width:15%"/><col style="width:35%"/><col style="width:10%"/><col style="width:10%"/><col style="width:30%"/></colgroup>`;
   const lineRow = `<tr style="height:24px"><td style="border-left:1px solid #000;border-right:1px solid #000;border-bottom:1px solid #000"></td></tr>`;
@@ -77,10 +88,7 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
     </table>
     <div style="text-align:center;font-weight:bold;margin:14px 0 8px">${esc(String(o.order_type ?? "").replace("_", " ").replace(/(^|\s)\w/g, (m: string) => m.toUpperCase()))}</div>
     <div style="font-weight:bold;margin:0 0 4px">${esc(v.vehicleType ?? "")} Vehicle</div>
-    <table><tr>
-      <td style="width:72px;font-weight:bold;vertical-align:top">Item<br/>Quantity</td>
-      <td style="padding-left:8px">${itemsInline}</td>
-    </tr></table>
+    ${itemsTable}
     <table class="box" style="margin-top:6px">
       <tr><td style="width:55%"><b>Floor :</b></td><td><b>Vehicle type :</b> ${esc(v.vehicleType ?? "")}</td></tr>
       <tr><td><b>Lift :</b> ${esc(lift)}</td><td><b>Home type :</b></td></tr>
@@ -90,7 +98,7 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
     <div style="text-align:center;font-weight:bold;margin:14px 0 6px">Inventory</div>
     <table class="box">${invCols}
       <tr style="text-align:center;font-weight:bold"><td>Barcode</td><td>Description</td><td>Qty</td><td>Est.Value</td><td>Remarks/Notes</td></tr>
-      ${invRow.repeat(19)}
+      ${hasBarcodes ? barcodeRows + invRow.repeat(3) : invRow.repeat(19)}
     </table>
   </div>
 
@@ -819,7 +827,10 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                           <ul className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-3">
                             {inv[o.id]!.items!.map((it: any, i: number) => (
                               <li key={i} className="flex items-center justify-between gap-2 text-slate-700">
-                                <span className="truncate">{it.name}</span>
+                                <span className="truncate">
+                                  {it.barcode && <span className="mr-1 rounded bg-slate-200 px-1 font-mono text-[10px] font-semibold text-slate-700">{it.barcode}</span>}
+                                  {it.name}
+                                </span>
                                 {it.qty != null && it.qty > 0 && <span className={`shrink-0 ${it.qty > 1 ? "font-bold text-slate-700" : "text-slate-400"}`}>×{it.qty}</span>}
                               </li>
                             ))}
