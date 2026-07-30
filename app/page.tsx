@@ -1,3 +1,4 @@
+import AppTrackingBoard from "./components/AppTrackingBoard";
 import CommandCenter from "./components/CommandCenter";
 import FeedbackBoard from "./components/FeedbackBoard";
 import EscalationsBoard from "@/app/components/EscalationsBoard";
@@ -47,6 +48,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
 
   // Read-only scheduling rules
   if (view === "rules") return <SchedulingRules user={user} />;
+
+  // App tracking — the vendor app's activity report (photos, on-time, tap timeline)
+  if (view === "tracking") return <AppTrackingBoard user={user} />;
 
   // Schedules — Today / Tomorrow / Old all share ONE board; only the data (date) differs.
   if (view === "today") return <ScheduleBoard mode="today" user={user} />;
