@@ -88,7 +88,7 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
     </table>
     <div style="text-align:center;font-weight:bold;margin:14px 0 8px">${esc(String(o.order_type ?? "").replace("_", " ").replace(/(^|\s)\w/g, (m: string) => m.toUpperCase()))}</div>
     <div style="font-weight:bold;margin:0 0 4px">${esc(v.vehicleType ?? "")} Vehicle</div>
-    ${itemsTable}
+    ${hasBarcodes ? "" : itemsTable /* retrievals list every item WITH its barcode in the Inventory table below — a separate item list would print everything twice (old-format sheets never had it) */}
     <table class="box" style="margin-top:6px">
       <tr><td style="width:55%"><b>Floor :</b></td><td><b>Vehicle type :</b> ${esc(v.vehicleType ?? "")}</td></tr>
       <tr><td><b>Lift :</b> ${esc(lift)}</td><td><b>Home type :</b></td></tr>
