@@ -167,7 +167,7 @@ export default function FeedbackBoard({ user }: { user: SessionUser | null }) {
     const r = await fetch("/api/escalations", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        orderKey: escFor.id, customerUniqueId: escFor.customer_unique_id, customerName: escFor.customer_name,
+        orderKey: escFor.id, customerId: escFor.wms_customer_id, customerUniqueId: escFor.customer_unique_id, customerName: escFor.customer_name,
         contact: escFor.contact, city: escFor.city, orderType: escFor.order_type, isIntercity: !!escFor.is_intercity,
         escalationType: escType, issue: escIssue.trim(),
       }),

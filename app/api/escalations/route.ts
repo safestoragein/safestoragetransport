@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
   const user = await getSession();
   const r = await createEscalation({
     orderKey: String(b.orderKey),
+    customerId: b.customerId != null ? String(b.customerId) : null,
     customerUniqueId: b.customerUniqueId ?? null,
     customerName: b.customerName ?? null,
     contact: b.contact ?? null,

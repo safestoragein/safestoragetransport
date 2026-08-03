@@ -14,6 +14,8 @@ export const FAULT_SIDES = ["ours", "vendor", "customer", "unknown"] as const;
 // escalation for the same customer is auto-marked "WMS reported" instead of double-worked.
 const WMS_ISSUES_API = "https://safestorage.in/back/transport_controller_Dev0/get_wms_reported_issues";
 let wmsIssuesCache: { at: number; map: Map<string, any[]> } | null = null;
+// Keyed by BOTH the numeric customer_id and the unique code, so a match works whichever the
+// escalation row carries (the numeric id is the reliable one — see the migration note).
 export async function wmsIssuesByCustomer(): Promise<Map<string, any[]>> {
   if (wmsIssuesCache && Date.now() - wmsIssuesCache.at < 120_000) return wmsIssuesCache.map;
   try {
@@ -24,10 +26,11 @@ export async function wmsIssuesByCustomer(): Promise<Map<string, any[]>> {
     const arr = JSON.parse(raw);
     const map = new Map<string, any[]>();
     for (const it of Array.isArray(arr) ? arr : []) {
-      const k = String(it.customer_unique_id ?? "").trim();
-      if (!k) continue;
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(it);
+      for (const k of [String(it.customer_id ?? "").trim(), String(it.customer_unique_id ?? "").trim()]) {
+        if (!k) continue;
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push(it);
+      }
     }
     wmsIssuesCache = { at: Date.now(), map };
     return map;
@@ -63,6 +66,7 @@ async function importWmsIssues(): Promise<void> {
     let row: Record<string, unknown> = {
       id: randomUUID(),
       order_key: key,
+      customer_id: it.customer_id != null ? String(it.customer_id) : null, // WMS numeric id — the join key
       customer_unique_id: it.customer_unique_id ?? null,
       customer_name: it.name ?? null,
       contact: null,
@@ -98,12 +102,37 @@ export async function listEscalations(from?: string | null, to?: string | null):
     if (to) q = q.lte("raised_at", `${to} 23:59:59`);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    // Live WMS-issue match per row (their statuses move — compensation, resolved…).
     const rows = data ?? [];
+    // BACKFILL: rows raised before the customer_id column existed only carry the booking code —
+    // resolve the numeric id once (WMS issues first, then the live work-order feed) and persist it.
+    try {
+      const missing = (rows as any[]).filter((r) => !r.customer_id && r.customer_unique_id);
+      if (missing.length) {
+        const byCode = new Map<string, string>();
+        for (const it of [...(await wmsIssuesByCustomer()).values()].flat()) {
+          const code = String(it.customer_unique_id ?? "").trim();
+          if (code && it.customer_id != null) byCode.set(code, String(it.customer_id));
+        }
+        try {
+          const { allLiveOrders } = await import("./safestorage-api");
+          for (const o of await allLiveOrders()) {
+            const code = String((o as any).customer_unique_id ?? "").trim();
+            if (code && !byCode.has(code) && (o as any).customer_id != null) byCode.set(code, String((o as any).customer_id));
+          }
+        } catch { /* feed down — WMS matches still backfill */ }
+        for (const r of missing) {
+          const cid = byCode.get(String(r.customer_unique_id).trim());
+          if (!cid) continue;
+          r.customer_id = cid;
+          try { await db().from("order_escalations").update({ customer_id: cid }).eq("id", r.id); } catch { /* column not migrated yet */ }
+        }
+      }
+    } catch { /* backfill is best-effort — the list still loads */ }
+    // Live WMS-issue match per row (their statuses move — compensation, resolved…).
     try {
       const wms = await wmsIssuesByCustomer();
       for (const r of rows as any[]) {
-        const hits = wms.get(String(r.customer_unique_id ?? "").trim());
+        const hits = wms.get(String(r.customer_id ?? "").trim()) ?? wms.get(String(r.customer_unique_id ?? "").trim());
         if (hits?.length) { r.wms_live = wmsRefOf(hits); r.wms_reported = 1; }
       }
     } catch { /* enrichment only */ }
@@ -126,7 +155,7 @@ export async function escalationKeys(keys: string[]): Promise<Record<string, { i
 }
 
 export async function createEscalation(input: {
-  orderKey: string; customerUniqueId?: string | null; customerName?: string | null; contact?: string | null;
+  orderKey: string; customerId?: string | null; customerUniqueId?: string | null; customerName?: string | null; contact?: string | null;
   city?: string | null; orderType?: string | null; isIntercity?: boolean; escalationType?: string | null;
   issue: string; raisedBy?: string | null;
 }): Promise<{ ok: boolean; id?: string; error?: string }> {
@@ -134,10 +163,14 @@ export async function createEscalation(input: {
   const id = randomUUID();
   // Already raised by the WAREHOUSE team? Mark it, so the team sees it's a WMS issue.
   let wmsHits: any[] = [];
-  try { wmsHits = (await wmsIssuesByCustomer()).get(String(input.customerUniqueId ?? "").trim()) ?? []; } catch { /* best-effort */ }
+  try {
+    const wms = await wmsIssuesByCustomer();
+    wmsHits = wms.get(String(input.customerId ?? "").trim()) ?? wms.get(String(input.customerUniqueId ?? "").trim()) ?? [];
+  } catch { /* best-effort */ }
   let row: Record<string, unknown> = {
     id,
     order_key: input.orderKey,
+    customer_id: input.customerId ?? null, // WMS numeric id — what their system joins on
     customer_unique_id: input.customerUniqueId ?? null,
     customer_name: input.customerName ?? null,
     contact: input.contact ?? null,

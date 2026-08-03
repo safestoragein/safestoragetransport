@@ -180,6 +180,8 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
                   <tr key={r.id} className={`border-b border-slate-50 align-top ${st === "resolved" ? "" : st === "open" ? "bg-red-50/60" : "bg-amber-50/60"}`}>
                     <td className="px-2 py-1.5 font-semibold text-slate-800">
                       {r.customer_unique_id ?? "—"}
+                      {/* The booking code can repeat — the numeric WMS customer id is the real key. */}
+                      {r.customer_id && <div className="text-[10px] font-normal text-slate-500" title="WMS customer id">ID {r.customer_id}</div>}
                       <div className="text-[10px] font-normal text-slate-400">{cityName(String(r.city ?? ""))}{r.is_intercity ? " · intercity" : ""}</div>
                       {!!r.wms_reported && (
                         <span className="mt-0.5 inline-block rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-700" title={r.wms_live ?? r.wms_ref ?? "The warehouse team has reported an issue for this customer in the WMS"}>
