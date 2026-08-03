@@ -133,7 +133,7 @@ export async function listEscalations(from?: string | null, to?: string | null):
       const wms = await wmsIssuesByCustomer();
       for (const r of rows as any[]) {
         const hits = wms.get(String(r.customer_id ?? "").trim()) ?? wms.get(String(r.customer_unique_id ?? "").trim());
-        if (hits?.length) { r.wms_live = wmsRefOf(hits); r.wms_reported = 1; }
+        if (hits?.length) { r.wms_live = wmsRefOf(hits); r.wms_reported = 1; r.wms_data = hits[0]; }
       }
     } catch { /* enrichment only */ }
     return { rows, tableMissing: false };
@@ -154,10 +154,49 @@ export async function escalationKeys(keys: string[]): Promise<Record<string, { i
   } catch { return {}; }
 }
 
+// Resolve a booking code (BH26174) to the customer the WMS knows — used by the manual
+// "+ Add escalation" form so a hand-typed escalation still carries the numeric customer_id.
+export async function lookupCustomer(code: string): Promise<any | null> {
+  const q = String(code ?? "").trim().toUpperCase();
+  if (!q) return null;
+  try {
+    const { allLiveOrders } = await import("./safestorage-api");
+    const hit = (await allLiveOrders()).find((o: any) => String(o.customer_unique_id ?? "").trim().toUpperCase() === q);
+    if (hit) {
+      return {
+        customerId: hit.customer_id != null ? String(hit.customer_id) : null,
+        customerUniqueId: hit.customer_unique_id ?? q,
+        customerName: hit.customer_name ?? null,
+        contact: [hit.customer_contact1, hit.customer_contact2].filter(Boolean).join(" / ") || null,
+        city: String(hit.customer_local_city ?? "").toLowerCase() || null,
+        orderType: hit.order_type ?? null,
+        orderId: hit.order_id != null ? String(hit.order_id) : null,
+        source: "feed",
+      };
+    }
+  } catch { /* feed down — try the WMS issue list */ }
+  try {
+    for (const it of [...(await wmsIssuesByCustomer()).values()].flat()) {
+      if (String(it.customer_unique_id ?? "").trim().toUpperCase() !== q) continue;
+      return {
+        customerId: it.customer_id != null ? String(it.customer_id) : null,
+        customerUniqueId: it.customer_unique_id ?? q,
+        customerName: it.name ?? null,
+        contact: null,
+        city: String(it.customer_local_city ?? "").toLowerCase() || null,
+        orderType: null,
+        orderId: null,
+        source: "wms",
+      };
+    }
+  } catch { /* best-effort */ }
+  return null;
+}
+
 export async function createEscalation(input: {
   orderKey: string; customerId?: string | null; customerUniqueId?: string | null; customerName?: string | null; contact?: string | null;
   city?: string | null; orderType?: string | null; isIntercity?: boolean; escalationType?: string | null;
-  issue: string; raisedBy?: string | null;
+  issue: string; raisedBy?: string | null; vendorName?: string | null; eta?: string | null; status?: string | null;
 }): Promise<{ ok: boolean; id?: string; error?: string }> {
   if (!hasDb) return { ok: false, error: "db not configured" };
   const id = randomUUID();
@@ -180,7 +219,9 @@ export async function createEscalation(input: {
     escalation_type: input.escalationType ?? null,
     issue: input.issue,
     raised_by: input.raisedBy ?? null,
-    status: "open",
+    vendor_name: input.vendorName ?? null,
+    eta: input.eta || null,
+    status: input.status || "open",
     wms_reported: wmsHits.length ? 1 : 0,
     wms_ref: wmsHits.length ? wmsRefOf(wmsHits) : null,
   };

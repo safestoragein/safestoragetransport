@@ -8,6 +8,7 @@ import { SessionUser } from "@/lib/auth";
 import { countryOfCity } from "@/lib/country";
 import { useCountry } from "@/lib/country-store";
 import AppShell from "./AppShell";
+import EscalationReports from "./EscalationReports";
 import { Card } from "./ui";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -55,7 +56,45 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
   const [fStatus, setFStatus] = useState("All");
   const [fType, setFType] = useState("All");
   const [fFault, setFFault] = useState("All");
+  // Manual "+ Add escalation" (issues that never came through a Feedback call).
+  const EMPTY_ADD = { customerUniqueId: "", customerId: "", customerName: "", contact: "", city: "", orderType: "", escalationType: "damage", issue: "", vendorName: "", eta: "", status: "open" };
+  const [addOpen, setAddOpen] = useState(false);
+  const [add, setAdd] = useState({ ...EMPTY_ADD });
+  const [adding, setAdding] = useState(false);
+  const [lookupState, setLookupState] = useState<"idle" | "looking" | "found" | "miss">("idle");
   const country = useCountry();
+
+  // Resolve the booking code against the live feed / WMS so the row stores the NUMERIC customer id.
+  async function lookupCode() {
+    const code = add.customerUniqueId.trim();
+    if (!code) return;
+    setLookupState("looking");
+    const r = await fetch(`/api/escalations?lookup=${encodeURIComponent(code)}`).then((x) => x.json()).catch(() => null);
+    const c = r?.customer;
+    if (!c) { setLookupState("miss"); return; }
+    setAdd((a) => ({
+      ...a,
+      customerId: c.customerId ?? a.customerId,
+      customerUniqueId: c.customerUniqueId ?? a.customerUniqueId,
+      customerName: c.customerName ?? a.customerName,
+      contact: c.contact ?? a.contact,
+      city: c.city ?? a.city,
+      orderType: c.orderType ?? a.orderType,
+    }));
+    setLookupState("found");
+  }
+
+  async function saveManual() {
+    if (!add.issue.trim()) { alert("Describe the issue before saving."); return; }
+    setAdding(true);
+    const r = await fetch("/api/escalations", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ manual: true, ...add, isIntercity: false }),
+    }).then((x) => x.json()).catch(() => null);
+    setAdding(false);
+    if (r?.ok) { setAddOpen(false); setAdd({ ...EMPTY_ADD }); setLookupState("idle"); load(); }
+    else alert(r?.error || "Could not save the escalation.");
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,9 +137,10 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-slate-900">Escalations</h1>
-          <p className="text-xs text-slate-500">issues reported after completion — raised from the Feedback page, worked to resolution here</p>
+          <p className="text-xs text-slate-500">issues reported after completion — raised from the Feedback page or added here, worked to resolution</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          <button onClick={() => setAddOpen(true)} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">＋ Add escalation</button>
           <label className="flex items-center gap-1 text-slate-500">From
             <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
           </label>
@@ -146,11 +186,13 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
         ))}
       </div>
 
+      {!loading && shown.length > 0 && <EscalationReports rows={shown} from={from} to={to} statusLabel={STATUS_LABEL} />}
+
       {loading ? (
         <Card className="p-8 text-center text-sm text-slate-500">Loading escalations…</Card>
       ) : shown.length === 0 ? (
         <Card className="p-8 text-center text-sm text-slate-500">
-          No escalations between {from} and {to}. Raise one from the <b>Feedback</b> page (＋ Escalate on any order).
+          No escalations between {from} and {to}. Add one with <b>＋ Add escalation</b>, or raise it from the <b>Feedback</b> page (＋ Escalate on any order).
         </Card>
       ) : (
         <Card className="overflow-x-auto">
@@ -255,6 +297,92 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
             </tbody>
           </table>
         </Card>
+      )}
+
+      {addOpen && (
+        <div className="fixed inset-0 z-[10000] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4" onClick={() => setAddOpen(false)}>
+          <div className="my-6 w-full max-w-2xl rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <span className="text-sm font-bold text-slate-800">Add an escalation</span>
+              <button onClick={() => setAddOpen(false)} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50">✕</button>
+            </div>
+            <div className="space-y-3 p-4">
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold text-slate-500">Booking / Customer code</label>
+                <div className="flex gap-2">
+                  <input
+                    value={add.customerUniqueId}
+                    onChange={(e) => { setAdd((a) => ({ ...a, customerUniqueId: e.target.value.toUpperCase() })); setLookupState("idle"); }}
+                    onBlur={lookupCode}
+                    placeholder="e.g. BH26174"
+                    className="w-48 rounded border border-slate-200 px-2 py-1.5 text-sm" />
+                  <button onClick={lookupCode} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50">🔍 Fetch customer</button>
+                  <span className="self-center text-[11px]">
+                    {lookupState === "looking" && <span className="text-slate-400">looking up…</span>}
+                    {lookupState === "found" && <span className="font-semibold text-emerald-600">✓ found — details filled</span>}
+                    {lookupState === "miss" && <span className="text-amber-600">not found — type the details below</span>}
+                  </span>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {[
+                  { k: "customerId", label: "Customer ID (WMS)", ph: "numeric id" },
+                  { k: "customerName", label: "Customer name", ph: "" },
+                  { k: "contact", label: "Contact", ph: "" },
+                  { k: "city", label: "City", ph: "bangalore" },
+                  { k: "vendorName", label: "Vendor (if known)", ph: "" },
+                ].map((f) => (
+                  <label key={f.k} className="block">
+                    <span className="mb-1 block text-[11px] font-semibold text-slate-500">{f.label}</span>
+                    <input
+                      value={(add as any)[f.k]}
+                      onChange={(e) => setAdd((a) => ({ ...a, [f.k]: e.target.value }))}
+                      placeholder={f.ph}
+                      className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm" />
+                  </label>
+                ))}
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold text-slate-500">Order type</span>
+                  <select value={add.orderType} onChange={(e) => setAdd((a) => ({ ...a, orderType: e.target.value }))} className="w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm">
+                    <option value="">—</option>
+                    <option value="pickup">Pickup</option>
+                    <option value="full_retrieval">Retrieval</option>
+                    <option value="partial_retrieval">Partial retrieval</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold text-slate-500">Escalation type</span>
+                  <select value={add.escalationType} onChange={(e) => setAdd((a) => ({ ...a, escalationType: e.target.value }))} className="w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm">
+                    {Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold text-slate-500">Status</span>
+                  <select value={add.status} onChange={(e) => setAdd((a) => ({ ...a, status: e.target.value }))} className="w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-sm">
+                    {STATUS_OPTS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold text-slate-500">ETA to resolve</span>
+                  <input type="date" value={add.eta} onChange={(e) => setAdd((a) => ({ ...a, eta: e.target.value }))} className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm" />
+                </label>
+              </div>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold text-slate-500">Issue <span className="text-red-500">*</span></span>
+                <textarea
+                  value={add.issue} onChange={(e) => setAdd((a) => ({ ...a, issue: e.target.value }))}
+                  rows={3} placeholder="what the customer reported (item, damage, what happened)…"
+                  className="w-full resize-y rounded border border-slate-200 px-2 py-1.5 text-sm" />
+              </label>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3">
+              <button onClick={() => setAddOpen(false)} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">Cancel</button>
+              <button onClick={saveManual} disabled={adding} className="rounded-lg bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+                {adding ? "Saving…" : "Save escalation"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </AppShell>
   );
