@@ -1,6 +1,7 @@
 // Full customer addresses for the per-vendor supervisor report (the schedule snapshot only keeps
 // a short locality — the report card needs the complete address the way the old tool showed it).
-//   GET /api/schedule/report?city=<slug>&date=YYYY-MM-DD -> { ok, addresses: { <ref>: <full address> } }
+//   GET /api/schedule/report?city=<slug>&date=YYYY-MM-DD
+//     -> { ok, addresses: { <ref>: <full address> }, emails: { <ref>: <customer email> } }
 import { NextRequest, NextResponse } from "next/server";
 import { loadLiveRaw } from "@/lib/safestorage-api";
 
@@ -14,13 +15,16 @@ export async function GET(req: NextRequest) {
   try {
     const rows = await loadLiveRaw(city, date);
     const addresses: Record<string, string> = {};
+    const emails: Record<string, string> = {};
     for (const o of rows as any[]) {
       const ref = o.customer_unique_id || `SH-${String(o.order_id ?? "").slice(-6)}`;
-      if (ref && o.order_address) addresses[ref] = String(o.order_address);
+      if (!ref) continue;
+      if (o.order_address) addresses[ref] = String(o.order_address);
+      if (String(o.customer_email ?? "").trim()) emails[ref] = String(o.customer_email).trim();
     }
-    return NextResponse.json({ ok: true, addresses });
+    return NextResponse.json({ ok: true, addresses, emails });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: (e as Error).message, addresses: {} });
+    return NextResponse.json({ ok: false, error: (e as Error).message, addresses: {}, emails: {} });
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

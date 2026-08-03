@@ -27,7 +27,7 @@ const LIVE: Record<string, { label: string; cls: string }> = {
 // The team's official inventory sheet — an EXACT replica of the WMS-generated mPDF document
 // (BH…_safestorage_….pdf): bordered logo header on PAGE 1 ONLY, serif type, the same tables,
 // grey section bands, star ratings — 4 A4 pages. Opened in a print window → Save as PDF.
-function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: string | null, logoUrl: string): string {
+function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: string | null, logoUrl: string, email?: string | null): string {
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const fmtD = new Date((date || "") + "T00:00:00Z");
   const dateStr = isNaN(fmtD.getTime()) ? date : fmtD.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).replace(/ /g, "-");
@@ -84,7 +84,7 @@ function inventoryPdfHtml(o: any, v: any, items: any[], date: string, address: s
       <tr><td><b>Customer Name:</b> ${esc(o.customer_name ?? "")}</td><td><b>Customer ID:</b> ${esc(o.customer_unique_id)}</td></tr>
       <tr><td><b>Address:</b> ${esc(address ?? o.locality ?? "")}</td><td><b>Permanent Address:</b></td></tr>
       <tr><td><b>City:</b> ${esc(o.city ? String(o.city).replace(/(^|[\s-])\w/g, (m: string) => m.toUpperCase()) : "")}</td><td><b>Phone:</b> ${esc(String(o.contact ?? "").split(/[\/,]/)[0].trim())} /</td></tr>
-      <tr><td><b>Email:</b></td><td><b>Floor:</b> ${esc(o.floor ?? "")} / <b>Lift:</b> ${esc(lift)}</td></tr>
+      <tr><td><b>Email:</b> ${esc(email ?? o.customer_email ?? "")}</td><td><b>Floor:</b> ${esc(o.floor ?? "")} / <b>Lift:</b> ${esc(lift)}</td></tr>
     </table>
     <div style="text-align:center;font-weight:bold;margin:14px 0 8px">${esc(String(o.order_type ?? "").replace("_", " ").replace(/(^|\s)\w/g, (m: string) => m.toUpperCase()))}</div>
     <div style="font-weight:bold;margin:0 0 4px">${esc(v.vehicleType ?? "")} Vehicle</div>
@@ -645,6 +645,9 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                     {o.contact && (
                       <a href={`tel:${String(o.contact).split(/[/,]/)[0].trim()}`} className="text-xs font-medium text-blue-600 hover:underline" title="Call customer">📞 {o.contact}</a>
                     )}
+                    {(o as any).customer_email && (
+                      <a href={`mailto:${(o as any).customer_email}`} className="text-xs text-blue-600 hover:underline" title={`Email ${(o as any).customer_email}`}>✉️ {(o as any).customer_email}</a>
+                    )}
                     {o.locality && (
                       <span className="inline-flex items-center gap-0.5">
                         <a
@@ -809,13 +812,15 @@ export default function ScheduleCityView({ initial, tab = "all", readOnly = fals
                                 const items = inv[o.id]!.items!;
                                 // Full customer address (the schedule snapshot only keeps a short locality).
                                 let address: string | null = null;
+                                let email: string | null = null;
                                 try {
                                   const r = await fetch(`/api/schedule/report?city=${sched.city}&date=${sched.date}`).then((x) => x.json());
                                   address = r?.addresses?.[o.customer_unique_id] ?? null;
+                                  email = r?.emails?.[o.customer_unique_id] ?? null; // feed is the source — works before the column migration
                                 } catch { /* sheet still prints with the locality */ }
                                 const w = window.open("", "_blank");
                                 if (!w) { alert("Please allow pop-ups to download the inventory PDF."); return; }
-                                w.document.write(inventoryPdfHtml(o, v, items, sched.date, address, `${location.origin}${withBase("/safestorage-logo.png")}`));
+                                w.document.write(inventoryPdfHtml(o, v, items, sched.date, address, `${location.origin}${withBase("/safestorage-logo.png")}`, email));
                                 w.document.close();
                               }}
                               className="rounded bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"

@@ -71,6 +71,7 @@ export interface Booking {
   bookingDate?: string; // order_created_at from the live feed — when the customer booked (e.g. "2026-01-04 09:31:29")
   relationshipManager?: string; // relationship_manager_name from the live feed
   contact?: string;
+  email?: string;
   transportCharge?: number; // revenue charged to the customer (pickup_charges_with_gst / retrieval_transport_charges)
   packingCharge?: number; // packing charge (item_packing_charges) — kept for reference
   storageCharges?: number | null; // customer's storage fee (storage_charges) — populated for pickups
