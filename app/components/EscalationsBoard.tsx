@@ -40,8 +40,11 @@ const STATUS_OPTS: [string, string][] = [
   ["open", "Open"], ["in_progress", "In Progress"], ["outsource", "Outsource"],
   ["vendor_transport", "Vendor Transport"], ["arrange_transport", "Arrange Transport"],
   ["yet_to_repair", "Yet to Repair"], ["insurance_raised", "Insurance Raised"], ["hold", "Hold"],
-  ["wms_reported", "WMS Reported"], ["refund_initiated", "Refund Initiated"], ["resolved", "Resolved"],
+  ["wms_reported", "WMS Reported"], ["refund_initiated", "Refund Initiated"],
+  ["not_accepted", "Not Accepted"], ["resolved", "Resolved"],
 ];
+// Closed states — nobody is working on these, so they must not inflate "Working on it".
+const CLOSED = new Set(["resolved", "not_accepted"]);
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTS);
 
 export default function EscalationsBoard({ user }: { user: SessionUser | null }) {
@@ -130,7 +133,7 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
       .some((v) => String(v ?? "").toLowerCase().includes(needle)));
 
   const open = countryRows.filter((r) => (r.status ?? "open") === "open").length;
-  const working = countryRows.filter((r) => r.status && r.status !== "open" && r.status !== "resolved").length;
+  const working = countryRows.filter((r) => r.status && r.status !== "open" && !CLOSED.has(r.status)).length;
   const resolved = countryRows.filter((r) => r.status === "resolved").length;
   const spent = countryRows.reduce((s, r) => s + (Number(r.amount_spent) || 0), 0);
   const vendorFault = countryRows.filter((r) => r.fault_side === "vendor").length;
@@ -241,7 +244,7 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
                 const age = daysOpen(r.raised_at, r.resolved_at);
                 const late = st !== "resolved" && r.eta && String(r.eta).slice(0, 10) < today;
                 return (
-                  <tr key={r.id} className={`border-b border-slate-50 align-top ${st === "resolved" ? "" : st === "open" ? "bg-red-50/60" : "bg-amber-50/60"}`}>
+                  <tr key={r.id} className={`border-b border-slate-50 align-top ${CLOSED.has(st) ? "" : st === "open" ? "bg-red-50/60" : "bg-amber-50/60"}`}>
                     <td className="px-2 py-1.5 font-semibold text-slate-800">
                       {r.customer_unique_id ?? "—"}
                       {/* The booking code can repeat — the numeric WMS customer id is the real key. */}

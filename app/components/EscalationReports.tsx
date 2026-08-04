@@ -44,7 +44,7 @@ const STATUS_ROWS: [string, string][] = [
   ["yet_to_repair", "Yet to Repair"], ["insurance_raised", "Insurance Raised"],
   ["vendor_transport", "Vendor Transport"], ["arrange_transport", "Arrange Transport"],
   ["hold", "Hold"], ["wms_reported", "WMS Reported"], ["refund_initiated", "Refund Initiated"],
-  ["resolved", "Resolved"],
+  ["not_accepted", "Not Accepted"], ["resolved", "Resolved"],
 ];
 
 const DETAIL_COLS = [

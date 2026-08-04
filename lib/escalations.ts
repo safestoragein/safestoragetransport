@@ -50,7 +50,7 @@ const EDITABLE = new Set([
 const WMS_TYPE_MAP: Record<string, string> = { damage: "damage", missing: "missing_item" };
 function wmsStatusToOurs(s: unknown): string {
   const k = String(s ?? "").trim().toLowerCase().replace(/\s+/g, "_");
-  const known = ["open", "in_progress", "outsource", "vendor_transport", "arrange_transport", "yet_to_repair", "insurance_raised", "hold", "wms_reported", "refund_initiated", "resolved"];
+  const known = ["open", "in_progress", "outsource", "vendor_transport", "arrange_transport", "yet_to_repair", "insurance_raised", "hold", "wms_reported", "refund_initiated", "not_accepted", "resolved"];
   return known.includes(k) ? k : "wms_reported";
 }
 async function importWmsIssues(): Promise<void> {
