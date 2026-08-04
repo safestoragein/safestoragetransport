@@ -38,14 +38,36 @@ function bookingRows(o: any, v: any, address: string | null): Row[] {
   ];
 }
 
-// Slot start in minutes ("10am_11am" → 600, "1:30pm…" → 810) — morning bookings sort first,
-// no-slot bookings last.
+// Slot start in minutes — morning bookings sort first, no-slot bookings last.
+// The team writes slots every which way, and the old parser only understood am/pm when it sat on
+// the FIRST time ("9am-10am" ✓, "9-10am" ✗). An unparsed morning slot fell to the bottom while a
+// parsed "1pm-2pm" rose to the top — the report then read afternoon-first and vendors drove to the
+// wrong customer. So: read every time token, and let a trailing meridiem cover the start too
+// ("9-10am" → 9am, "1-2pm" → 1pm). Bare numbers are treated as a 24h clock ("13:00-14:00").
 function slotStartMin(s: string | null | undefined): number {
-  const m = String(s ?? "").trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
-  if (!m) return 24 * 60;
-  let h = Number(m[1]) % 12;
-  if (/pm/i.test(m[3])) h += 12;
-  return h * 60 + Number(m[2] ?? 0);
+  const t = String(s ?? "").trim().toLowerCase();
+  if (!t) return 24 * 60;
+  const toks = [...t.matchAll(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/g)].filter((m) => m[1] != null);
+  if (!toks.length) return 24 * 60;
+  const at = (i: number, borrow: string | null): number | null => {
+    const m = toks[i];
+    if (!m) return null;
+    let h = Number(m[1]);
+    if (h > 23) return null;
+    const mer = m[3] ?? borrow;
+    if (mer) { h = h % 12; if (mer === "pm") h += 12; }
+    return h * 60 + Number(m[2] ?? 0);
+  };
+  const trailing = toks.map((m) => m[3]).filter(Boolean).pop() ?? null; // "…10am" covers "9-…"
+  let start = at(0, toks[0][3] ?? trailing);
+  if (start == null) return 24 * 60;
+  // "11-12pm" / "11-2pm": the borrowed pm belongs to the END, so a start that lands AFTER the end
+  // is really the morning hour.
+  if (!toks[0][3] && trailing === "pm") {
+    const end = at(1, trailing);
+    if (end != null && start > end) start -= 12 * 60;
+  }
+  return start;
 }
 // Block labels by booking TYPE — Pickup / Retrieval / Partial Retrieval (never a generic "Booking").
 const blockLabel = (t: string | null | undefined) =>
@@ -54,9 +76,22 @@ const blockLabel = (t: string | null | undefined) =>
 // partial amber.
 const blockColor = (label: string) =>
   label === "Pickup" ? { bg: "#2563eb", border: "#1d4ed8" } : label === "Partial Retrieval" ? { bg: "#f59e0b", border: "#d97706" } : { bg: "#22c55e", border: "#16a34a" };
+// The customer's asked-for window drives the order; when it's missing/unreadable we fall back to
+// the DASHBOARD's own sequence (manual stop order, else planned arrival), so the report can never
+// contradict what the office sees on screen.
 function orderedForReport(v: any): any[] {
-  return [...(v.orders ?? [])].filter((o: any) => o.stop_seq !== -1)
-    .sort((a: any, b: any) => slotStartMin(a.time_slot) - slotStartMin(b.time_slot));
+  const src = [...(v.orders ?? [])].filter((o: any) => o.stop_seq !== -1);
+  const hasManual = src.some((o: any) => o.manual_seq != null);
+  const dashKey = (o: any) => (hasManual
+    ? (o.manual_seq ?? 1e9)
+    : (v.plan?.byOrder?.[o.customer_unique_id]?.arrive ?? 1e9));
+  return src
+    .map((o: any, i: number) => ({ o, i }))
+    .sort((a, b) =>
+      (slotStartMin(a.o.time_slot || a.o.required_time) - slotStartMin(b.o.time_slot || b.o.required_time))
+      || (dashKey(a.o) - dashKey(b.o))
+      || (a.i - b.i))
+    .map((x) => x.o);
 }
 
 // Inline-styled HTML (shared by the modal preview and the print window, so what you print is
