@@ -56,6 +56,7 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
   const [fStatus, setFStatus] = useState("All");
   const [fType, setFType] = useState("All");
   const [fFault, setFFault] = useState("All");
+  const [q, setQ] = useState(""); // booking code / customer id / name / contact
   // Manual "+ Add escalation" (issues that never came through a Feedback call).
   const EMPTY_ADD = { customerUniqueId: "", customerId: "", customerName: "", contact: "", city: "", orderType: "", escalationType: "damage", issue: "", vendorName: "", eta: "", status: "open" };
   const [addOpen, setAddOpen] = useState(false);
@@ -119,10 +120,14 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
   }
 
   const countryRows = rows.filter((r) => !r.city || countryOfCity(r.city) === country);
+  const needle = q.trim().toLowerCase();
   const shown = countryRows
     .filter((r) => fStatus === "All" || (r.status ?? "open") === fStatus)
     .filter((r) => fType === "All" || r.escalation_type === fType)
-    .filter((r) => fFault === "All" || r.fault_side === fFault);
+    .filter((r) => fFault === "All" || r.fault_side === fFault)
+    // Booking code first (what the team types), but customer id / name / contact match too.
+    .filter((r) => !needle || [r.customer_unique_id, r.customer_id, r.customer_name, r.contact]
+      .some((v) => String(v ?? "").toLowerCase().includes(needle)));
 
   const open = countryRows.filter((r) => (r.status ?? "open") === "open").length;
   const working = countryRows.filter((r) => r.status && r.status !== "open" && r.status !== "resolved").length;
@@ -172,6 +177,21 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
       </div>
 
       <div className="mb-3 flex flex-wrap items-end gap-2 text-xs">
+        <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-500">
+          Search
+          <div className="relative">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="booking id, customer, phone…"
+              className="w-56 rounded border border-slate-200 bg-white py-1 pl-6 pr-6 text-[11px] text-slate-700"
+            />
+            <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">🔍</span>
+            {q && (
+              <button onClick={() => setQ("")} title="Clear search" className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-1 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-700">✕</button>
+            )}
+          </div>
+        </label>
         {[
           { label: "Status", v: fStatus, set: setFStatus, opts: [["All", "All Statuses"], ...STATUS_OPTS] },
           { label: "Escalation Type", v: fType, set: setFType, opts: [["All", "All Types"], ...Object.entries(TYPE_LABEL)] },
@@ -192,7 +212,9 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
         <Card className="p-8 text-center text-sm text-slate-500">Loading escalations…</Card>
       ) : shown.length === 0 ? (
         <Card className="p-8 text-center text-sm text-slate-500">
-          No escalations between {from} and {to}. Add one with <b>＋ Add escalation</b>, or raise it from the <b>Feedback</b> page (＋ Escalate on any order).
+          {needle
+            ? <>No escalation matches “{q}” between {from} and {to}.</>
+            : <>No escalations between {from} and {to}. Add one with <b>＋ Add escalation</b>, or raise it from the <b>Feedback</b> page (＋ Escalate on any order).</>}
         </Card>
       ) : (
         <Card className="overflow-x-auto">
