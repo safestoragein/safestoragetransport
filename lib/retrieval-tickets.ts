@@ -1,0 +1,358 @@
+// Retrieval module — turns the shared mailboxes into tickets.
+//
+// Every hour we read what is new in retrieval@ / damages@ and either open a ticket or append the
+// mail to the thread it belongs to. Priority rises with how many times the CUSTOMER has written in
+// (1st = P4 … 4th+ = P1) — chasing a silent ticket is exactly the signal we want to escalate on.
+//
+// Threading uses Graph's own conversationId (exact), with a sender+normalised-subject fallback for
+// customers who start a fresh mail instead of replying — without it, a chasing customer would open
+// a new P4 ticket each time, the opposite of what the team needs.
+import { randomUUID } from "node:crypto";
+import { db, hasDb } from "./db";
+import { fetchInbox, graphConfigured, GraphMessage } from "./ms-graph";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+export const MAILBOXES: { key: string; address: string; category: string; prefix: string }[] = [
+  { key: "retrieval", address: "retrieval@safestorage.in", category: "retrieval", prefix: "RET" },
+  { key: "damages", address: "damages@safestorage.in", category: "damage", prefix: "DMG" },
+];
+
+// Mail FROM us (the team replying out of the shared box, or another internal address) must never
+// count towards the customer's chase count — otherwise answering a customer escalates their ticket.
+const isInternal = (addr: string) => /@safestorage\.in\s*$/i.test(String(addr ?? "").trim());
+
+// Out-of-office / bounces are noise: they neither open tickets nor raise priority.
+const AUTO_RE = /^(auto(matic)?[- ]?reply|out of (the )?office|automatic reply|undeliverable|delivery status notification|mail delivery)/i;
+
+const PRIORITY_LADDER = ["P4", "P3", "P2", "P1"];
+export const priorityFor = (customerMsgs: number) =>
+  PRIORITY_LADDER[Math.min(Math.max(customerMsgs, 1), PRIORITY_LADDER.length) - 1];
+
+const normSubject = (s: string) =>
+  String(s ?? "").replace(/^((re|fw|fwd|aw|antwort)\s*:\s*)+/i, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+const BOOKING_RE = /\b([A-Z]{2,3}\d{4,6})\b/;
+const addrOf = (r: any) => String(r?.emailAddress?.address ?? "").trim();
+
+// --- ticket numbering -------------------------------------------------------------------------
+async function nextTicketNo(prefix: string): Promise<string> {
+  const c = db();
+  const { data } = await c.from("ret_ticket_seq").select("last_no").eq("prefix", prefix).maybeSingle();
+  const next = (Number(data?.last_no) || 0) + 1;
+  await c.from("ret_ticket_seq").upsert({ prefix, last_no: next }, { onConflict: "prefix" });
+  return `${prefix}-${String(next).padStart(6, "0")}`;
+}
+
+// --- who is this? -----------------------------------------------------------------------------
+// A booking code in the subject/body is the strongest signal; otherwise match the sender's address
+// against the live feed. Best-effort: an unmatched ticket is still perfectly usable.
+async function resolveCustomer(text: string, senderEmail: string): Promise<any> {
+  const code = (text.match(BOOKING_RE) ?? [])[1];
+  try {
+    const { allLiveOrders } = await import("./safestorage-api");
+    const feed = await allLiveOrders();
+    let hit = code ? feed.find((o: any) => String(o.customer_unique_id ?? "").toUpperCase() === code) : null;
+    if (!hit && senderEmail) {
+      const s = senderEmail.toLowerCase();
+      hit = feed.find((o: any) => String(o.customer_email ?? "").toLowerCase().trim() === s);
+    }
+    if (hit) {
+      return {
+        customer_id: hit.customer_id != null ? String(hit.customer_id) : null,
+        customer_unique_id: hit.customer_unique_id ?? code ?? null,
+        customer_name: hit.customer_name ?? null,
+        contact: [hit.customer_contact1, hit.customer_contact2].filter(Boolean).join(" / ") || null,
+        city: String(hit.customer_local_city ?? "").toLowerCase() || null,
+        order_id: hit.order_id != null ? String(hit.order_id) : null,
+      };
+    }
+  } catch { /* feed down — keep whatever the code gave us */ }
+  return { customer_unique_id: code ?? null };
+}
+
+// --- ingest -----------------------------------------------------------------------------------
+async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Promise<"new" | "appended" | "skipped"> {
+  const c = db();
+  const msgId = String(m.internetMessageId || m.id);
+  const { data: dup } = await c.from("ret_ticket_messages").select("id").eq("message_id", msgId).maybeSingle();
+  if (dup) return "skipped"; // already ingested — the cursor overlaps deliberately
+
+  const fromAddr = addrOf(m.from);
+  const fromName = String(m.from?.emailAddress?.name ?? "");
+  const subject = String(m.subject ?? "").slice(0, 480);
+  const auto = AUTO_RE.test(subject);
+  const inbound = !isInternal(fromAddr);
+  const body = String(m.body?.content ?? m.bodyPreview ?? "");
+
+  // find the ticket: conversationId first, then sender + normalised subject within 30 days
+  const thread = normSubject(subject);
+  let ticket: any = null;
+  const { data: byConv } = await c.from("ret_tickets").select("*").eq("root_message_id", m.conversationId).maybeSingle();
+  ticket = byConv;
+  if (!ticket && thread) {
+    const { data: cands } = await c.from("ret_tickets").select("*").eq("thread_key", `${fromAddr}|${thread}`).limit(1);
+    const cand = cands?.[0];
+    if (cand) {
+      const age = Date.now() - new Date(String(cand.created_at).replace(" ", "T")).getTime();
+      if (!Number.isFinite(age) || age < 30 * 86_400_000) ticket = cand;
+    }
+  }
+
+  const receivedIso = String(m.receivedDateTime ?? "").replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 19);
+
+  if (!ticket) {
+    // Our own outbound mail never opens a ticket on its own, and neither does an auto-reply.
+    if (!inbound || auto) return "skipped";
+    const who = await resolveCustomer(`${subject} ${body}`, fromAddr);
+    const id = randomUUID();
+    let row: Record<string, unknown> = {
+      id,
+      ticket_no: await nextTicketNo(box.prefix),
+      mailbox: box.key,
+      category: box.category,
+      subject,
+      root_message_id: m.conversationId ?? null,
+      thread_key: `${fromAddr}|${thread}`.slice(0, 250),
+      from_email: fromAddr, from_name: fromName,
+      ...who,
+      status: "new",
+      priority: priorityFor(1),
+      customer_msg_count: 1,
+      last_customer_at: receivedIso,
+    };
+    for (let i = 0; i < 8; i++) {
+      const { error } = await c.from("ret_tickets").insert(row);
+      if (!error) break;
+      const col = (String(error.message || "").match(/[Uu]nknown column '([a-z_]+)'/) || [])[1];
+      if (!col || !(col in row)) throw new Error(error.message || "ticket insert failed");
+      const { [col]: _drop, ...rest } = row; row = rest;
+    }
+    ticket = { id, priority: priorityFor(1), customer_msg_count: 1, status: "new" };
+    await insertMessage(ticket.id, box, m, { inbound, auto, msgId, fromAddr, fromName, subject, body, receivedIso });
+    await logEvent(ticket.id, "mail_in", null, subject.slice(0, 180), "system");
+    return "new";
+  }
+
+  await insertMessage(ticket.id, box, m, { inbound, auto, msgId, fromAddr, fromName, subject, body, receivedIso });
+
+  // Priority only moves on a genuine customer follow-up, and only upwards.
+  const patch: Record<string, unknown> = {};
+  if (inbound && !auto) {
+    const count = (Number(ticket.customer_msg_count) || 0) + 1;
+    patch.customer_msg_count = count;
+    patch.last_customer_at = receivedIso;
+    const next = priorityFor(count);
+    const rank = (p: string) => PRIORITY_LADDER.indexOf(p);
+    if (!ticket.priority_locked && rank(next) > rank(String(ticket.priority ?? "P4"))) {
+      patch.priority = next;
+      await logEvent(ticket.id, "priority", String(ticket.priority ?? "P4"), next, "system");
+    }
+    // A customer writing again re-opens a ticket the team had closed.
+    if (["resolved", "closed"].includes(String(ticket.status))) patch.status = "in_progress";
+  } else if (!inbound) {
+    patch.last_agent_at = receivedIso;
+    if (!ticket.first_response_at) patch.first_response_at = receivedIso;
+    if (String(ticket.status) === "new") patch.status = "in_progress";
+  }
+  if (Object.keys(patch).length) {
+    try { await db().from("ret_tickets").update(patch).eq("id", ticket.id); } catch { /* column may predate a migration */ }
+  }
+  await logEvent(ticket.id, inbound ? "mail_in" : "mail_out", null, subject.slice(0, 180), "system");
+  return "appended";
+}
+
+async function insertMessage(ticketId: string, box: typeof MAILBOXES[number], m: GraphMessage, x: any) {
+  let row: Record<string, unknown> = {
+    id: randomUUID(),
+    ticket_id: ticketId,
+    direction: x.inbound ? "inbound" : "outbound",
+    mailbox: box.key,
+    message_id: x.msgId,
+    remote_id: m.id,
+    from_email: x.fromAddr, from_name: x.fromName,
+    to_emails: (m.toRecipients ?? []).map(addrOf).filter(Boolean).join(", ") || null,
+    cc_emails: (m.ccRecipients ?? []).map(addrOf).filter(Boolean).join(", ") || null,
+    subject: x.subject,
+    body_text: String(x.body).slice(0, 60000),
+    snippet: String(m.bodyPreview ?? "").replace(/\s+/g, " ").trim().slice(0, 400),
+    is_auto_reply: x.auto ? 1 : 0,
+    has_attach: m.hasAttachments ? 1 : 0,
+    sent_at: x.receivedIso,
+  };
+  for (let i = 0; i < 8; i++) {
+    const { error } = await db().from("ret_ticket_messages").insert(row);
+    if (!error) return;
+    const msg = String(error.message || "");
+    if (/[Dd]uplicate/.test(msg)) return; // raced with another sync
+    const col = (msg.match(/[Uu]nknown column '([a-z_]+)'/) || [])[1];
+    if (!col || !(col in row)) return;
+    const { [col]: _drop, ...rest } = row; row = rest;
+  }
+}
+
+export async function logEvent(ticketId: string, kind: string, from: string | null, to: string | null, actor: string, note?: string) {
+  try {
+    await db().from("ret_ticket_events").insert({
+      id: randomUUID(), ticket_id: ticketId, kind, from_value: from, to_value: to, actor, note: note ?? null,
+    });
+  } catch { /* audit only */ }
+}
+
+// --- the hourly job ---------------------------------------------------------------------------
+export async function syncMailboxes(): Promise<{ ok: boolean; results: any[]; error?: string }> {
+  if (!hasDb) return { ok: false, results: [], error: "db not configured" };
+  if (!graphConfigured) return { ok: false, results: [], error: "Microsoft Graph is not configured on the server" };
+  const c = db();
+  const results: any[] = [];
+
+  for (const box of MAILBOXES) {
+    let seen = 0, created = 0, appended = 0;
+    try {
+      const { data: st } = await c.from("ret_mail_sync").select("*").eq("mailbox", box.key).maybeSingle();
+      // Re-read a small overlap so a mail that arrived mid-run is never missed; message_id dedupes.
+      const cursor = st?.last_message_at
+        ? new Date(new Date(String(st.last_message_at).replace(" ", "T") + "Z").getTime() - 30 * 60_000)
+        : new Date(Date.now() - 7 * 86_400_000);
+      const since = cursor.toISOString().replace(/\.\d+Z$/, "Z");
+
+      const msgs = await fetchInbox(box.address, since);
+      let newest = st?.last_message_at ?? null;
+      for (const m of msgs) {
+        seen++;
+        const r = await ingestMessage(box, m);
+        if (r === "new") created++;
+        else if (r === "appended") appended++;
+        const iso = String(m.receivedDateTime ?? "").replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 19);
+        if (iso && (!newest || iso > newest)) newest = iso;
+      }
+      await c.from("ret_mail_sync").upsert({
+        mailbox: box.key, address: box.address,
+        last_message_at: newest, last_synced_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+        last_status: "ok", last_error: null,
+        messages_seen: (Number(st?.messages_seen) || 0) + seen,
+        tickets_created: (Number(st?.tickets_created) || 0) + created,
+      }, { onConflict: "mailbox" });
+      results.push({ mailbox: box.key, seen, created, appended });
+    } catch (e) {
+      const msg = (e as Error).message;
+      try {
+        await c.from("ret_mail_sync").upsert({
+          mailbox: box.key, address: box.address, last_status: "error", last_error: msg.slice(0, 400),
+          last_synced_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+        }, { onConflict: "mailbox" });
+      } catch { /* ignore */ }
+      results.push({ mailbox: box.key, seen, created, appended, error: msg });
+    }
+  }
+  return { ok: true, results };
+}
+
+// --- reading for the UI -------------------------------------------------------------------------
+export async function listTickets(opts: { status?: string | null; priority?: string | null; mailbox?: string | null; q?: string | null }) {
+  if (!hasDb) return { tickets: [], tableMissing: false };
+  try {
+    let q = db().from("ret_tickets").select("*").order("created_at", { ascending: false }).limit(400);
+    if (opts.status && opts.status !== "All") q = q.eq("status", opts.status);
+    if (opts.priority && opts.priority !== "All") q = q.eq("priority", opts.priority);
+    if (opts.mailbox && opts.mailbox !== "All") q = q.eq("mailbox", opts.mailbox);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    let tickets = data ?? [];
+    const needle = String(opts.q ?? "").trim().toLowerCase();
+    if (needle) {
+      tickets = tickets.filter((t: any) => [t.ticket_no, t.subject, t.from_email, t.customer_unique_id, t.customer_id, t.customer_name]
+        .some((v) => String(v ?? "").toLowerCase().includes(needle)));
+    }
+    return { tickets, tableMissing: false };
+  } catch (e) {
+    if (/doesn't exist|no such table|ret_tickets/i.test((e as Error).message ?? "")) return { tickets: [], tableMissing: true };
+    throw e;
+  }
+}
+
+export async function ticketThread(id: string) {
+  if (!hasDb) return { ticket: null, messages: [] };
+  const c = db();
+  const { data: t } = await c.from("ret_tickets").select("*").eq("id", id).maybeSingle();
+  const { data: ms } = await c.from("ret_ticket_messages").select("*").eq("ticket_id", id).order("sent_at", { ascending: true });
+  return { ticket: t ?? null, messages: ms ?? [] };
+}
+
+const EDITABLE = new Set(["status", "priority", "assigned_to", "followup_date", "followup_notes", "resolution_notes", "category"]);
+
+export async function updateTicket(id: string, patch: Record<string, unknown>, actor: string) {
+  if (!hasDb) return { ok: false, error: "db not configured" };
+  const clean: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) if (EDITABLE.has(k)) clean[k] = v === "" ? null : v;
+  if (!Object.keys(clean).length) return { ok: false, error: "nothing to save" };
+  // A hand-set priority pins the ticket: the automatic chase-bump stops fighting the team.
+  if ("priority" in clean) clean.priority_locked = 1;
+  if ("status" in clean && clean.status === "resolved") {
+    clean.resolved_at = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 19).replace("T", " ");
+  }
+  const { error } = await db().from("ret_tickets").update(clean).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  for (const [k, v] of Object.entries(clean)) {
+    if (k === "priority_locked" || k === "resolved_at") continue;
+    await logEvent(id, k, null, String(v ?? ""), actor);
+  }
+  return { ok: true };
+}
+
+// --- push to the WMS ticket system ---------------------------------------------------------------
+const COMPLAINT_API = "https://safestorage.in/back/transport_controller_Dev0/add_internal_complaint_api";
+// Retrieval Team / Escalation Team task ids + their owners, as used by the feedback module.
+const TASK = { retrieval: { id: "16", assignee: "25213" }, damage: { id: "18", assignee: "36476" } };
+
+export async function pushTicketToWms(id: string, actor: string): Promise<{ ok: boolean; ticketId?: string; error?: string }> {
+  if (!hasDb) return { ok: false, error: "db not configured" };
+  const c = db();
+  const { data: t } = await c.from("ret_tickets").select("*").eq("id", id).maybeSingle();
+  if (!t) return { ok: false, error: "ticket not found" };
+  if (t.external_ticket_id) return { ok: true, ticketId: String(t.external_ticket_id) };
+  // Their API resolves the customer by the UNIQUE id (BH…) — the numeric customer_id is rejected
+  // with "No active customer found for this Customer Unique ID" (learned in the feedback module).
+  if (!t.customer_unique_id) return { ok: false, error: "no booking id on this ticket — add one before raising it in the WMS" };
+
+  const task = TASK[String(t.category) as keyof typeof TASK] ?? TASK.retrieval;
+  const follow = new Date(Date.now() + 86_400_000);
+  const dd = String(follow.getDate()).padStart(2, "0"), mm = String(follow.getMonth() + 1).padStart(2, "0");
+  const payload = {
+    customer_id: String(t.customer_unique_id),
+    customer_contact: String(t.contact ?? "").split(/[/,]/)[0].trim(),
+    customer_email: String(t.from_email ?? ""),
+    follow_up_date: `${dd}/${mm}/${follow.getFullYear()}`,
+    complaint_id: task.id,
+    assigned_user_id: Number(task.assignee),
+    assign_user_id: task.assignee,
+    assigned_to: task.assignee,
+    user_id: task.assignee,
+    is_internal: "1",
+    from_feedback_calls: "0",
+    message: `[${t.ticket_no}] ${String(t.subject ?? "").slice(0, 200)} — from ${t.mailbox}@safestorage.in (transport module)`,
+  };
+  try {
+    const res = await fetch(COMPLAINT_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const text = await res.text().catch(() => "");
+    let j: any = null;
+    try { j = JSON.parse(text); } catch { /* non-JSON */ }
+    // The API answers HTTP 200 even on failure — success is ONLY {"status":true,…}.
+    const ok = res.ok && j && (j.status === true || j.status === "true");
+    if (!ok) {
+      const err = j?.message || `complaint API ${res.status}: ${text.slice(0, 140)}`;
+      await c.from("ret_tickets").update({ external_error: err }).eq("id", id);
+      return { ok: false, error: err };
+    }
+    const ext = String(j.ticket_id ?? "");
+    await c.from("ret_tickets").update({
+      external_ticket_id: ext || null, external_error: null,
+      external_synced_at: new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 19).replace("T", " "),
+    }).eq("id", id);
+    await logEvent(id, "external_sync", null, ext, actor);
+    return { ok: true, ticketId: ext };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
