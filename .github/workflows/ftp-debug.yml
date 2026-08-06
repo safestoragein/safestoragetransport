@@ -1,40 +1,29 @@
-name: Server admin (write env + restart)
+name: Server admin (repair env permissions)
 
-# One-off maintenance run: pushes the app's secrets from GitHub into the server's .env and
-# restarts the service. The .env stays out of Git; only the running server ever holds the values.
 on:
   workflow_dispatch: {}
 
 jobs:
-  env:
+  fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync env vars to the server
+      - name: Restore .env ownership so the service can read it
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_USER: ${{ secrets.AWS_USER }}
           AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
           AWS_APP_DIR: ${{ secrets.AWS_APP_DIR }}
-          MS_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
-          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
-          MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET }}
         run: |
           mkdir -p ~/.ssh && printf '%s\n' "$AWS_SSH_KEY" > ~/.ssh/id && chmod 600 ~/.ssh/id
-          # values travel over the ssh session's stdin, never on the command line
-          printf 'MS_TENANT_ID=%s\nMS_CLIENT_ID=%s\nMS_CLIENT_SECRET=%s\n' \
-            "$MS_TENANT_ID" "$MS_CLIENT_ID" "$MS_CLIENT_SECRET" \
-          | ssh -i ~/.ssh/id -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" '
-              cd '"$AWS_APP_DIR"'
-              cp .env .env.bak.$(date +%s)
-              while IFS="=" read -r k v; do
-                [ -z "$k" ] && continue
-                if grep -q "^${k}=" .env; then
-                  tmp=$(mktemp); grep -v "^${k}=" .env > "$tmp"; mv "$tmp" .env
-                fi
-                printf "%s=%s\n" "$k" "$v" >> .env
-              done
-              chmod 600 .env
-              echo "== keys now in .env =="; grep -oE "^[A-Za-z0-9_]+" .env
-              sudo -n systemctl restart next-safestorage-transport.service && echo restarted
-              sleep 8; systemctl is-active next-safestorage-transport.service
-            '
+          ssh -i ~/.ssh/id -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" '
+            cd '"$AWS_APP_DIR"'
+            echo "== before =="; ls -l .env; ls -l .env.bak.* 2>/dev/null | tail -1
+            # The service runs as www-data and reads .env through the group. Replacing the file with
+            # mv from /tmp had reset owner+mode, so the app booted with no MYSQL_* at all.
+            sudo -n chgrp www-data .env 2>/dev/null || chgrp www-data .env 2>/dev/null || true
+            chmod 660 .env
+            echo "== after =="; ls -l .env
+            echo "== keys =="; grep -oE "^[A-Za-z0-9_]+" .env
+            sudo -n systemctl restart next-safestorage-transport.service && echo restarted
+            sleep 8; systemctl is-active next-safestorage-transport.service
+          '
