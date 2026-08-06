@@ -79,13 +79,38 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
     for (const o of (data ?? []) as any[]) orderById.set(String(o.id), o);
   }
 
-  // vendor master → supervisor + vehicle for the "Team Names" / "Vehicle" columns
+  // Vendor master → supervisor, vehicle and the day/transaction rate.
+  // Matched by ID FIRST: several vendors share a name (three different "Rainbow Packers" records),
+  // so a name-keyed lookup silently resolved to whichever row happened to be last — often an
+  // intercity record with no rate, which is why the payment column read ₹0.
+  const vendorById = new Map<string, any>();
   const vendorByName = new Map<string, any>();
   try {
     const { data: vs } = await c.from("vendors")
       .select("id, name, supervisor_name, vehicle_type, vehicle_no, tier, daily_price, per_transaction, is_intercity_vendor");
-    for (const v of (vs ?? []) as any[]) vendorByName.set(String(v.name), v);
+    for (const v of (vs ?? []) as any[]) {
+      vendorById.set(String(v.id), v);
+      // When the name IS the only thing we have, keep the record that actually carries a rate.
+      const prev = vendorByName.get(String(v.name));
+      const rate = (x: any) => num(x?.daily_price) || num(x?.per_transaction);
+      if (!prev || rate(v) > rate(prev)) vendorByName.set(String(v.name), v);
+    }
   } catch { /* vendor extras are cosmetic */ }
+
+  // What one order costs us from this vendor. A per-transaction vendor is paid per job; a vendor on
+  // a flat day rate has that rate split across their jobs for the day, so the rows sum to the day
+  // rate rather than repeating it. If the panel only has ONE of the two rates recorded we use it
+  // either way — reporting ₹0 for a vendor who is plainly being paid would be worse than
+  // approximating from the rate we do have.
+  const payForOrder = (v: any, ordersToday: number): number => {
+    if (!v) return 0;
+    const daily = num(v.daily_price);
+    const perTxn = num(v.per_transaction);
+    const wantsPerTxn = v.tier === "non_general" || !!v.is_intercity_vendor;
+    const share = daily / Math.max(1, ordersToday);
+    if (wantsPerTxn) return Math.round(perTxn || share);
+    return Math.round(daily ? share : perTxn);
+  };
 
   // VENDOR PAYMENT. A general vendor is paid a flat DAY rate however many jobs they run, so the
   // day rate is split across that vendor's orders for the day — otherwise a 5-stop day would be
@@ -108,7 +133,7 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
     const run = runById.get(String(a.run_id));
     const team = a.vendor_name ?? "";
     if (want && want !== "all" && String(team).toLowerCase() !== want) continue;
-    const v = vendorByName.get(String(team));
+    const v = (a.vendor_id ? vendorById.get(String(a.vendor_id)) : null) ?? vendorByName.get(String(team));
     const isShifting = !!o.is_shifting;
     const transport = num(o.transport_charge);
     const isPickup = !/retriev/i.test(String(o.order_type ?? ""));
@@ -116,14 +141,7 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
     const packageCharges = isPickup ? Math.round((Number(pallets) || 0) * PACKAGE_PER_PALLET) : 0;
 
     const date = String(run?.schedule_date ?? o.schedule_date ?? "").slice(0, 10);
-    let vendorPayment = 0;
-    if (v && team) {
-      const perTxn = v.tier === "non_general" || !!v.is_intercity_vendor;
-      vendorPayment = perTxn
-        ? num(v.per_transaction)
-        : num(v.daily_price) / Math.max(1, ordersPerVendorDay.get(`${date}|${team}`) ?? 1);
-      vendorPayment = Math.round(vendorPayment);
-    }
+    const vendorPayment = team ? payForOrder(v, ordersPerVendorDay.get(`${date}|${team}`) ?? 1) : 0;
     const collected = isShifting ? transport : transport; // storage is deliberately NOT revenue here
     rows.push({
       packageCharges, vendorPayment,
@@ -150,6 +168,17 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
   rows.sort((x, y) => x.date.localeCompare(y.date) || x.city.localeCompare(y.city)
     || x.teams.localeCompare(y.teams) || x.custId.localeCompare(y.custId));
   return rows;
+}
+
+// Vendors that worked in the range but have NO rate in the panel — their orders show ₹0 vendor
+// payment, which flatters the P&L. Surfaced so the team can fill the rate in.
+export function unpricedVendors(rows: PnlRow[]): string[] {
+  const worked = new Map<string, boolean>();
+  for (const r of rows) {
+    if (r.teams === "— unassigned —") continue;
+    worked.set(r.teams, (worked.get(r.teams) ?? false) || r.vendorPayment > 0);
+  }
+  return [...worked.entries()].filter(([, priced]) => !priced).map(([n]) => n).sort();
 }
 
 export const rowToArray = (r: PnlRow) => [

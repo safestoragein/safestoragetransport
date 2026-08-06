@@ -3,7 +3,7 @@
 //   GET /api/pnl/rows?from=&to=&vendor=&city=&format=xlsx -> the team's workbook (same 17 columns)
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { pnlRows, rowToArray, PNL_HEADERS } from "@/lib/pnl-rows";
+import { pnlRows, rowToArray, PNL_HEADERS, unpricedVendors } from "@/lib/pnl-rows";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true, from, to, rows, totals, byDate,
+      unpriced: unpricedVendors(rows),
       vendors: [...new Set(all.map((r) => r.teams))].sort(),
       cities: [...new Set(all.map((r) => r.city))].filter(Boolean).sort(),
     });

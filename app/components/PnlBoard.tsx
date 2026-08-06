@@ -143,6 +143,14 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
         rate split across their jobs for the day, so the rows add up to what the vendor is actually paid.
       </p>
 
+      {(data?.unpriced ?? []).length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+          ⚠ No rate recorded in the Vendor panel for: <b>{(data.unpriced as string[]).join(", ")}</b>.
+          Their orders count as ₹0 vendor payment, so the P&amp;L above is better than reality until the
+          daily price (or per-transaction rate) is filled in.
+        </div>
+      )}
+
       {byDate.length > 0 && (
         <Card className="mb-4 overflow-x-auto p-0">
           <table className="w-full text-left text-xs">
