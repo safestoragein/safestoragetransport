@@ -43,16 +43,17 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
   const [mode, setMode] = useState<"week" | "month" | "custom">("month");
   const [[from, to], setRange] = useState<[string, string]>(monthOf(today));
   const [vendor, setVendor] = useState("All");
+  const [city, setCity] = useState("All");
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await fetch(`/api/pnl/rows?from=${from}&to=${to}&vendor=${encodeURIComponent(vendor)}`)
+    const r = await fetch(`/api/pnl/rows?from=${from}&to=${to}&vendor=${encodeURIComponent(vendor)}&city=${encodeURIComponent(city)}`)
       .then((x) => x.json()).catch(() => null);
     setData(r);
     setLoading(false);
-  }, [from, to, vendor]);
+  }, [from, to, vendor, city]);
   useEffect(() => { load(); }, [load]);
 
   const setWeek = () => { setMode("week"); setRange(weekOf(new Date())); };
@@ -95,6 +96,12 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
             <input type="date" value={to} min={from} onChange={(e) => { setMode("custom"); setRange([from, e.target.value]); }}
               className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
           </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-500">City
+            <select value={city} onChange={(e) => setCity(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
+              <option value="All">All cities</option>
+              {(data?.cities ?? []).map((c: string) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-500">Vendor
             <select value={vendor} onChange={(e) => setVendor(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
               <option value="All">All vendors</option>
@@ -102,12 +109,12 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
             </select>
           </label>
           <a
-            href={withBase(`/api/pnl/rows?from=${from}&to=${to}&vendor=${encodeURIComponent(vendor)}&format=xlsx`)}
+            href={withBase(`/api/pnl/rows?from=${from}&to=${to}&vendor=${encodeURIComponent(vendor)}&city=${encodeURIComponent(city)}&format=xlsx`)}
             className="ml-auto rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
           >⬇ Download Excel</a>
         </div>
         <div className="mt-2 text-[11px] text-slate-400">
-          {fmtDate(from)} → {fmtDate(to)}{vendor !== "All" ? ` · ${vendor}` : ""}
+          {fmtDate(from)} → {fmtDate(to)}{city !== "All" ? ` · ${city}` : ""}{vendor !== "All" ? ` · ${vendor}` : ""}
         </div>
       </Card>
 
@@ -131,7 +138,10 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
       ) : !data?.ok ? (
         <Card className="p-8 text-center text-sm text-red-600">{data?.error ?? "Could not load"}</Card>
       ) : rows.length === 0 ? (
-        <Card className="p-8 text-center text-sm text-slate-500">No scheduled orders between {fmtDate(from)} and {fmtDate(to)}.</Card>
+        <Card className="p-8 text-center text-sm text-slate-500">
+          No scheduled orders between {fmtDate(from)} and {fmtDate(to)}
+          {city !== "All" ? ` in ${city}` : ""}{vendor !== "All" ? ` for ${vendor}` : ""}.
+        </Card>
       ) : (
         <Card className="overflow-x-auto">
           <table className="w-full text-left text-[11px] whitespace-nowrap">

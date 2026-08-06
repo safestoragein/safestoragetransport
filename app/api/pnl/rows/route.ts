@@ -1,6 +1,6 @@
 // Order-level P&L rows for the Weekly / Monthly P&L tab.
-//   GET /api/pnl/rows?from=&to=&vendor=            -> { ok, rows, vendors, totals }
-//   GET /api/pnl/rows?from=&to=&vendor=&format=xlsx -> the team's workbook (same 17 columns)
+//   GET /api/pnl/rows?from=&to=&vendor=&city=            -> { ok, rows, vendors, cities, totals }
+//   GET /api/pnl/rows?from=&to=&vendor=&city=&format=xlsx -> the team's workbook (same 17 columns)
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { pnlRows, rowToArray, PNL_HEADERS } from "@/lib/pnl-rows";
@@ -14,11 +14,14 @@ export async function GET(req: NextRequest) {
   const to = p.get("to");
   if (!from || !to) return NextResponse.json({ ok: false, error: "from and to are required" }, { status: 400 });
   const vendor = p.get("vendor");
+  const city = p.get("city");
 
   try {
-    // The vendor list is built from the UNFILTERED range so the dropdown never loses options.
+    // Both dropdowns are built from the UNFILTERED range so neither ever loses its options.
     const all = await pnlRows(from, to, null);
-    const rows = vendor && vendor !== "All" ? all.filter((r) => r.teams === vendor) : all;
+    const rows = all
+      .filter((r) => !vendor || vendor === "All" || r.teams === vendor)
+      .filter((r) => !city || city === "All" || r.city === city);
 
     if (p.get("format") === "xlsx") {
       const ws = XLSX.utils.aoa_to_sheet([[...PNL_HEADERS], ...rows.map(rowToArray)]);
@@ -33,7 +36,7 @@ export async function GET(req: NextRequest) {
       return new NextResponse(new Uint8Array(buf), {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "Content-Disposition": `attachment; filename="SafeStorage P&L ${from} to ${to}.xlsx"`,
+          "Content-Disposition": `attachment; filename="SafeStorage P&L ${from} to ${to}${city && city !== "All" ? ` ${city}` : ""}.xlsx"`,
         },
       });
     }
@@ -50,6 +53,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true, from, to, rows, totals,
       vendors: [...new Set(all.map((r) => r.teams))].sort(),
+      cities: [...new Set(all.map((r) => r.city))].filter(Boolean).sort(),
     });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message, rows: [] }, { status: 500 });
