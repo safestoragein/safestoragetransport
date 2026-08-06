@@ -32,6 +32,25 @@ export function normCity(c: unknown): string {
   return CITY_ALIAS[s] ?? s;
 }
 
+// A pickup is INVOICED off the inventory once the goods have been counted; before that only the
+// quotation exists. These statuses mean "counted" (team rule, 2026-08-06).
+const INVOICED_STATUSES = new Set(["completed", "stacking", "updated"]);
+export function invoiceCharge(o: any, kind: "transport" | "storage"): number { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const invoiced = INVOICED_STATUSES.has(String(o?.order_status ?? "").trim().toLowerCase());
+  const inv = parseFloat(o?.[`inventory_${kind}_charges`]);
+  const quo = parseFloat(o?.[`quotation_${kind}_charges`]);
+  const primary = invoiced ? inv : quo;
+  if (Number.isFinite(primary) && primary > 0) return primary;
+  // The endpoint hasn't filled the preferred field for this row — fall back to the other one, then
+  // to the legacy columns, so a charge is never silently reported as zero.
+  const other = invoiced ? quo : inv;
+  if (Number.isFinite(other) && other > 0) return other;
+  const legacy = kind === "transport"
+    ? (parseFloat(o?.transport_cost) || parseFloat(o?.total_pickup_charges_with_gst))
+    : parseFloat(o?.storage_charges);
+  return Number.isFinite(legacy) && legacy > 0 ? legacy : 0;
+}
+
 function timeFromNotes(notes?: string): { requiredTimeText?: string; requiredSlot?: { start: number; end: number } } {
   const r = parseRequiredTime(notes);
   if (!r) return {};
@@ -182,6 +201,9 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
     // storage ₹1,000 ≈ 1 pallet only as a fallback when the feed has no count. A manual edit
     // (pallet_override) beats both. (Team-verified 2026-07-30: BH47432 feed said 4p, the
     // storage formula said 3.2p — the feed count was right.)
+    // NOTE: pallets stay on the RAW storage_charges — the ₹1,000/pallet rule is calibrated on it.
+    // The invoiced figures (inventory_storage_charges) are larger and would inflate the count; they
+    // drive REVENUE only, via invoiceCharge() above.
     const storageC = parseFloat(o.storage_charges) || 0;
     const feedPallet = parseFloat(o.total_pallet) || 0;
     // PARTIAL retrievals: only the requested items travel, so pallets come from those items'
@@ -227,15 +249,19 @@ export async function loadLive(citySlug: string, date: string, fresh = false): P
       relationshipManager: o.relationship_manager_name || undefined,
       contact: [o.customer_contact1, o.customer_contact2].filter(Boolean).join(" / ") || undefined,
       email: String(o.customer_email ?? "").trim() || undefined,
-      // Transport charged to the customer, from the work-order feed:
-      //   retrieval → retrieval_transport_charges ; pickup → transport_cost
-      // (the old `total_pickup_charges_with_gst` field does not exist in this feed, which is why
-      //  every pickup was showing ₹0). Keep the old name as a fallback in case a feed ever adds it.
+      // Transport + storage charged to the customer. RETRIEVALS keep retrieval_transport_charges.
+      // PICKUPS use the INVOICED figures (team rule, 2026-08-06): what was quoted at booking is
+      // routinely re-priced once the goods are actually inventoried — discounts, extra items,
+      // lift/floor. So once the order reaches completed/stacking/updated we bill the inventory
+      // figures; before that only the quotation exists. Old fields stay as the fallback so a row
+      // the endpoint hasn't back-filled still shows a charge instead of ₹0.
       transportCharge: /retriev/i.test(o.order_type || "")
         ? parseFloat(o.retrieval_transport_charges) || 0
-        : parseFloat(o.transport_cost) || parseFloat(o.total_pickup_charges_with_gst) || 0,
+        : invoiceCharge(o, "transport"),
       packingCharge: parseFloat(o.item_packing_charges) || 0,
-      storageCharges: parseFloat(o.storage_charges) || null,
+      storageCharges: /retriev/i.test(o.order_type || "")
+        ? parseFloat(o.storage_charges) || null
+        : invoiceCharge(o, "storage") || null,
       teamNotes: (o.customer_notes || "").trim() || undefined,
       ...timeFromNotes(o.customer_notes),
       currentVendorId: null, // live orders carry only a generic supervisor; no reliable manual team
