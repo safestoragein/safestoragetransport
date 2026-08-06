@@ -467,8 +467,9 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
               <div className="text-sm text-red-600">{pnl.error || "Could not calculate"}</div>
             ) : (
               <>
-                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
                   {[
+                    { label: "Revenue (invoiced)", value: money(pnl.totals.regularRevenue ?? 0) },
                     { label: "Schedule margin", value: money(pnl.totals.regularMargin), neg: pnl.totals.regularMargin < 0 },
                     { label: "Intercity profit", value: money(pnl.totals.intercityProfit) },
                     { label: "Total P&L", value: money(pnl.totals.total), big: true, neg: pnl.totals.total < 0 },
@@ -482,13 +483,14 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead><tr className="text-left text-xs text-slate-500"><th className="py-1 pr-3 font-medium">Date</th><th className="py-1 pr-3 font-medium">Orders</th><th className="py-1 pr-3 font-medium">Schedule margin</th><th className="py-1 pr-3 font-medium">Intercity profit</th><th className="py-1 pr-3 font-medium">Day total</th></tr></thead>
+                    <thead><tr className="text-left text-xs text-slate-500"><th className="py-1 pr-3 font-medium">Date</th><th className="py-1 pr-3 font-medium">Orders</th><th className="py-1 pr-3 font-medium">Revenue</th><th className="py-1 pr-3 font-medium">Schedule margin</th><th className="py-1 pr-3 font-medium">Intercity profit</th><th className="py-1 pr-3 font-medium">Day total</th></tr></thead>
                     <tbody>
-                      {pnl.byDate.length === 0 && <tr><td colSpan={5} className="py-3 text-center text-xs text-slate-400">No schedules in this week.</td></tr>}
+                      {pnl.byDate.length === 0 && <tr><td colSpan={6} className="py-3 text-center text-xs text-slate-400">No schedules in this week.</td></tr>}
                       {pnl.byDate.map((d: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
                         <tr key={d.date} className="border-t border-slate-100">
                           <td className="py-1.5 pr-3 text-slate-700">{fmtShort(d.date)}</td>
                           <td className="py-1.5 pr-3 text-slate-600">{d.orders}</td>
+                          <td className="py-1.5 pr-3 text-slate-600">{money(d.revenue ?? 0)}</td>
                           <td className={`py-1.5 pr-3 ${d.margin < 0 ? "text-red-600" : "text-slate-700"}`}>{money(d.margin)}</td>
                           <td className="py-1.5 pr-3 text-emerald-700">{money(d.intercityProfit)}</td>
                           <td className="py-1.5 pr-3 font-medium text-slate-900">{money(d.margin + d.intercityProfit)}</td>
@@ -497,7 +499,7 @@ export default function ScheduleBoard({ mode, user }: { mode: "today" | "tomorro
                     </tbody>
                   </table>
                 </div>
-                <p className="mt-2 text-[11px] text-slate-400">Total P&amp;L = schedule margin (revenue − vendor cost) + manually-recorded intercity profit, for the latest run of each day.</p>
+                <p className="mt-2 text-[11px] text-slate-400">Total P&amp;L = schedule margin (revenue − vendor cost) + manually-recorded intercity profit, for the latest run of each day. Revenue is re-read from the orders as they stand now, so a pickup re-priced at inventory shows its INVOICED amount, not the original quote.</p>
               </>
             )}
           </Card>
