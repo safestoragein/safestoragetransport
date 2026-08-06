@@ -42,6 +42,7 @@ const wmsRefOf = (issues: any[]) =>
 const EDITABLE = new Set([
   "vendor_name", "escalation_type", "issue", "eta", "status", "fault_side",
   "resolution_type", "amount_spent", "resolution_notes",
+  "followup_date", "followup_notes",
 ]);
 
 // AUTO-IMPORT: every issue the WAREHOUSE team raises in their system becomes an escalation row
@@ -78,6 +79,8 @@ async function importWmsIssues(): Promise<void> {
       raised_by: "WMS team",
       ...(it.reported_date ? { raised_at: `${String(it.reported_date).slice(0, 10)} 00:00:00` } : {}),
       status: wmsStatusToOurs(it.status),
+      ...(it.followup_date ? { followup_date: String(it.followup_date).slice(0, 10) } : {}),
+      ...(it.followup_description ? { followup_notes: String(it.followup_description) } : {}),
       fault_side: "ours",
       ...(Number(it.Compensation_Amount) > 0 ? { amount_spent: Number(it.Compensation_Amount) } : {}),
       wms_reported: 1,

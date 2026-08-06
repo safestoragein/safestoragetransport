@@ -38,20 +38,33 @@ async function htmlToPng(html: string, width: number): Promise<Blob | null> {
 // Their sheet groups everything under two headings; anything else lands in DAMAGES.
 const isMissing = (r: any) => r.escalation_type === "missing_item" || /missing/i.test(String(r.wms_data?.type ?? ""));
 
-// Status rows in the team's order, plus any status actually present that isn't listed.
+// Both reports cover only the escalations still being WORKED — the team's reporting statuses, in
+// their order. Rows are always printed (a "-" when the count is zero), and closed states
+// (Resolved / Not Accepted / Open / Hold / …) are left out entirely, so the Total is the live
+// workload rather than an all-time tally.
 const STATUS_ROWS: [string, string][] = [
-  ["open", "Open"], ["in_progress", "In Progress"], ["outsource", "Outsource"],
-  ["yet_to_repair", "Yet to Repair"], ["insurance_raised", "Insurance Raised"],
-  ["vendor_transport", "Vendor Transport"], ["arrange_transport", "Arrange Transport"],
-  ["hold", "Hold"], ["wms_reported", "WMS Reported"], ["refund_initiated", "Refund Initiated"],
-  ["not_accepted", "Not Accepted"], ["resolved", "Resolved"],
+  ["in_progress", "In Progress"], ["outsource", "Outsource"], ["yet_to_repair", "Yet to Repair"],
+  ["insurance_raised", "Insurance Raised"], ["vendor_transport", "Vendor Transport"],
+  ["arrange_transport", "Arrange Transport"],
 ];
+const REPORT_STATUSES = new Set(STATUS_ROWS.map(([k]) => k));
 
 const DETAIL_COLS = [
   "Customer ID", "Name", "Email", "Description", "Type", "Status", "Compensation", "Resolved Date",
   "Carpenter", "Carpenter Amount", "Deduction", "Deduction Amount", "City", "Warehouse Location",
-  "Reported Date", "Priority", "Remarks", "Followup Date",
+  "Reported Date", "Priority", "Remarks", "Followup Date", "Followup Notes", "TAT (days)",
 ];
+
+// TAT = days from the day the issue was reported to its follow-up date (still running when the
+// follow-up date is in the future / not set yet).
+function tatDays(reported: unknown, followup: unknown): string {
+  const a = new Date(String(reported ?? "").replace(" ", "T").slice(0, 10)).getTime();
+  if (isNaN(a)) return "-";
+  const fu = String(followup ?? "").trim().slice(0, 10);
+  const b = fu ? new Date(fu).getTime() : Date.now();
+  if (isNaN(b)) return "-";
+  return String(Math.max(0, Math.floor((b - a) / 86_400_000)));
+}
 
 export default function EscalationReports({ rows, from, to, statusLabel }: { rows: any[]; from: string; to: string; statusLabel: Record<string, string> }) {
   const [modal, setModal] = useState<null | "summary" | "customers">(null);
@@ -59,20 +72,18 @@ export default function EscalationReports({ rows, from, to, statusLabel }: { row
   const [copied, setCopied] = useState(false);
   const range = `${from} → ${to}`;
 
-  const missing = rows.filter(isMissing);
-  const damages = rows.filter((r) => !isMissing(r));
+  const inReport = rows.filter((r) => REPORT_STATUSES.has(String(r.status ?? "open")));
+  const missing = inReport.filter(isMissing);
+  const damages = inReport.filter((r) => !isMissing(r));
 
   // ---- 1. summary pivot (status × damages/missing) -------------------------------------------
-  const summaryRows = () => {
-    const present = new Set(rows.map((r) => String(r.status ?? "open")));
-    const keys = [...STATUS_ROWS.filter(([k]) => present.has(k)).map(([k]) => k), ...[...present].filter((k) => !STATUS_ROWS.some(([s]) => s === k))];
-    return keys.map((k) => ({
+  const summaryRows = () =>
+    STATUS_ROWS.map(([k, label]) => ({
       key: k,
-      label: statusLabel[k] ?? k,
+      label: statusLabel[k] ?? label,
       dmg: damages.filter((r) => String(r.status ?? "open") === k).length,
       mis: missing.filter((r) => String(r.status ?? "open") === k).length,
     }));
-  };
 
   const summaryHtml = () => {
     const rs = summaryRows();
@@ -81,7 +92,7 @@ export default function EscalationReports({ rows, from, to, statusLabel }: { row
     const tot = "padding:10px 14px;border:1px solid #34d399;font-size:13px;font-weight:800;background:#2ecc8f;color:#fff;";
     return `<div style="font-family:system-ui,sans-serif">
       <div style="font-weight:800;font-size:16px;margin-bottom:8px;color:#0f172a">Escalation Report</div>
-      <div style="font-size:12px;color:#2563eb;margin-bottom:10px">${esc(range)}</div>
+      <div style="font-size:12px;color:#2563eb;margin-bottom:10px">${esc(range)} · escalations still being worked</div>
       <table style="border-collapse:collapse;width:100%">
         <tr><th style="${hd}">Escalation</th><th style="${hd}text-align:center">Damages</th><th style="${hd}text-align:center">Missing</th></tr>
         ${rs.map((r) => `<tr>
@@ -105,7 +116,9 @@ export default function EscalationReports({ rows, from, to, statusLabel }: { row
       dash(w.carpenter), dash(w.carpenter_amount), dash(w.deduction_team), dash(w.deduction_amount),
       r.city ?? w.customer_local_city ?? "", dash(w.warehouse_location),
       dateOnly(r.raised_at ?? w.reported_date), dash(w.priority), dash(w.remarks ?? r.resolution_notes),
-      dateOnly(w.followup_date),
+      dateOnly(r.followup_date ?? w.followup_date),
+      dash(r.followup_notes ?? w.followup_description),
+      tatDays(r.raised_at ?? w.reported_date, r.followup_date ?? w.followup_date),
     ];
   };
 
@@ -123,7 +136,7 @@ export default function EscalationReports({ rows, from, to, statusLabel }: { row
 
   const customersHtml = () => `<div style="font-family:system-ui,sans-serif">
       <div style="font-weight:800;font-size:16px;margin-bottom:4px;color:#0f172a">Customers Escalation Report</div>
-      <div style="font-size:12px;color:#2563eb;margin-bottom:10px">${esc(range)} · ${rows.length} escalation${rows.length === 1 ? "" : "s"}</div>
+      <div style="font-size:12px;color:#2563eb;margin-bottom:10px">${esc(range)} · ${inReport.length} escalation${inReport.length === 1 ? "" : "s"} still being worked</div>
       <table style="border-collapse:collapse;width:100%">
         ${section("MISSING", "#e8891a", missing, "Total MISSING")}
         <tr><td colspan="${DETAIL_COLS.length}" style="height:10px;border:none"></td></tr>
@@ -131,7 +144,7 @@ export default function EscalationReports({ rows, from, to, statusLabel }: { row
       </table></div>`;
 
   const htmlFor = (m: string) => (m === "summary" ? summaryHtml() : customersHtml());
-  const widthFor = (m: string) => (m === "summary" ? 560 : 1750);
+  const widthFor = (m: string) => (m === "summary" ? 560 : 1980);
 
   const csvFor = (m: string) => {
     const q = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;

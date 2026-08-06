@@ -225,23 +225,28 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
             <thead>
               <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400">
                 <th className="w-[6%] px-2 py-1.5">Booking</th>
-                <th className="w-[8%] px-2 py-1.5">Customer</th>
-                <th className="w-[7%] px-2 py-1.5">Raised</th>
-                <th className="w-[8%] px-2 py-1.5">Type</th>
-                <th className="w-[15%] px-2 py-1.5">Issue</th>
-                <th className="w-[6%] px-2 py-1.5">Vendor</th>
-                <th className="w-[8%] px-2 py-1.5">ETA</th>
-                <th className="w-[9%] px-2 py-1.5">Status</th>
-                <th className="w-[7%] px-2 py-1.5">Side</th>
-                <th className="w-[8%] px-2 py-1.5">Resolution</th>
-                <th className="w-[5%] px-2 py-1.5">₹ Spent</th>
-                <th className="w-[13%] px-2 py-1.5">How resolved</th>
+                <th className="w-[7%] px-2 py-1.5">Customer</th>
+                <th className="w-[6%] px-2 py-1.5">Raised</th>
+                <th className="w-[7%] px-2 py-1.5">Type</th>
+                <th className="w-[12%] px-2 py-1.5">Issue</th>
+                <th className="w-[5%] px-2 py-1.5">Vendor</th>
+                <th className="w-[7%] px-2 py-1.5">ETA</th>
+                <th className="w-[7%] px-2 py-1.5" title="When the team will next chase this">Follow-up</th>
+                <th className="w-[10%] px-2 py-1.5">Follow-up notes</th>
+                <th className="w-[8%] px-2 py-1.5">Status</th>
+                <th className="w-[6%] px-2 py-1.5">Side</th>
+                <th className="w-[7%] px-2 py-1.5">Resolution</th>
+                <th className="w-[4%] px-2 py-1.5">₹ Spent</th>
+                <th className="w-[8%] px-2 py-1.5">How resolved</th>
               </tr>
             </thead>
             <tbody>
               {shown.map((r) => {
                 const st = r.status ?? "open";
                 const age = daysOpen(r.raised_at, r.resolved_at);
+                // TAT is measured against the follow-up date (running until it arrives).
+                const tat = daysOpen(r.raised_at, r.followup_date ? `${String(r.followup_date).slice(0, 10)} 00:00:00` : null);
+                const dueFollowup = !CLOSED.has(st) && !!r.followup_date && String(r.followup_date).slice(0, 10) <= today;
                 const late = st !== "resolved" && r.eta && String(r.eta).slice(0, 10) < today;
                 return (
                   <tr key={r.id} className={`border-b border-slate-50 align-top ${CLOSED.has(st) ? "" : st === "open" ? "bg-red-50/60" : "bg-amber-50/60"}`}>
@@ -286,6 +291,19 @@ export default function EscalationsBoard({ user }: { user: SessionUser | null })
                         onChange={(e) => save(r.id, "eta", e.target.value)}
                         className={`w-full rounded border px-1 py-1 text-[10.5px] ${late ? "border-red-300 bg-red-50 text-red-700 font-semibold" : "border-slate-200 bg-white text-slate-700"}`} />
                       {late && <div className="text-[10px] font-bold text-red-600">past ETA</div>}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input type="date" value={r.followup_date ? String(r.followup_date).slice(0, 10) : ""} disabled={pending === `${r.id}:followup_date`}
+                        onChange={(e) => save(r.id, "followup_date", e.target.value)}
+                        className={`w-full rounded border px-1 py-1 text-[10.5px] ${dueFollowup ? "border-amber-300 bg-amber-50 font-semibold text-amber-800" : "border-slate-200 bg-white text-slate-700"}`} />
+                      {tat != null && (
+                        <div className="text-[10px] text-slate-500" title="Turnaround: days from when the issue was raised to the follow-up date (running until then)">TAT {tat}d</div>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <textarea key={`${r.id}:f:${r.followup_notes ?? ""}`} defaultValue={r.followup_notes ?? ""} rows={2} placeholder="what was discussed…" disabled={pending === `${r.id}:followup_notes`}
+                        onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(r.followup_notes ?? "")) save(r.id, "followup_notes", v); }}
+                        className="w-full resize-y rounded border border-slate-200 bg-white px-2 py-1 text-[11.5px]" />
                     </td>
                     <td className="px-2 py-1.5">
                       <select value={STATUS_LABEL[st] ? st : "open"} disabled={pending === `${r.id}:status`} onChange={(e) => save(r.id, "status", e.target.value)}
