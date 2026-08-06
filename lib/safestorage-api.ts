@@ -45,9 +45,11 @@ export function invoiceCharge(o: any, kind: "transport" | "storage"): number { /
   // to the legacy columns, so a charge is never silently reported as zero.
   const other = invoiced ? quo : inv;
   if (Number.isFinite(other) && other > 0) return other;
-  const legacy = kind === "transport"
-    ? (parseFloat(o?.transport_cost) || parseFloat(o?.total_pickup_charges_with_gst))
-    : parseFloat(o?.storage_charges);
+  // Last resort. NOTE: `total_pickup_charges_with_gst` is deliberately NOT used — verified across
+  // the live feed, on every pending pickup (101/101) it equals the WHOLE bill (transport + packing
+  // + storage + GST), not the transport line, so falling back to it would inflate revenue. On
+  // completed rows `transport_cost` does equal the invoiced transport (9/9), so it is safe.
+  const legacy = kind === "transport" ? parseFloat(o?.transport_cost) : parseFloat(o?.storage_charges);
   return Number.isFinite(legacy) && legacy > 0 ? legacy : 0;
 }
 
