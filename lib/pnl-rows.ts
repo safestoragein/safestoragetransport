@@ -9,20 +9,28 @@
 // the goods are counted (completed / stacking / updated), and on the INVENTORY figures after — that
 // choice is already baked into orders.transport_charge / storage_charges when the snapshot syncs.
 import { db, hasDb } from "./db";
+import { PACKAGE_PER_PALLET } from "./config";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// The team's 17 columns, in their exact order, then the three derived P&L columns.
 export const PNL_HEADERS = [
   "Date", "City", "Cust id", "Cust Name", "Teams", "Team Names", "Pallets", "Order Type",
   "Vehicle", "Porter/Vendor Charges", "Storage Charges", "Transport Charges", "Shifting Charges",
   "Payment", "Google Reviews", "Comment", "Remarks",
+  "Package Charges", "Vendor Payment", "P&L",
 ] as const;
+
+export { PACKAGE_PER_PALLET } from "./config";
 
 export interface PnlRow {
   date: string; city: string; custId: string; custName: string;
   teams: string; teamNames: string; pallets: number | null; orderType: string;
   vehicle: string; porterCharges: number; storageCharges: number; transportCharges: number;
   shiftingCharges: number; payment: string; googleReviews: string; comment: string; remarks: string;
+  packageCharges: number;   // pallets x PACKAGE_PER_PALLET, pickups only
+  vendorPayment: number;    // this order's share of what the vendor is paid (see below)
+  pnl: number;              // collected - vendor payment - packing
 }
 
 const cityName = (s: string) => String(s ?? "").replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
@@ -74,9 +82,23 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
   // vendor master → supervisor + vehicle for the "Team Names" / "Vehicle" columns
   const vendorByName = new Map<string, any>();
   try {
-    const { data: vs } = await c.from("vendors").select("id, name, supervisor_name, vehicle_type, vehicle_no");
+    const { data: vs } = await c.from("vendors")
+      .select("id, name, supervisor_name, vehicle_type, vehicle_no, tier, daily_price, per_transaction, is_intercity_vendor");
     for (const v of (vs ?? []) as any[]) vendorByName.set(String(v.name), v);
   } catch { /* vendor extras are cosmetic */ }
+
+  // VENDOR PAYMENT. A general vendor is paid a flat DAY rate however many jobs they run, so the
+  // day rate is split across that vendor's orders for the day — otherwise a 5-stop day would be
+  // charged five times over in the totals. Per-transaction vendors (non-general / intercity) are
+  // genuinely paid per job, so each order carries the full transaction fee.
+  const ordersPerVendorDay = new Map<string, number>();
+  for (const a of picked) {
+    const o = orderById.get(String(a.order_id));
+    const run = runById.get(String(a.run_id));
+    if (!o || !a.vendor_name) continue;
+    const k = `${String(run?.schedule_date ?? "").slice(0, 10)}|${a.vendor_name}`;
+    ordersPerVendorDay.set(k, (ordersPerVendorDay.get(k) ?? 0) + 1);
+  }
 
   const want = String(vendor ?? "").trim().toLowerCase();
   const rows: PnlRow[] = [];
@@ -89,8 +111,24 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
     const v = vendorByName.get(String(team));
     const isShifting = !!o.is_shifting;
     const transport = num(o.transport_charge);
+    const isPickup = !/retriev/i.test(String(o.order_type ?? ""));
+    const pallets = o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : 0);
+    const packageCharges = isPickup ? Math.round((Number(pallets) || 0) * PACKAGE_PER_PALLET) : 0;
+
+    const date = String(run?.schedule_date ?? o.schedule_date ?? "").slice(0, 10);
+    let vendorPayment = 0;
+    if (v && team) {
+      const perTxn = v.tier === "non_general" || !!v.is_intercity_vendor;
+      vendorPayment = perTxn
+        ? num(v.per_transaction)
+        : num(v.daily_price) / Math.max(1, ordersPerVendorDay.get(`${date}|${team}`) ?? 1);
+      vendorPayment = Math.round(vendorPayment);
+    }
+    const collected = isShifting ? transport : transport; // storage is deliberately NOT revenue here
     rows.push({
-      date: String(run?.schedule_date ?? o.schedule_date ?? "").slice(0, 10),
+      packageCharges, vendorPayment,
+      pnl: Math.round(collected - vendorPayment - packageCharges),
+      date,
       city: cityName(o.city ?? run?.city ?? ""),
       custId: o.customer_unique_id ?? "",
       custName: o.customer_name ?? "",
@@ -118,5 +156,6 @@ export const rowToArray = (r: PnlRow) => [
   r.date, r.city, r.custId, r.custName, r.teams, r.teamNames, r.pallets, r.orderType,
   r.vehicle, r.porterCharges, r.storageCharges, r.transportCharges, r.shiftingCharges,
   r.payment, r.googleReviews, r.comment, r.remarks,
+  r.packageCharges, r.vendorPayment, r.pnl,
 ];
 /* eslint-enable @typescript-eslint/no-explicit-any */

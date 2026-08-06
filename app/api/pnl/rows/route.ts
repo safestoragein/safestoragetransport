@@ -41,17 +41,27 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const totals = rows.reduce((t, r) => ({
-      orders: t.orders + 1,
-      pallets: Math.round((t.pallets + (r.pallets ?? 0)) * 10) / 10,
-      storage: t.storage + r.storageCharges,
-      transport: t.transport + r.transportCharges,
-      shifting: t.shifting + r.shiftingCharges,
-      porter: t.porter + r.porterCharges,
-    }), { orders: 0, pallets: 0, storage: 0, transport: 0, shifting: 0, porter: 0 });
+    const blank = () => ({ orders: 0, pallets: 0, storage: 0, transport: 0, shifting: 0, porter: 0, packageCharges: 0, vendorPayment: 0, pnl: 0 });
+    const add = (t: any, r: any) => {
+      t.orders += 1;
+      t.pallets = Math.round((t.pallets + (r.pallets ?? 0)) * 10) / 10;
+      t.storage += r.storageCharges; t.transport += r.transportCharges; t.shifting += r.shiftingCharges;
+      t.porter += r.porterCharges; t.packageCharges += r.packageCharges;
+      t.vendorPayment += r.vendorPayment; t.pnl += r.pnl;
+      return t;
+    };
+    const totals = rows.reduce(add, blank());
+
+    // day-wise roll-up, so the team can see which days made or lost money
+    const byDateMap = new Map<string, any>();
+    for (const r of rows) {
+      if (!byDateMap.has(r.date)) byDateMap.set(r.date, { date: r.date, ...blank() });
+      add(byDateMap.get(r.date), r);
+    }
+    const byDate = [...byDateMap.values()].sort((a, b) => a.date.localeCompare(b.date));
 
     return NextResponse.json({
-      ok: true, from, to, rows, totals,
+      ok: true, from, to, rows, totals, byDate,
       vendors: [...new Set(all.map((r) => r.teams))].sort(),
       cities: [...new Set(all.map((r) => r.city))].filter(Boolean).sort(),
     });

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SessionUser } from "@/lib/auth";
 import { money } from "@/lib/format";
 import { withBase } from "@/lib/base";
+import { PACKAGE_PER_PALLET } from "@/lib/config";
 import AppShell from "./AppShell";
 import { Card } from "./ui";
 
@@ -17,8 +18,10 @@ const HEADERS = [
   "Date", "City", "Cust id", "Cust Name", "Teams", "Team Names", "Pallets", "Order Type",
   "Vehicle", "Porter/Vendor Charges", "Storage Charges", "Transport Charges", "Shifting Charges",
   "Payment", "Google Reviews", "Comment", "Remarks",
+  "Package Charges", "Vendor Payment", "P&L",
 ];
-const NUMERIC = new Set([6, 9, 10, 11, 12]); // right-aligned columns
+const NUMERIC = new Set([6, 9, 10, 11, 12, 17, 18, 19]); // right-aligned columns
+const signed = (n: number) => (n < 0 ? "text-red-600" : "text-emerald-700");
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const fmtDate = (s: string) => {
@@ -65,7 +68,8 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
   };
 
   const rows: any[] = data?.rows ?? [];
-  const t = data?.totals ?? { orders: 0, pallets: 0, storage: 0, transport: 0, shifting: 0 };
+  const t = data?.totals ?? { orders: 0, pallets: 0, storage: 0, transport: 0, shifting: 0, packageCharges: 0, vendorPayment: 0, pnl: 0 };
+  const byDate: any[] = data?.byDate ?? [];
   const btn = "rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-slate-200 hover:bg-slate-50";
 
   return (
@@ -118,20 +122,63 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
         </div>
       </Card>
 
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-6">
         {[
-          { label: "Orders", value: t.orders },
-          { label: "Pallets", value: t.pallets },
-          { label: "Transport charges", value: money(t.transport) },
-          { label: "Storage charges", value: money(t.storage) },
-          { label: "Shifting charges", value: money(t.shifting) },
-        ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-slate-200 bg-white p-3">
-            <div className="text-xl font-extrabold text-slate-900">{s.value}</div>
+          { label: "Orders · pallets", value: `${t.orders} · ${t.pallets}` },
+          { label: "Collected (transport)", value: money(t.transport + t.shifting) },
+          { label: "− Vendor payment", value: money(t.vendorPayment) },
+          { label: "− Package charges", value: money(t.packageCharges) },
+          { label: "= P&L", value: money(t.pnl), big: true },
+          { label: "Storage (not in P&L)", value: money(t.storage), dim: true },
+        ].map((s: any) => (
+          <div key={s.label} className={`rounded-xl border p-3 ${s.big ? (t.pnl < 0 ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50") : "border-slate-200 bg-white"}`}>
+            <div className={`text-xl font-extrabold ${s.big ? (t.pnl < 0 ? "text-red-700" : "text-emerald-700") : s.dim ? "text-slate-400" : "text-slate-900"}`}>{s.value}</div>
             <div className="text-[11px] font-medium text-slate-500">{s.label}</div>
           </div>
         ))}
       </div>
+      <p className="mb-4 text-[11px] text-slate-400">
+        P&amp;L = transport collected from the customer − vendor payment − package charges
+        (₹{PACKAGE_PER_PALLET.toLocaleString("en-IN")}/pallet, pickups only). A vendor on a flat day rate has that
+        rate split across their jobs for the day, so the rows add up to what the vendor is actually paid.
+      </p>
+
+      {byDate.length > 0 && (
+        <Card className="mb-4 overflow-x-auto p-0">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2 font-semibold">Day</th>
+                <th className="px-3 py-2 text-right font-semibold">Orders</th>
+                <th className="px-3 py-2 text-right font-semibold">Collected</th>
+                <th className="px-3 py-2 text-right font-semibold">Vendor payment</th>
+                <th className="px-3 py-2 text-right font-semibold">Package charges</th>
+                <th className="px-3 py-2 text-right font-semibold">P&amp;L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byDate.map((d) => (
+                <tr key={d.date} className="border-b border-slate-50">
+                  <td className="px-3 py-1.5 text-slate-700">{fmtDate(d.date)}</td>
+                  <td className="px-3 py-1.5 text-right text-slate-600">{d.orders}</td>
+                  <td className="px-3 py-1.5 text-right text-slate-700">{money(d.transport + d.shifting)}</td>
+                  <td className="px-3 py-1.5 text-right text-slate-600">{money(d.vendorPayment)}</td>
+                  <td className="px-3 py-1.5 text-right text-slate-600">{money(d.packageCharges)}</td>
+                  <td className={`px-3 py-1.5 text-right font-bold ${signed(d.pnl)}`}>{money(d.pnl)}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold text-slate-900">
+                <td className="px-3 py-2">Total{vendor !== "All" ? ` · ${vendor}` : ""}</td>
+                <td className="px-3 py-2 text-right">{t.orders}</td>
+                <td className="px-3 py-2 text-right">{money(t.transport + t.shifting)}</td>
+                <td className="px-3 py-2 text-right">{money(t.vendorPayment)}</td>
+                <td className="px-3 py-2 text-right">{money(t.packageCharges)}</td>
+                <td className={`px-3 py-2 text-right ${signed(t.pnl)}`}>{money(t.pnl)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </Card>
+      )}
 
       {loading ? (
         <Card className="p-8 text-center text-sm text-slate-500">Loading…</Card>
@@ -170,6 +217,9 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
                   <td className="px-2 py-1.5 text-slate-600">{r.googleReviews}</td>
                   <td className="px-2 py-1.5 text-slate-600">{r.comment}</td>
                   <td className="px-2 py-1.5 text-slate-500">{r.remarks}</td>
+                  <td className="px-2 py-1.5 text-right text-slate-600">{r.packageCharges ? money(r.packageCharges) : ""}</td>
+                  <td className="px-2 py-1.5 text-right text-slate-600">{r.vendorPayment ? money(r.vendorPayment) : ""}</td>
+                  <td className={`px-2 py-1.5 text-right font-semibold ${signed(r.pnl)}`}>{money(r.pnl)}</td>
                 </tr>
               ))}
               <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold text-slate-900">
@@ -181,6 +231,9 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
                 <td className="px-2 py-2 text-right">{money(t.transport)}</td>
                 <td className="px-2 py-2 text-right">{money(t.shifting)}</td>
                 <td className="px-2 py-2" colSpan={4}></td>
+                <td className="px-2 py-2 text-right">{money(t.packageCharges)}</td>
+                <td className="px-2 py-2 text-right">{money(t.vendorPayment)}</td>
+                <td className={`px-2 py-2 text-right ${signed(t.pnl)}`}>{money(t.pnl)}</td>
               </tr>
             </tbody>
           </table>

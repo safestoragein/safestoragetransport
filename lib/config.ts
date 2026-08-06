@@ -72,6 +72,11 @@ export function vendorDailyCap(type: VehicleType): number {
 // How many teams ONE order needs. Anything a single 14ft team can carry (≤9.5 incl. assumed) = 1
 // team; a bigger order needs 2 (or more) teams — which must all come from the SAME vendor. The order
 // itself is NEVER split; the teams share the one job.
+// Packing material billed per pallet on PICKUPS only (a retrieval unpacks, it doesn't pack).
+// Used by the Weekly/Monthly P&L. NOTE: distinct from REGION.packingPerPallet, which is the
+// scheduler's own costing figure and is editable on the schedule board.
+export const PACKAGE_PER_PALLET = 1400;
+
 export function teamsNeeded(pallets: number): number {
   const cap = VEHICLE_EFFECTIVE_CAPACITY["14ft"];
   return pallets > cap + 1e-9 ? Math.ceil(pallets / cap) : 1;
