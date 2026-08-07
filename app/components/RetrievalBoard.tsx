@@ -48,6 +48,32 @@ const fmt = (s: string | null) => {
   return isNaN(d.getTime()) ? String(s).slice(0, 16)
     : d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + " " + d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 };
+// Every reply carries the whole conversation quoted underneath, so the same text appears again in
+// each message. Cut at the first quote marker and show only what THIS message actually adds — the
+// full text stays one click away, and is kept intact in the database.
+const QUOTE_MARKERS: RegExp[] = [
+  /^-{2,}\s*original message\s*-{2,}/im,
+  /^_{10,}\s*$/m,                                  // Outlook's divider line
+  /^\s*from:\s*.+\r?\n\s*sent:\s*/im,            // Outlook quoted header block
+  /^\s*from:\s*.+<[^>]+>\s*\r?\n/im,
+  /^on\s.{5,120}\bwrote:\s*$/im,                   // Gmail / Apple Mail
+  /^\s*sent from my /im,
+];
+function stripQuoted(raw: string): { text: string; trimmed: boolean } {
+  let t = String(raw ?? "").replace(/\[cid:[^\]]+\]/gi, "");   // inline-image placeholders
+  let cut = t.length;
+  for (const re of QUOTE_MARKERS) {
+    const m = t.match(re);
+    if (m && m.index != null && m.index < cut) cut = m.index;
+  }
+  let body = t.slice(0, cut);
+  body = body.split(/\r?\n/).filter((l) => !/^\s*>/.test(l)).join("\n");  // drop "> " quoted lines
+  body = body.replace(/\n{3,}/g, "\n\n").trim();
+  // If stripping left almost nothing, the markers were part of the real message — keep it whole.
+  if (body.length < 15) return { text: t.replace(/\n{3,}/g, "\n\n").trim(), trimmed: false };
+  return { text: body, trimmed: body.length < t.trim().length - 20 };
+}
+
 const ageDays = (s: string | null) => {
   if (!s) return null;
   const t = new Date(String(s).replace(" ", "T")).getTime();
@@ -65,6 +91,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<any | null>(null);
   const [thread, setThread] = useState<any[]>([]);
+  const [showFull, setShowFull] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   // Sortable columns — chases first, since that is the queue the team works.
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "created_at", dir: -1 });
@@ -80,7 +107,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
   useEffect(() => { load(); }, [load]);
 
   async function openTicket(t: any) {
-    setOpen(t); setThread([]);
+    setOpen(t); setThread([]); setShowFull({});
     const r = await fetch(`/api/retrieval/tickets?id=${t.id}`).then((x) => x.json()).catch(() => null);
     if (r?.ok) { setOpen(r.ticket ?? t); setThread(r.messages ?? []); }
   }
@@ -328,7 +355,15 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
             </div>
             <div className="max-h-[70vh] space-y-2 overflow-auto p-4">
               {thread.length === 0 && <div className="text-xs text-slate-400">Loading the conversation…</div>}
-              {thread.map((m) => (
+              {[...thread]
+                .sort((a, b) => {
+                  const t = (x: any) => {
+                    const v = new Date(String(x.sent_at ?? x.created_at ?? "").replace(" ", "T")).getTime();
+                    return isNaN(v) ? 0 : v;
+                  };
+                  return t(a) - t(b); // oldest at the top, latest at the bottom
+                })
+                .map((m) => (
                 <div key={m.id} className={`rounded-lg border p-3 ${m.direction === "inbound" ? "border-slate-200 bg-white" : "border-blue-100 bg-blue-50/60"}`}>
                   <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
                     <span className={`rounded px-1.5 py-0.5 font-semibold ${m.direction === "inbound" ? "bg-slate-100 text-slate-700" : "bg-blue-100 text-blue-700"}`}>
@@ -339,7 +374,25 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                     {!!m.is_auto_reply && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">auto-reply</span>}
                     {!!m.has_attach && <span className="text-slate-400">📎</span>}
                   </div>
-                  <div className="whitespace-pre-wrap text-[12px] leading-relaxed text-slate-700">{String(m.body_text ?? m.snippet ?? "").slice(0, 4000)}</div>
+                  {(() => {
+                    const raw = String(m.body_text ?? m.snippet ?? "");
+                    const { text, trimmed } = stripQuoted(raw);
+                    const full = showFull[m.id];
+                    return (
+                      <>
+                        <div className="whitespace-pre-wrap text-[12px] leading-relaxed text-slate-700">
+                          {(full ? raw : text).slice(0, 8000)}
+                        </div>
+                        {trimmed && (
+                          <button
+                            onClick={() => setShowFull((f) => ({ ...f, [m.id]: !f[m.id] }))}
+                            className="mt-1 text-[10px] font-medium text-blue-600 hover:underline">
+                            {full ? "hide quoted history" : "show quoted history"}
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
