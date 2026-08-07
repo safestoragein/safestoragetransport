@@ -53,6 +53,38 @@ const SEVERITY_RULES: { level: string; priority: string; label: string; re: RegE
     re: /\b(urgent|asap|immediately|at\s+the\s+earliest|top\s+priority|escalat)/i },
 ];
 
+// ---- what is this mail ABOUT? -----------------------------------------------------------------
+// The team's own categories. Checked most-specific first: a mail that reports damage AND asks for a
+// slot is a damage report, because that is what needs handling.
+export const ISSUE_TYPES: [string, string][] = [
+  ["missing_damaged", "Missing / damaged"],
+  ["media_request", "Photos / video call"],
+  ["retrieval_slot", "Retrieval / slot request"],
+  ["other", "Others"],
+];
+const ISSUE_RULES: { key: string; re: RegExp }[] = [
+  { key: "missing_damaged",
+    re: /\b(missing|lost|damag(e|ed|es)|broken|breakage|scratch|dent|not\s+(received|delivered)|never\s+(received|delivered)|shortage|claim\s+for|wrong\s+(item|delivery)|incorrect\s+inventory)\b/i },
+  { key: "media_request",
+    re: /\b(video\s*(call|conference)?|photo(graph)?s?|pic(ture)?s?|image(s)?|show\s+me|see\s+my\s+(items|goods|stuff)|visual|inspect(ion)?|live\s+(view|video)|whatsapp\s+(photo|video|pic))\b/i },
+  { key: "retrieval_slot",
+    re: /\b(retriev(e|al)|partial\s*retrieval|self[- ]?(retrieval|pickup)|pick\s*up|slot|schedule|book(ing)?\s+(a\s+)?(date|slot|visit)|deliver(y)?\s+(date|request)|want\s+(my|the)\s+(goods|items)|return\s+of\s+goods)\b/i },
+];
+
+export function classifyIssue(text: string, mailbox?: string): { key: string; label: string } {
+  const t = String(text ?? "").slice(0, 20000);
+  for (const r of ISSUE_RULES) {
+    if (r.re.test(t)) {
+      const label = ISSUE_TYPES.find(([k]) => k === r.key)?.[1] ?? r.key;
+      return { key: r.key, label };
+    }
+  }
+  // Nothing matched, but the damages@ box exists for exactly one purpose — treat it as the default
+  // there rather than burying a damage report under "Others".
+  if (String(mailbox ?? "") === "damages") return { key: "missing_damaged", label: "Missing / damaged" };
+  return { key: "other", label: "Others" };
+}
+
 export function scoreSeverity(text: string): { level: string; priority: string; reason: string } | null {
   const t = String(text ?? "").slice(0, 20000);
   if (!t.trim()) return null;
@@ -175,6 +207,8 @@ async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Pr
       const { [col]: _drop, ...rest } = row; row = rest;
     }
     ticket = { id, priority: priorityFor(1), customer_msg_count: 1, status: "new" };
+    const issue0 = classifyIssue(`${subject}\n${body}`, box.key);
+    try { await c.from("ret_tickets").update({ issue_type: issue0.key }).eq("id", id); } catch { /* column pending */ }
     const sev0 = scoreSeverity(`${subject}\n${body}`);
     if (sev0) {
       const p = worseOf(priorityFor(1), sev0.priority);
@@ -353,14 +387,14 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
   // The severity columns may not exist yet — selecting them would fail the WHOLE query and silently
   // scan nothing, so fall back to the columns that certainly exist.
   let all: any[] | null = null;
-  let hasSeverity = true;
+  let hasSeverity = true, hasIssue = true;
   {
     const r = await c.from("ret_tickets")
-      .select("id, from_email, subject, customer_unique_id, priority, priority_locked, severity").limit(2000);
+      .select("id, from_email, subject, mailbox, customer_unique_id, priority, priority_locked, severity, issue_type").limit(2000);
     if (r.error) {
-      hasSeverity = false;
+      hasSeverity = false; hasIssue = false;
       const r2 = await c.from("ret_tickets")
-        .select("id, from_email, subject, customer_unique_id, priority, priority_locked").limit(2000);
+        .select("id, from_email, subject, mailbox, customer_unique_id, priority, priority_locked").limit(2000);
       all = r2.data ?? [];
     } else all = r.data ?? [];
   }
@@ -404,7 +438,8 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
     const text = [t.subject, ...(msgs ?? []).map((m: any) => `${m.subject ?? ""} ${m.body_text ?? ""}`)].join(" \n ");
     const patch: Record<string, unknown> = {};
 
-    // Re-read severity from everything the customer has written on this ticket.
+    // Re-read the issue type and severity from everything the customer has written on this ticket.
+    if (hasIssue) patch.issue_type = classifyIssue(text, String(t.mailbox ?? "")).key;
     const sev = scoreSeverity(text);
     if (sev) {
       if (hasSeverity) { patch.severity = sev.level; patch.severity_reason = sev.reason; }
@@ -492,7 +527,7 @@ export async function ticketThread(id: string) {
 
 const EDITABLE = new Set([
   "status", "priority", "assigned_to", "followup_date", "followup_notes", "resolution_notes",
-  "category", "customer_unique_id", "customer_id", "contact",
+  "category", "issue_type", "customer_unique_id", "customer_id", "contact",
 ]);
 
 export async function updateTicket(id: string, patch: Record<string, unknown>, actor: string) {

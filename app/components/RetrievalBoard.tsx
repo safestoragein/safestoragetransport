@@ -16,6 +16,20 @@ const STATUS: [string, string][] = [
 ];
 const STATUS_LABEL = Object.fromEntries(STATUS);
 const PRIORITIES = ["P1", "P2", "P3", "P4"];
+// The team's own categories for what a mail is about.
+const ISSUE: [string, string][] = [
+  ["missing_damaged", "Missing / damaged"],
+  ["retrieval_slot", "Retrieval / slot"],
+  ["media_request", "Photos / video call"],
+  ["other", "Others"],
+];
+const ISSUE_LABEL = Object.fromEntries(ISSUE);
+const ISSUE_CLS: Record<string, string> = {
+  missing_damaged: "bg-red-50 text-red-700 ring-red-200",
+  retrieval_slot: "bg-blue-50 text-blue-700 ring-blue-200",
+  media_request: "bg-violet-50 text-violet-700 ring-violet-200",
+  other: "bg-slate-50 text-slate-600 ring-slate-200",
+};
 const SEV_CLS: Record<string, string> = {
   critical: "bg-red-600 text-white",
   high: "bg-orange-100 text-orange-800",
@@ -47,6 +61,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
   const [fStatus, setFStatus] = useState("All");
   const [fPriority, setFPriority] = useState("All");
   const [fBox, setFBox] = useState("All");
+  const [fIssue, setFIssue] = useState("All");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<any | null>(null);
   const [thread, setThread] = useState<any[]>([]);
@@ -126,7 +141,9 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
     }
     return String(t[key] ?? "").toLowerCase();
   };
-  const shown = [...tickets].sort((a, b) => {
+  const shown = [...tickets]
+    .filter((t) => fIssue === "All" || String(t.issue_type ?? "other") === fIssue)
+    .sort((a, b) => {
     const x = sortVal(a, sort.key), y = sortVal(b, sort.key);
     if (x < y) return -sort.dir;
     if (x > y) return sort.dir;
@@ -186,6 +203,10 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
           <option value="retrieval">retrieval@</option>
           <option value="damages">damages@</option>
         </select>
+        <select value={fIssue} onChange={(e) => setFIssue(e.target.value)} className={sel} title="What the mail is about">
+          <option value="All">All issues</option>
+          {ISSUE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
         <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className={sel}>
           <option value="All">All statuses</option>
           {STATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -209,7 +230,8 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
               <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400">
                 <th className="w-[9%] px-2 py-1.5">Ticket</th>
                 <th className="w-[5%] cursor-pointer select-none px-2 py-1.5 hover:text-slate-600" onClick={() => toggle("priority")} title="Sort by priority">Pri{arrow("priority")}</th>
-                <th className="w-[22%] px-2 py-1.5">Subject</th>
+                <th className="w-[10%] px-2 py-1.5">Issue</th>
+                <th className="w-[19%] px-2 py-1.5">Subject</th>
                 <th className="w-[15%] px-2 py-1.5">Customer</th>
                 <th className="w-[6%] cursor-pointer select-none px-2 py-1.5 hover:text-slate-600" onClick={() => toggle("customer_msg_count")} title="Times the customer has written in — click to sort">Chases{arrow("customer_msg_count")}</th>
                 <th className="w-[11%] px-2 py-1.5">Status</th>
@@ -236,6 +258,11 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                           {SEV_LABEL[t.severity] ?? t.severity}
                         </div>
                       )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${ISSUE_CLS[String(t.issue_type ?? "other")] ?? ISSUE_CLS.other}`}>
+                        {ISSUE_LABEL[String(t.issue_type ?? "other")] ?? "Others"}
+                      </span>
                     </td>
                     <td className="px-2 py-1.5 text-slate-700">{t.subject}</td>
                     <td className="px-2 py-1.5 text-slate-600">
@@ -282,7 +309,12 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
           <div className="my-6 w-full max-w-3xl rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
               <div>
-                <div className="text-sm font-bold text-slate-800">{open.ticket_no} · {open.subject}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${ISSUE_CLS[String(open.issue_type ?? "other")] ?? ISSUE_CLS.other}`}>
+                    {ISSUE_LABEL[String(open.issue_type ?? "other")] ?? "Others"}
+                  </span>
+                  <span className="text-sm font-bold text-slate-800">{open.ticket_no} · {open.subject}</span>
+                </div>
                 <div className="mt-0.5 text-[11px] text-slate-500">
                   {open.from_email} · {open.customer_unique_id ?? "no booking id"} · {open.customer_msg_count} customer mail(s) · {open.mailbox}@
                 </div>
@@ -320,6 +352,11 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
               <label className="flex flex-col gap-0.5 text-[11px] text-slate-500">Status
                 <select value={open.status ?? "new"} onChange={(e) => save(open.id, "status", e.target.value)} className={sel}>
                   {STATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] text-slate-500">Issue
+                <select value={String(open.issue_type ?? "other")} onChange={(e) => save(open.id, "issue_type", e.target.value)} className={sel}>
+                  {ISSUE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </label>
               <label className="flex flex-col gap-0.5 text-[11px] text-slate-500">Booking id
