@@ -264,6 +264,34 @@ export async function syncMailboxes(): Promise<{ ok: boolean; results: any[]; er
 //   2. the work-order number quoted in any message,
 //   3. our own order snapshots — matched on the sender's email, then on a phone number in the mail,
 //   4. the live feed, same two ways.
+// The work-order feed only holds today+future, but feedback_call_orders serves MONTHS of history
+// with the booking id, customer id, name and PHONE for every order (no email, unfortunately). It is
+// the only wide source we have, so the backfill leans on it for phone and work-order matching.
+// Pulled a month at a time — a 3-month request makes their PHP blow up with a regex-size error.
+async function feedbackHistory(months = 6): Promise<any[]> {
+  const out: any[] = [];
+  const now = new Date();
+  for (let i = 0; i < months; i++) {
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    try {
+      const res = await fetch(
+        `https://safestorage.in/back/transport_controller_Dev0/feedback_call_orders?from_date=${iso(start)}&to_date=${iso(end)}`,
+        { cache: "no-store", headers: { Accept: "application/json" } },
+      );
+      const raw = await res.text();
+      // their response can carry a PHP warning block before the JSON
+      const from = raw.indexOf("[{");
+      const to = raw.lastIndexOf("]");
+      if (from < 0 || to <= from) continue;
+      const arr = JSON.parse(raw.slice(from, to + 1));
+      if (Array.isArray(arr)) out.push(...arr);
+    } catch { /* one bad month shouldn't stop the rest */ }
+  }
+  return out;
+}
+
 export async function backfillCustomers(): Promise<{ ok: boolean; scanned: number; matched: number; error?: string }> {
   if (!hasDb) return { ok: false, scanned: 0, matched: 0, error: "db not configured" };
   const c = db();
@@ -293,6 +321,14 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
     }
   } catch { /* feed down — our own snapshots still help */ }
 
+  // …and months of history, which is where most of these customers actually live.
+  const byWo = new Map<string, any>();
+  for (const o of await feedbackHistory()) {
+    remember({ ...o, contact: o.customer_contact1 });
+    const wo = String(o.order_id ?? "").trim();
+    if (wo && !byWo.has(wo)) byWo.set(wo, o);
+  }
+
   let matched = 0;
   for (const t of tickets as any[]) {
     const { data: msgs } = await c.from("ret_ticket_messages").select("body_text, subject").eq("ticket_id", t.id);
@@ -301,6 +337,17 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
 
     const code = (text.match(BOOKING_RE) ?? [])[1];
     if (code) patch.customer_unique_id = code;
+
+    // a quoted work-order number ("[WO527063574]") resolves through the history
+    if (!patch.customer_unique_id) {
+      const wo = (text.match(WO_RE) ?? [])[1];
+      const h = wo ? byWo.get(wo) : null;
+      if (h?.customer_unique_id) {
+        patch.customer_unique_id = h.customer_unique_id;
+        if (h.customer_name) patch.customer_name = h.customer_name;
+        if (h.customer_contact1) patch.contact = h.customer_contact1;
+      }
+    }
 
     if (!patch.customer_unique_id) {
       const em = String(t.from_email ?? "").toLowerCase().trim();
