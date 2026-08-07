@@ -16,6 +16,12 @@ const STATUS: [string, string][] = [
 ];
 const STATUS_LABEL = Object.fromEntries(STATUS);
 const PRIORITIES = ["P1", "P2", "P3", "P4"];
+const SEV_CLS: Record<string, string> = {
+  critical: "bg-red-600 text-white",
+  high: "bg-orange-100 text-orange-800",
+  medium: "bg-amber-50 text-amber-700",
+};
+const SEV_LABEL: Record<string, string> = { critical: "⚠ critical", high: "serious", medium: "urgent" };
 const PRI_CLS: Record<string, string> = {
   P1: "bg-red-100 text-red-700 ring-red-200",
   P2: "bg-orange-100 text-orange-700 ring-orange-200",
@@ -94,7 +100,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
     const r = await fetch("/api/retrieval/sync?backfillOnly=1", { method: "POST" }).then((x) => x.json()).catch(() => null);
     setBusy(null);
     const b = r?.backfill;
-    if (b?.ok) { alert(`Checked ${b.scanned} ticket(s) without a booking id — matched ${b.matched}.`); load(); }
+    if (b?.ok) { alert(`Rescored ${b.scanned} ticket(s) · booking id found for ${b.matched}.`); load(); }
     else alert(b?.error || r?.error || "Could not run the match.");
   }
 
@@ -139,7 +145,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
         <div>
           <h1 className="text-lg font-bold text-slate-900">Retrieval</h1>
           <p className="text-xs text-slate-500">
-            tickets from retrieval@ and damages@ · priority rises each time the customer writes in again
+            tickets from retrieval@ and damages@ · priority rises with each customer follow-up and with how serious the mail reads
           </p>
         </div>
         <div className="flex gap-2">
@@ -224,6 +230,12 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                     <td className="px-2 py-1.5">
                       <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ring-1 ${PRI_CLS[t.priority] ?? PRI_CLS.P4}`}>{t.priority}</span>
                       {!!t.priority_locked && <div className="text-[9px] text-slate-400" title="Set by the team — automatic bumps are off">pinned</div>}
+                      {t.severity && (
+                        <div className={`mt-0.5 rounded px-1 py-0.5 text-center text-[9px] font-bold ${SEV_CLS[t.severity] ?? ""}`}
+                          title={t.severity_reason ?? "raised from the message content"}>
+                          {SEV_LABEL[t.severity] ?? t.severity}
+                        </div>
+                      )}
                     </td>
                     <td className="px-2 py-1.5 text-slate-700">{t.subject}</td>
                     <td className="px-2 py-1.5 text-slate-600">
@@ -274,6 +286,11 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                 <div className="mt-0.5 text-[11px] text-slate-500">
                   {open.from_email} · {open.customer_unique_id ?? "no booking id"} · {open.customer_msg_count} customer mail(s) · {open.mailbox}@
                 </div>
+                {open.severity_reason && (
+                  <div className="mt-1 inline-block rounded bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
+                    Priority raised by content: {open.severity_reason}
+                  </div>
+                )}
               </div>
               <button onClick={() => setOpen(null)} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50">✕</button>
             </div>

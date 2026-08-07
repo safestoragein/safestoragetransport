@@ -28,6 +28,43 @@ const AUTO_RE = /^(auto(matic)?[- ]?reply|out of (the )?office|automatic reply|u
 const PRIORITY_LADDER = ["P4", "P3", "P2", "P1"];
 export const priorityFor = (customerMsgs: number) =>
   PRIORITY_LADDER[Math.min(Math.max(customerMsgs, 1), PRIORITY_LADDER.length) - 1];
+const rankOf = (p: string) => Math.max(0, PRIORITY_LADDER.indexOf(String(p || "P4")));
+const worseOf = (a: string, b: string) => (rankOf(a) >= rankOf(b) ? a : b);
+
+// ---- severity read from the CONTENT -----------------------------------------------------------
+// Rule-based, not AI: each rule is a phrase the team would themselves treat as serious. A mail can
+// be a first-time message and still deserve P1 — "I am approaching consumer court" should not wait
+// for the customer to chase three more times. Severity only ever RAISES priority, never lowers it,
+// and the matched phrase is stored so the team can see why.
+const SEVERITY_RULES: { level: string; priority: string; label: string; re: RegExp }[] = [
+  { level: "critical", priority: "P1", label: "legal action threatened",
+    re: /\b(consumer\s*(court|forum)|legal\s*(action|notice|proceed)|lawyer|advocate|attorney|file\s+(a\s+)?(case|fir|police)|police\s+complaint|sue\s+you|court\s+case)\b/i },
+  { level: "critical", priority: "P1", label: "public / media escalation threatened",
+    re: /\b(social\s*media|twitter|facebook|instagram|linkedin|google\s*review|media|news\s*channel|consumer\s*complaint\s*(site|forum)|publicly)\b.{0,40}\b(post|share|expose|complain|review|escalate)\b|\b(post|share|expose)\b.{0,40}\b(social\s*media|twitter|google\s*review)\b/i },
+  { level: "critical", priority: "P1", label: "fraud / cheating alleged",
+    re: /\b(fraud|cheat(ed|ing)?|scam|looting|thief|stolen|theft|misappropriat)/i },
+  { level: "high", priority: "P2", label: "goods damaged, lost or missing",
+    re: /\b(damag(e|ed|es)|broken|breakage|missing|lost|not\s+(received|delivered)|never\s+(received|delivered)|shortage)\b/i },
+  { level: "high", priority: "P2", label: "refund or compensation demanded",
+    re: /\b(refund|reimburse|compensat|money\s*back|claim\s+(the\s+)?(amount|money)|charge\s*back)\b/i },
+  { level: "medium", priority: "P3", label: "no response / repeated follow-up",
+    re: /\b(no\s+(response|reply|update|call)|not\s+(responding|replied)|repeatedly|again\s+and\s+again|third\s+time|many\s+times|still\s+waiting|since\s+(last\s+)?(week|month))\b/i },
+  { level: "medium", priority: "P3", label: "marked urgent",
+    re: /\b(urgent|asap|immediately|at\s+the\s+earliest|top\s+priority|escalat)/i },
+];
+
+export function scoreSeverity(text: string): { level: string; priority: string; reason: string } | null {
+  const t = String(text ?? "").slice(0, 20000);
+  if (!t.trim()) return null;
+  for (const r of SEVERITY_RULES) {
+    const m = t.match(r.re);
+    if (m) return { level: r.level, priority: r.priority, reason: `${r.label} — “${String(m[0]).trim().slice(0, 60)}”` };
+  }
+  // Shouting: several ALL-CAPS words, or a pile of exclamation marks.
+  const caps = (t.match(/\b[A-Z]{4,}\b/g) ?? []).filter((w) => !/^(FYI|ASAP|PFA|FWD|RE)$/.test(w));
+  if (caps.length >= 6 || /!{3,}/.test(t)) return { level: "medium", priority: "P3", reason: "written in capitals / emphatic" };
+  return null;
+}
 
 const normSubject = (s: string) =>
   String(s ?? "").replace(/^((re|fw|fwd|aw|antwort)\s*:\s*)+/i, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -138,6 +175,15 @@ async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Pr
       const { [col]: _drop, ...rest } = row; row = rest;
     }
     ticket = { id, priority: priorityFor(1), customer_msg_count: 1, status: "new" };
+    const sev0 = scoreSeverity(`${subject}\n${body}`);
+    if (sev0) {
+      const p = worseOf(priorityFor(1), sev0.priority);
+      try {
+        await c.from("ret_tickets").update({ severity: sev0.level, severity_reason: sev0.reason, priority: p }).eq("id", id);
+        ticket.priority = p;
+      } catch { /* severity columns predate their migration */ }
+      if (p !== priorityFor(1)) await logEvent(id, "priority", priorityFor(1), p, "system", sev0.reason);
+    }
     await insertMessage(ticket.id, box, m, { inbound, auto, msgId, fromAddr, fromName, subject, body, receivedIso });
     await logEvent(ticket.id, "mail_in", null, subject.slice(0, 180), "system");
     return "new";
@@ -151,11 +197,18 @@ async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Pr
     const count = (Number(ticket.customer_msg_count) || 0) + 1;
     patch.customer_msg_count = count;
     patch.last_customer_at = receivedIso;
-    const next = priorityFor(count);
-    const rank = (p: string) => PRIORITY_LADDER.indexOf(p);
-    if (!ticket.priority_locked && rank(next) > rank(String(ticket.priority ?? "P4"))) {
+    const sev = scoreSeverity(`${subject}\n${body}`);
+    // the worse of "how often they've written" and "how serious this mail reads"
+    let next = priorityFor(count);
+    if (sev) {
+      next = worseOf(next, sev.priority);
+      patch.severity = sev.level;
+      patch.severity_reason = sev.reason;
+    }
+    const cur = String(ticket.priority ?? "P4");
+    if (!ticket.priority_locked && rankOf(next) > rankOf(cur)) {
       patch.priority = next;
-      await logEvent(ticket.id, "priority", String(ticket.priority ?? "P4"), next, "system");
+      await logEvent(ticket.id, "priority", cur, next, "system", sev?.reason);
     }
     // A customer writing again re-opens a ticket the team had closed.
     if (["resolved", "closed"].includes(String(ticket.status))) patch.status = "in_progress";
@@ -296,8 +349,10 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
   if (!hasDb) return { ok: false, scanned: 0, matched: 0, error: "db not configured" };
   const c = db();
   // Filter in JS: a booking id can be NULL *or* an empty string, and "IS NULL" alone skipped ~30.
-  const { data: all } = await c.from("ret_tickets").select("id, from_email, subject, customer_unique_id").limit(2000);
-  const tickets = (all ?? []).filter((t: any) => !String(t.customer_unique_id ?? "").trim());
+  // Every ticket is rescored for severity; the booking-id lookup only runs on those still missing one.
+  const { data: all } = await c.from("ret_tickets")
+    .select("id, from_email, subject, customer_unique_id, priority, priority_locked, severity").limit(2000);
+  const tickets = all ?? [];
   if (!tickets.length) return { ok: true, scanned: 0, matched: 0 };
 
   // our own snapshots first — they cover every customer we've ever scheduled
@@ -337,11 +392,21 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
     const text = [t.subject, ...(msgs ?? []).map((m: any) => `${m.subject ?? ""} ${m.body_text ?? ""}`)].join(" \n ");
     const patch: Record<string, unknown> = {};
 
-    const code = (text.match(BOOKING_RE) ?? [])[1];
+    // Re-read severity from everything the customer has written on this ticket.
+    const sev = scoreSeverity(text);
+    if (sev) {
+      patch.severity = sev.level;
+      patch.severity_reason = sev.reason;
+      const cur = String(t.priority ?? "P4");
+      if (!t.priority_locked && rankOf(sev.priority) > rankOf(cur)) patch.priority = sev.priority;
+    }
+
+    const needsId = !String(t.customer_unique_id ?? "").trim();
+    const code = needsId ? (text.match(BOOKING_RE) ?? [])[1] : null;
     if (code) patch.customer_unique_id = code;
 
     // a quoted work-order number ("[WO527063574]") resolves through the history
-    if (!patch.customer_unique_id) {
+    if (needsId && !patch.customer_unique_id) {
       const wo = (text.match(WO_RE) ?? [])[1];
       const h = wo ? byWo.get(wo) : null;
       if (h?.customer_unique_id) {
@@ -351,7 +416,7 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
       }
     }
 
-    if (!patch.customer_unique_id) {
+    if (needsId && !patch.customer_unique_id) {
       const em = String(t.from_email ?? "").toLowerCase().trim();
       const hit = (em && !GENERIC_SENDER.test(em) ? byEmail.get(em) : null)
         // a phone number in the signature is the next best clue
@@ -369,8 +434,11 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
     if (!Object.keys(patch).length) continue;
     try {
       await c.from("ret_tickets").update(patch).eq("id", t.id);
-      await logEvent(t.id, "backfill", null, String(patch.customer_unique_id ?? ""), "system");
-      matched++;
+      if (patch.customer_unique_id) {
+        await logEvent(t.id, "backfill", null, String(patch.customer_unique_id), "system");
+        matched++;
+      }
+      if (patch.priority) await logEvent(t.id, "priority", String(t.priority ?? ""), String(patch.priority), "system", String(patch.severity_reason ?? ""));
     } catch { /* skip this one */ }
   }
   return { ok: true, scanned: tickets.length, matched, historyRows: history.length, phones: byPhone.size, emails: byEmail.size };
