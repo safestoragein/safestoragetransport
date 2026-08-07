@@ -1,29 +1,41 @@
-name: Server admin (repair env permissions)
+name: Server admin (sync env + restart)
 
+# Pushes app secrets from GitHub into the server's .env and restarts the service.
+# The .env is rewritten IN PLACE (cat > file), never replaced via mv — replacing it once reset the
+# owner and mode, and the service (running as www-data) then booted with no database settings.
 on:
   workflow_dispatch: {}
 
 jobs:
-  fix:
+  env:
     runs-on: ubuntu-latest
     steps:
-      - name: Restore .env ownership so the service can read it
+      - name: Sync env vars to the server
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_USER: ${{ secrets.AWS_USER }}
           AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
           AWS_APP_DIR: ${{ secrets.AWS_APP_DIR }}
+          KNOWLARITY_AUTH: ${{ secrets.KNOWLARITY_AUTH }}
+          KNOWLARITY_API_KEY: ${{ secrets.KNOWLARITY_API_KEY }}
+          KNOWLARITY_EXTENSIONS: ${{ secrets.KNOWLARITY_EXTENSIONS }}
         run: |
           mkdir -p ~/.ssh && printf '%s\n' "$AWS_SSH_KEY" > ~/.ssh/id && chmod 600 ~/.ssh/id
-          ssh -i ~/.ssh/id -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" '
-            cd '"$AWS_APP_DIR"'
-            echo "== before =="; ls -l .env; ls -l .env.bak.* 2>/dev/null | tail -1
-            # The service runs as www-data and reads .env through the group. Replacing the file with
-            # mv from /tmp had reset owner+mode, so the app booted with no MYSQL_* at all.
-            sudo -n chgrp www-data .env 2>/dev/null || chgrp www-data .env 2>/dev/null || true
-            chmod 660 .env
-            echo "== after =="; ls -l .env
-            echo "== keys =="; grep -oE "^[A-Za-z0-9_]+" .env
-            sudo -n systemctl restart next-safestorage-transport.service && echo restarted
-            sleep 8; systemctl is-active next-safestorage-transport.service
-          '
+          # values travel over the ssh session's stdin, never on the command line
+          printf 'KNOWLARITY_AUTH=%s\nKNOWLARITY_API_KEY=%s\nKNOWLARITY_EXTENSIONS=%s\n' \
+            "$KNOWLARITY_AUTH" "$KNOWLARITY_API_KEY" "$KNOWLARITY_EXTENSIONS" \
+          | ssh -i ~/.ssh/id -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" '
+              set -e
+              cd '"$AWS_APP_DIR"'
+              cp -p .env .env.bak.$(date +%s)
+              incoming=$(mktemp); cat > "$incoming"
+              keys=$(cut -d= -f1 "$incoming" | tr "\n" "|" | sed "s/|$//")
+              merged=$(mktemp)
+              grep -vE "^(${keys})=" .env > "$merged" || true
+              cat "$incoming" >> "$merged"
+              cat "$merged" > .env          # in place: keeps owner, group and mode
+              rm -f "$incoming" "$merged"
+              echo "== .env =="; ls -l .env; grep -oE "^[A-Za-z0-9_]+" .env
+              sudo -n systemctl restart next-safestorage-transport.service && echo restarted
+              sleep 8; systemctl is-active next-safestorage-transport.service
+            '
