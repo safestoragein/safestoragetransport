@@ -292,11 +292,12 @@ async function feedbackHistory(months = 6): Promise<any[]> {
   return out;
 }
 
-export async function backfillCustomers(): Promise<{ ok: boolean; scanned: number; matched: number; error?: string }> {
+export async function backfillCustomers(): Promise<{ ok: boolean; scanned: number; matched: number; historyRows?: number; phones?: number; emails?: number; error?: string }> {
   if (!hasDb) return { ok: false, scanned: 0, matched: 0, error: "db not configured" };
   const c = db();
-  const { data: todo } = await c.from("ret_tickets").select("id, from_email, subject").is("customer_unique_id", null).limit(500);
-  const tickets = todo ?? [];
+  // Filter in JS: a booking id can be NULL *or* an empty string, and "IS NULL" alone skipped ~30.
+  const { data: all } = await c.from("ret_tickets").select("id, from_email, subject, customer_unique_id").limit(2000);
+  const tickets = (all ?? []).filter((t: any) => !String(t.customer_unique_id ?? "").trim());
   if (!tickets.length) return { ok: true, scanned: 0, matched: 0 };
 
   // our own snapshots first — they cover every customer we've ever scheduled
@@ -323,7 +324,8 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
 
   // …and months of history, which is where most of these customers actually live.
   const byWo = new Map<string, any>();
-  for (const o of await feedbackHistory()) {
+  const history = await feedbackHistory();
+  for (const o of history) {
     remember({ ...o, contact: o.customer_contact1 });
     const wo = String(o.order_id ?? "").trim();
     if (wo && !byWo.has(wo)) byWo.set(wo, o);
@@ -371,7 +373,7 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
       matched++;
     } catch { /* skip this one */ }
   }
-  return { ok: true, scanned: tickets.length, matched };
+  return { ok: true, scanned: tickets.length, matched, historyRows: history.length, phones: byPhone.size, emails: byEmail.size };
 }
 
 // --- reading for the UI -------------------------------------------------------------------------
