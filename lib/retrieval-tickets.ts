@@ -225,9 +225,22 @@ async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Pr
 
   await insertMessage(ticket.id, box, m, { inbound, auto, msgId, fromAddr, fromName, subject, body, receivedIso });
 
+  // A customer who re-sends the SAME mail a few minutes later (common when they get no
+  // acknowledgement) is not chasing — count it once so priority isn't inflated by a resend.
+  let resend = false;
+  if (inbound && !auto) {
+    try {
+      const key = body.replace(/\s+/g, " ").trim().slice(0, 400);
+      const { data: prev } = await c.from("ret_ticket_messages")
+        .select("body_text, direction").eq("ticket_id", ticket.id).limit(50);
+      resend = (prev ?? []).some((x: any) =>
+        x.direction === "inbound" && String(x.body_text ?? "").replace(/\s+/g, " ").trim().slice(0, 400) === key);
+    } catch { /* best-effort */ }
+  }
+
   // Priority only moves on a genuine customer follow-up, and only upwards.
   const patch: Record<string, unknown> = {};
-  if (inbound && !auto) {
+  if (inbound && !auto && !resend) {
     const count = (Number(ticket.customer_msg_count) || 0) + 1;
     patch.customer_msg_count = count;
     patch.last_customer_at = receivedIso;
@@ -246,6 +259,8 @@ async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Pr
     }
     // A customer writing again re-opens a ticket the team had closed.
     if (["resolved", "closed"].includes(String(ticket.status))) patch.status = "in_progress";
+  } else if (inbound && resend) {
+    patch.last_customer_at = receivedIso; // still the latest contact, just not a new chase
   } else if (!inbound) {
     patch.last_agent_at = receivedIso;
     if (!ticket.first_response_at) patch.first_response_at = receivedIso;

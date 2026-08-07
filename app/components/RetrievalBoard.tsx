@@ -16,13 +16,28 @@ const STATUS: [string, string][] = [
 ];
 const STATUS_LABEL = Object.fromEntries(STATUS);
 const PRIORITIES = ["P1", "P2", "P3", "P4"];
-// The team's own categories for what a mail is about.
+// The team's own categories for what a mail is asking for.
 const ISSUE: [string, string][] = [
   ["missing_damaged", "Missing / damaged"],
   ["retrieval_slot", "Retrieval / slot"],
   ["media_request", "Photos / video call"],
   ["other", "Others"],
 ];
+// Same rules as the server. Used when the stored tag is still empty, so the board is useful
+// straight away instead of showing everything as "Others".
+const REQ_RULES: [string, RegExp][] = [
+  ["missing_damaged", /\b(missing|lost|damag(e|ed|es)|broken|breakage|scratch|dent|not\s+(received|delivered)|never\s+(received|delivered)|shortage|claim\s+for|wrong\s+(item|delivery)|incorrect\s+inventory)\b/i],
+  ["media_request", /\b(video\s*(call|conference)?|photo(graph)?s?|pic(ture)?s?|image(s)?|show\s+me|see\s+my\s+(items|goods|stuff)|visual|inspect(ion)?|live\s+(view|video)|whatsapp\s+(photo|video|pic))\b/i],
+  ["retrieval_slot", /\b(retriev(e|al)|partial\s*retrieval|self[- ]?(retrieval|pickup)|pick\s*up|slot|schedule|book(ing)?\s+(a\s+)?(date|slot|visit)|deliver(y)?\s+(date|request)|want\s+(my|the)\s+(goods|items)|return\s+of\s+goods|quotation)\b/i],
+];
+function requestTypeOf(t: any): { key: string; derived: boolean } {
+  const stored = String(t.issue_type ?? "").trim();
+  if (stored) return { key: stored, derived: false };
+  const text = `${t.subject ?? ""} ${t.snippet ?? ""}`;
+  for (const [key, re] of REQ_RULES) if (re.test(text)) return { key, derived: true };
+  if (String(t.mailbox ?? "") === "damages") return { key: "missing_damaged", derived: true };
+  return { key: "other", derived: true };
+}
 const ISSUE_LABEL = Object.fromEntries(ISSUE);
 const ISSUE_CLS: Record<string, string> = {
   missing_damaged: "bg-red-50 text-red-700 ring-red-200",
@@ -169,7 +184,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
     return String(t[key] ?? "").toLowerCase();
   };
   const shown = [...tickets]
-    .filter((t) => fIssue === "All" || String(t.issue_type ?? "other") === fIssue)
+    .filter((t) => fIssue === "All" || requestTypeOf(t).key === fIssue)
     .sort((a, b) => {
     const x = sortVal(a, sort.key), y = sortVal(b, sort.key);
     if (x < y) return -sort.dir;
@@ -230,8 +245,8 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
           <option value="retrieval">retrieval@</option>
           <option value="damages">damages@</option>
         </select>
-        <select value={fIssue} onChange={(e) => setFIssue(e.target.value)} className={sel} title="What the mail is about">
-          <option value="All">All issues</option>
+        <select value={fIssue} onChange={(e) => setFIssue(e.target.value)} className={sel} title="What the customer is asking for">
+          <option value="All">All request types</option>
           {ISSUE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
         <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className={sel}>
@@ -257,7 +272,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
               <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400">
                 <th className="w-[9%] px-2 py-1.5">Ticket</th>
                 <th className="w-[5%] cursor-pointer select-none px-2 py-1.5 hover:text-slate-600" onClick={() => toggle("priority")} title="Sort by priority">Pri{arrow("priority")}</th>
-                <th className="w-[10%] px-2 py-1.5">Issue</th>
+                <th className="w-[10%] px-2 py-1.5">Request type</th>
                 <th className="w-[19%] px-2 py-1.5">Subject</th>
                 <th className="w-[15%] px-2 py-1.5">Customer</th>
                 <th className="w-[6%] cursor-pointer select-none px-2 py-1.5 hover:text-slate-600" onClick={() => toggle("customer_msg_count")} title="Times the customer has written in — click to sort">Chases{arrow("customer_msg_count")}</th>
@@ -287,9 +302,15 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                       )}
                     </td>
                     <td className="px-2 py-1.5">
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${ISSUE_CLS[String(t.issue_type ?? "other")] ?? ISSUE_CLS.other}`}>
-                        {ISSUE_LABEL[String(t.issue_type ?? "other")] ?? "Others"}
-                      </span>
+                      {(() => {
+                        const rt = requestTypeOf(t);
+                        return (
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${ISSUE_CLS[rt.key] ?? ISSUE_CLS.other}`}
+                            title={rt.derived ? "read from the subject — run the pending migration to store it" : undefined}>
+                            {ISSUE_LABEL[rt.key] ?? "Others"}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-2 py-1.5 text-slate-700">{t.subject}</td>
                     <td className="px-2 py-1.5 text-slate-600">
@@ -337,8 +358,8 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
             <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${ISSUE_CLS[String(open.issue_type ?? "other")] ?? ISSUE_CLS.other}`}>
-                    {ISSUE_LABEL[String(open.issue_type ?? "other")] ?? "Others"}
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${ISSUE_CLS[requestTypeOf(open).key] ?? ISSUE_CLS.other}`}>
+                    {ISSUE_LABEL[requestTypeOf(open).key] ?? "Others"}
                   </span>
                   <span className="text-sm font-bold text-slate-800">{open.ticket_no} · {open.subject}</span>
                 </div>
@@ -407,8 +428,8 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                   {STATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </label>
-              <label className="flex flex-col gap-0.5 text-[11px] text-slate-500">Issue
-                <select value={String(open.issue_type ?? "other")} onChange={(e) => save(open.id, "issue_type", e.target.value)} className={sel}>
+              <label className="flex flex-col gap-0.5 text-[11px] text-slate-500">Request type
+                <select value={requestTypeOf(open).key} onChange={(e) => save(open.id, "issue_type", e.target.value)} className={sel}>
                   {ISSUE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </label>
