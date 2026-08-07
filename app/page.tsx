@@ -1,6 +1,7 @@
 import AppTrackingBoard from "./components/AppTrackingBoard";
 import PnlBoard from "./components/PnlBoard";
 import RetrievalBoard from "./components/RetrievalBoard";
+import CallsBoard from "./components/CallsBoard";
 import CommandCenter from "./components/CommandCenter";
 import FeedbackBoard from "./components/FeedbackBoard";
 import EscalationsBoard from "@/app/components/EscalationsBoard";
@@ -59,6 +60,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
 
   // Retrieval — email-driven tickets from retrieval@ / damages@
   if (view === "retrieval") return <RetrievalBoard user={user} />;
+
+  // Retrieval → Calls (telephony)
+  if (view === "calls") return <CallsBoard user={user} />;
 
   // Schedules — Today / Tomorrow / Old all share ONE board; only the data (date) differs.
   if (view === "today") return <ScheduleBoard mode="today" user={user} />;

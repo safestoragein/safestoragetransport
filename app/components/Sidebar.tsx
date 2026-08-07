@@ -4,16 +4,17 @@ import { useState } from "react";
 import { SessionUser } from "@/lib/auth";
 import { withBase } from "@/lib/base";
 
-export type NavKey = "dashboard" | "today" | "schedule" | "history" | "pnl" | "retrieval" | "tracking" | "vendors" | "feedback" | "escalations" | "usage" | "rules";
+export type NavKey = "dashboard" | "today" | "schedule" | "history" | "pnl" | "retrieval" | "calls" | "tracking" | "vendors" | "feedback" | "escalations" | "usage" | "rules";
 
-// Items inside the "Pickup & Retrieval" module group (expand/collapse in the rail).
-const ITEMS: { key: NavKey; label: string; href: string; icon: string }[] = [
+type Item = { key: NavKey; label: string; href: string; icon: string };
+
+// Transport module — the scheduling side of the business.
+const ITEMS: Item[] = [
   { key: "dashboard", label: "Dashboard", href: "/?view=dashboard", icon: "M3 13h8V3H3zm10 8h8V3h-8zM3 21h8v-6H3z" },
   { key: "today", label: "Today's schedule", href: "/?view=today", icon: "M12 8v4l3 2 M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" },
   { key: "schedule", label: "Tomorrow's schedule", href: "/?view=schedule", icon: "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" },
   { key: "history", label: "Old schedules", href: "/?view=history", icon: "M3 3v5h5M3.05 13A9 9 0 1 0 6 5.3L3 8m9-1v5l4 2" },
   { key: "pnl", label: "Weekly / Monthly P&L", href: "/?view=pnl", icon: "M3 3v18h18M7 15l3-4 3 3 5-7" },
-  { key: "retrieval", label: "Retrieval", href: "/?view=retrieval", icon: "M4 4h16v5H4zM4 13h16v7H4zM8 9v4M16 9v4" },
   { key: "tracking", label: "App tracking", href: "/?view=tracking", icon: "M12 18h.01M8 21h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2z" },
   { key: "vendors", label: "Vendor panel", href: "/?view=vendors", icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm14 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },
   { key: "feedback", label: "Feedback", href: "/?view=feedback", icon: "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" },
@@ -22,8 +23,15 @@ const ITEMS: { key: NavKey; label: string; href: string; icon: string }[] = [
   { key: "rules", label: "Scheduling rules", href: "/?view=rules", icon: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2zM9 7h7M9 11h7" },
 ];
 
+// Retrieval is its own module: everything a customer sends in, by channel.
+const RETRIEVAL_ITEMS: Item[] = [
+  { key: "retrieval", label: "Emails", href: "/?view=retrieval", icon: "M4 4h16v16H4zM4 7l8 6 8-6" },
+  { key: "calls", label: "Calls", href: "/?view=calls", icon: "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.4-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z" },
+];
+
 export default function Sidebar({ active, user }: { active: NavKey; user: SessionUser | null }) {
   const [open, setOpen] = useState(true);
+  const [openRet, setOpenRet] = useState(true);
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = withBase("/login");
@@ -48,7 +56,7 @@ export default function Sidebar({ active, user }: { active: NavKey; user: Sessio
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 shrink-0">
             <path d="M1 3h13v10H1zM14 8h4l3 3v2h-7zM5.5 18a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm11 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z" />
           </svg>
-          <span className="flex-1 text-left">Pickup &amp; Retrieval</span>
+          <span className="flex-1 text-left">Pickup &amp; Retrieval - Transport</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`h-4 w-4 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`}>
             <path d="m6 9 6 6 6-6" />
           </svg>
@@ -57,6 +65,41 @@ export default function Sidebar({ active, user }: { active: NavKey; user: Sessio
         {open && (
           <div className="mt-1 space-y-0.5 border-l border-slate-100 pl-2">
             {ITEMS.filter((n) => n.key !== "usage" || user?.role === "admin").map((n) => {
+              const on = active === n.key;
+              return (
+                <a
+                  key={n.key}
+                  href={withBase(n.href)}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    on ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  }`}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px] shrink-0">
+                    <path d={n.icon} />
+                  </svg>
+                  {n.label}
+                </a>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Retrieval — its own module, one entry per channel */}
+        <button
+          onClick={() => setOpenRet((o) => !o)}
+          className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 shrink-0">
+            <path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" />
+          </svg>
+          <span className="flex-1 text-left">Retrieval</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`h-4 w-4 shrink-0 transition-transform ${openRet ? "" : "-rotate-90"}`}>
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+        {openRet && (
+          <div className="mt-1 space-y-0.5 border-l border-slate-100 pl-2">
+            {RETRIEVAL_ITEMS.map((n) => {
               const on = active === n.key;
               return (
                 <a
