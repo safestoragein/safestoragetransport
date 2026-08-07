@@ -267,6 +267,12 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                   {STATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </label>
+              <label className="flex flex-col gap-0.5 text-[11px] text-slate-500">Booking id
+                <input key={`${open.id}:${open.customer_unique_id ?? ""}`} defaultValue={open.customer_unique_id ?? ""}
+                  placeholder="e.g. BH32865"
+                  onBlur={(e) => { const v = e.target.value.trim().toUpperCase(); if (v !== String(open.customer_unique_id ?? "")) save(open.id, "customer_unique_id", v); }}
+                  className={`${sel} w-32`} />
+              </label>
               <label className="flex flex-1 flex-col gap-0.5 text-[11px] text-slate-500">Resolution notes
                 <input key={`${open.id}:${open.resolution_notes ?? ""}`} defaultValue={open.resolution_notes ?? ""}
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(open.resolution_notes ?? "")) save(open.id, "resolution_notes", v); }}

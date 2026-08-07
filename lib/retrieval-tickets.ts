@@ -33,6 +33,12 @@ const normSubject = (s: string) =>
   String(s ?? "").replace(/^((re|fw|fwd|aw|antwort)\s*:\s*)+/i, "").replace(/\s+/g, " ").trim().toLowerCase();
 
 const BOOKING_RE = /\b([A-Z]{2,3}\d{4,6})\b/;
+// Mail often quotes the work-order number instead ("[WO527063574] Reporting of Damages").
+const WO_RE = /\b(?:WO[- ]?)?(\d{9})\b/;
+// Addresses that are NOT a customer: our own domain, and the shared gmail the booking system uses
+// as a placeholder when a customer has no email of their own. Three live orders carry that gmail,
+// so matching on it attached forwarded mail to whichever of those customers came first.
+const GENERIC_SENDER = /@safestorage\.in$|^safestorage\.in@gmail\.com$|^info@|^support@|^noreply@|^no-reply@/i;
 const addrOf = (r: any) => String(r?.emailAddress?.address ?? "").trim();
 
 // --- ticket numbering -------------------------------------------------------------------------
@@ -49,11 +55,14 @@ async function nextTicketNo(prefix: string): Promise<string> {
 // against the live feed. Best-effort: an unmatched ticket is still perfectly usable.
 async function resolveCustomer(text: string, senderEmail: string): Promise<any> {
   const code = (text.match(BOOKING_RE) ?? [])[1];
+  const wo = (text.match(WO_RE) ?? [])[1];
   try {
     const { allLiveOrders } = await import("./safestorage-api");
     const feed = await allLiveOrders();
     let hit = code ? feed.find((o: any) => String(o.customer_unique_id ?? "").toUpperCase() === code) : null;
-    if (!hit && senderEmail) {
+    if (!hit && wo) hit = feed.find((o: any) => String(o.order_id ?? "") === wo);
+    // Only trust the sender's address when it actually belongs to a customer.
+    if (!hit && senderEmail && !GENERIC_SENDER.test(senderEmail.trim())) {
       const s = senderEmail.toLowerCase();
       hit = feed.find((o: any) => String(o.customer_email ?? "").toLowerCase().trim() === s);
     }
@@ -279,7 +288,10 @@ export async function ticketThread(id: string) {
   return { ticket: t ?? null, messages: ms ?? [] };
 }
 
-const EDITABLE = new Set(["status", "priority", "assigned_to", "followup_date", "followup_notes", "resolution_notes", "category"]);
+const EDITABLE = new Set([
+  "status", "priority", "assigned_to", "followup_date", "followup_notes", "resolution_notes",
+  "category", "customer_unique_id", "customer_id", "contact",
+]);
 
 export async function updateTicket(id: string, patch: Record<string, unknown>, actor: string) {
   if (!hasDb) return { ok: false, error: "db not configured" };
