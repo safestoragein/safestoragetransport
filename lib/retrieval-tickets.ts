@@ -350,8 +350,20 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
   const c = db();
   // Filter in JS: a booking id can be NULL *or* an empty string, and "IS NULL" alone skipped ~30.
   // Every ticket is rescored for severity; the booking-id lookup only runs on those still missing one.
-  const { data: all } = await c.from("ret_tickets")
-    .select("id, from_email, subject, customer_unique_id, priority, priority_locked, severity").limit(2000);
+  // The severity columns may not exist yet — selecting them would fail the WHOLE query and silently
+  // scan nothing, so fall back to the columns that certainly exist.
+  let all: any[] | null = null;
+  let hasSeverity = true;
+  {
+    const r = await c.from("ret_tickets")
+      .select("id, from_email, subject, customer_unique_id, priority, priority_locked, severity").limit(2000);
+    if (r.error) {
+      hasSeverity = false;
+      const r2 = await c.from("ret_tickets")
+        .select("id, from_email, subject, customer_unique_id, priority, priority_locked").limit(2000);
+      all = r2.data ?? [];
+    } else all = r.data ?? [];
+  }
   const tickets = all ?? [];
   if (!tickets.length) return { ok: true, scanned: 0, matched: 0 };
 
@@ -395,8 +407,7 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
     // Re-read severity from everything the customer has written on this ticket.
     const sev = scoreSeverity(text);
     if (sev) {
-      patch.severity = sev.level;
-      patch.severity_reason = sev.reason;
+      if (hasSeverity) { patch.severity = sev.level; patch.severity_reason = sev.reason; }
       const cur = String(t.priority ?? "P4");
       if (!t.priority_locked && rankOf(sev.priority) > rankOf(cur)) patch.priority = sev.priority;
     }
@@ -441,7 +452,11 @@ export async function backfillCustomers(): Promise<{ ok: boolean; scanned: numbe
       if (patch.priority) await logEvent(t.id, "priority", String(t.priority ?? ""), String(patch.priority), "system", String(patch.severity_reason ?? ""));
     } catch { /* skip this one */ }
   }
-  return { ok: true, scanned: tickets.length, matched, historyRows: history.length, phones: byPhone.size, emails: byEmail.size };
+  return {
+    ok: true, scanned: tickets.length, matched, historyRows: history.length,
+    phones: byPhone.size, emails: byEmail.size,
+    ...(hasSeverity ? {} : { error: "severity columns missing — run 2026-08-07-retrieval-severity.sql (priorities still updated)" }),
+  };
 }
 
 // --- reading for the UI -------------------------------------------------------------------------
