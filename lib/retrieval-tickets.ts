@@ -257,6 +257,76 @@ export async function syncMailboxes(): Promise<{ ok: boolean; results: any[]; er
   return { ok: true, results };
 }
 
+// --- backfill the booking id on tickets that never matched ------------------------------------
+// The live feed only holds TODAY and future orders, so a customer writing about a past booking
+// can't be matched from it. This digs through everything else we hold:
+//   1. every message in the thread (a reply often quotes the booking id the first mail didn't),
+//   2. the work-order number quoted in any message,
+//   3. our own order snapshots — matched on the sender's email, then on a phone number in the mail,
+//   4. the live feed, same two ways.
+export async function backfillCustomers(): Promise<{ ok: boolean; scanned: number; matched: number; error?: string }> {
+  if (!hasDb) return { ok: false, scanned: 0, matched: 0, error: "db not configured" };
+  const c = db();
+  const { data: todo } = await c.from("ret_tickets").select("id, from_email, subject").is("customer_unique_id", null).limit(500);
+  const tickets = todo ?? [];
+  if (!tickets.length) return { ok: true, scanned: 0, matched: 0 };
+
+  // our own snapshots first — they cover every customer we've ever scheduled
+  const byEmail = new Map<string, any>();
+  const byPhone = new Map<string, any>();
+  const remember = (o: any) => {
+    const em = String(o.customer_email ?? "").toLowerCase().trim();
+    if (em && !GENERIC_SENDER.test(em) && !byEmail.has(em)) byEmail.set(em, o);
+    for (const p of String(o.contact ?? o.customer_contact1 ?? "").split(/[/,;]+/)) {
+      const d = p.replace(/\D/g, "").slice(-10);
+      if (d.length === 10 && !byPhone.has(d)) byPhone.set(d, o);
+    }
+  };
+  try {
+    const { data: ours } = await c.from("orders").select("customer_unique_id, customer_name, customer_email, contact, city").limit(20000);
+    for (const o of (ours ?? []) as any[]) remember(o);
+  } catch { /* the email column may predate its migration */ }
+  try {
+    const { allLiveOrders } = await import("./safestorage-api");
+    for (const o of await allLiveOrders()) {
+      remember({ ...o, contact: o.customer_contact1, customer_email: o.customer_email });
+    }
+  } catch { /* feed down — our own snapshots still help */ }
+
+  let matched = 0;
+  for (const t of tickets as any[]) {
+    const { data: msgs } = await c.from("ret_ticket_messages").select("body_text, subject").eq("ticket_id", t.id);
+    const text = [t.subject, ...(msgs ?? []).map((m: any) => `${m.subject ?? ""} ${m.body_text ?? ""}`)].join(" \n ");
+    const patch: Record<string, unknown> = {};
+
+    const code = (text.match(BOOKING_RE) ?? [])[1];
+    if (code) patch.customer_unique_id = code;
+
+    if (!patch.customer_unique_id) {
+      const em = String(t.from_email ?? "").toLowerCase().trim();
+      const hit = (em && !GENERIC_SENDER.test(em) ? byEmail.get(em) : null)
+        // a phone number in the signature is the next best clue
+        ?? (() => {
+          for (const m of text.match(/\b[6-9]\d{9}\b/g) ?? []) { const h = byPhone.get(m); if (h) return h; }
+          return null;
+        })();
+      if (hit?.customer_unique_id) {
+        patch.customer_unique_id = hit.customer_unique_id;
+        if (hit.customer_name) patch.customer_name = hit.customer_name;
+        if (hit.contact ?? hit.customer_contact1) patch.contact = hit.contact ?? hit.customer_contact1;
+        if (hit.city ?? hit.customer_local_city) patch.city = String(hit.city ?? hit.customer_local_city).toLowerCase();
+      }
+    }
+    if (!Object.keys(patch).length) continue;
+    try {
+      await c.from("ret_tickets").update(patch).eq("id", t.id);
+      await logEvent(t.id, "backfill", null, String(patch.customer_unique_id ?? ""), "system");
+      matched++;
+    } catch { /* skip this one */ }
+  }
+  return { ok: true, scanned: tickets.length, matched };
+}
+
 // --- reading for the UI -------------------------------------------------------------------------
 export async function listTickets(opts: { status?: string | null; priority?: string | null; mailbox?: string | null; q?: string | null }) {
   if (!hasDb) return { tickets: [], tableMissing: false };

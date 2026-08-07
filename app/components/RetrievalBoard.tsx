@@ -87,13 +87,23 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
     else alert(r?.error || "Could not raise the ticket.");
   }
 
+  async function backfill() {
+    setBusy("backfill");
+    const r = await fetch("/api/retrieval/sync?backfillOnly=1", { method: "POST" }).then((x) => x.json()).catch(() => null);
+    setBusy(null);
+    const b = r?.backfill;
+    if (b?.ok) { alert(`Checked ${b.scanned} ticket(s) without a booking id — matched ${b.matched}.`); load(); }
+    else alert(b?.error || r?.error || "Could not run the match.");
+  }
+
   async function syncNow() {
     setBusy("sync");
     const r = await fetch("/api/retrieval/sync", { method: "POST" }).then((x) => x.json()).catch(() => null);
     setBusy(null);
     if (r?.ok) {
       const s = (r.results ?? []).map((x: any) => `${x.mailbox}: ${x.created} new, ${x.appended} replies${x.error ? ` (${x.error})` : ""}`).join(" · ");
-      alert(`Mail synced — ${s}`);
+      const b = r.backfill?.matched ? ` · booking id found for ${r.backfill.matched}` : "";
+      alert(`Mail synced — ${s}${b}`);
       load();
     } else alert(r?.error || "Sync failed.");
   }
@@ -111,9 +121,16 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
             tickets from retrieval@ and damages@ · priority rises each time the customer writes in again
           </p>
         </div>
-        <button onClick={syncNow} disabled={busy === "sync"} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
-          {busy === "sync" ? "Syncing…" : "⟳ Sync mail now"}
-        </button>
+        <div className="flex gap-2">
+          <button onClick={backfill} disabled={busy === "backfill"}
+            title="Search every message, our order history and the live feed for a booking id on tickets that don't have one"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50">
+            {busy === "backfill" ? "Matching…" : "🔎 Find booking ids"}
+          </button>
+          <button onClick={syncNow} disabled={busy === "sync"} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+            {busy === "sync" ? "Syncing…" : "⟳ Sync mail now"}
+          </button>
+        </div>
       </header>
 
       {tableMissing && (
