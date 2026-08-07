@@ -45,6 +45,8 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
   const [open, setOpen] = useState<any | null>(null);
   const [thread, setThread] = useState<any[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  // Sortable columns — chases first, since that is the queue the team works.
+  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "created_at", dir: -1 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,6 +109,25 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
       load();
     } else alert(r?.error || "Sync failed.");
   }
+
+  const PRI_RANK: Record<string, number> = { P1: 4, P2: 3, P3: 2, P4: 1 };
+  const sortVal = (t: any, key: string) => {
+    if (key === "customer_msg_count") return Number(t.customer_msg_count) || 0;
+    if (key === "priority") return PRI_RANK[String(t.priority)] ?? 0;
+    if (key === "last_customer_at" || key === "created_at") {
+      const v = new Date(String(t[key] ?? "").replace(" ", "T")).getTime();
+      return isNaN(v) ? 0 : v;
+    }
+    return String(t[key] ?? "").toLowerCase();
+  };
+  const shown = [...tickets].sort((a, b) => {
+    const x = sortVal(a, sort.key), y = sortVal(b, sort.key);
+    if (x < y) return -sort.dir;
+    if (x > y) return sort.dir;
+    return 0;
+  });
+  const toggle = (key: string) => setSort((s) => (s.key === key ? { key, dir: (s.dir === 1 ? -1 : 1) as 1 | -1 } : { key, dir: -1 }));
+  const arrow = (key: string) => (sort.key === key ? (sort.dir === -1 ? " ↓" : " ↑") : "");
 
   const counts = PRIORITIES.map((p) => [p, tickets.filter((t) => t.priority === p).length] as const);
   const openCount = tickets.filter((t) => !["resolved", "closed"].includes(String(t.status))).length;
@@ -181,18 +202,18 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
             <thead>
               <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400">
                 <th className="w-[9%] px-2 py-1.5">Ticket</th>
-                <th className="w-[5%] px-2 py-1.5">Pri</th>
+                <th className="w-[5%] cursor-pointer select-none px-2 py-1.5 hover:text-slate-600" onClick={() => toggle("priority")} title="Sort by priority">Pri{arrow("priority")}</th>
                 <th className="w-[22%] px-2 py-1.5">Subject</th>
                 <th className="w-[15%] px-2 py-1.5">Customer</th>
-                <th className="w-[6%] px-2 py-1.5" title="Times the customer has written in">Chases</th>
+                <th className="w-[6%] cursor-pointer select-none px-2 py-1.5 hover:text-slate-600" onClick={() => toggle("customer_msg_count")} title="Times the customer has written in — click to sort">Chases{arrow("customer_msg_count")}</th>
                 <th className="w-[11%] px-2 py-1.5">Status</th>
                 <th className="w-[10%] px-2 py-1.5">Owner</th>
-                <th className="w-[10%] px-2 py-1.5">Last customer</th>
+                <th className="w-[10%] cursor-pointer select-none px-2 py-1.5 hover:text-slate-600" onClick={() => toggle("last_customer_at")} title="Sort by when the customer last wrote">Last customer{arrow("last_customer_at")}</th>
                 <th className="w-[12%] px-2 py-1.5">WMS ticket</th>
               </tr>
             </thead>
             <tbody>
-              {tickets.map((t) => {
+              {shown.map((t) => {
                 const age = ageDays(t.last_customer_at);
                 return (
                   <tr key={t.id} className="cursor-pointer border-b border-slate-50 align-top hover:bg-slate-50" onClick={() => openTicket(t)}>
