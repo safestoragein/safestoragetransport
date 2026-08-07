@@ -394,6 +394,18 @@ async function feedbackHistory(months = 6): Promise<any[]> {
   return out;
 }
 
+// Phone -> customer, from months of order history. Shared with the Calls sync.
+export async function feedbackPhoneIndex(): Promise<Map<string, any>> {
+  const m = new Map<string, any>();
+  for (const o of await feedbackHistory()) {
+    for (const p of String(o.customer_contact1 ?? "").split(/[/,;]+/)) {
+      const d = p.replace(/\D/g, "").slice(-10);
+      if (d.length === 10 && !m.has(d)) m.set(d, o);
+    }
+  }
+  return m;
+}
+
 export async function backfillCustomers(): Promise<{ ok: boolean; scanned: number; matched: number; historyRows?: number; phones?: number; emails?: number; error?: string }> {
   if (!hasDb) return { ok: false, scanned: 0, matched: 0, error: "db not configured" };
   const c = db();

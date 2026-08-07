@@ -3,6 +3,7 @@
 //   GET/POST /api/retrieval/sync
 import { NextResponse } from "next/server";
 import { syncMailboxes, backfillCustomers } from "@/lib/retrieval-tickets";
+import { syncCalls } from "@/lib/retrieval-calls";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -15,7 +16,8 @@ async function run(req: Request) {
     if (new URL(req.url).searchParams.get("backfillOnly") === "1") {
       return NextResponse.json({ ok: true, backfill });
     }
-    return NextResponse.json({ ...sync, backfill });
+    const calls = await syncCalls().catch((e) => ({ ok: false, error: (e as Error).message }));
+    return NextResponse.json({ ...sync, backfill, calls });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }
