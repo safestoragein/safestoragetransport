@@ -1,41 +1,40 @@
-name: Server admin (sync env + restart)
+name: Server admin (install cron jobs)
 
-# Pushes app secrets from GitHub into the server's .env and restarts the service.
-# The .env is rewritten IN PLACE (cat > file), never replaced via mv — replacing it once reset the
-# owner and mode, and the service (running as www-data) then booted with no database settings.
+# Installs the app's scheduled jobs on the server. Idempotent: entries are tagged with a marker
+# comment and rewritten each run, so this can be re-run safely without piling up duplicates.
 on:
   workflow_dispatch: {}
 
 jobs:
-  env:
+  cron:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync env vars to the server
+      - name: Install crontab entries
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_USER: ${{ secrets.AWS_USER }}
           AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
-          AWS_APP_DIR: ${{ secrets.AWS_APP_DIR }}
-          KNOWLARITY_AUTH: ${{ secrets.KNOWLARITY_AUTH }}
-          KNOWLARITY_API_KEY: ${{ secrets.KNOWLARITY_API_KEY }}
-          KNOWLARITY_EXTENSIONS: ${{ secrets.KNOWLARITY_EXTENSIONS }}
         run: |
           mkdir -p ~/.ssh && printf '%s\n' "$AWS_SSH_KEY" > ~/.ssh/id && chmod 600 ~/.ssh/id
-          # values travel over the ssh session's stdin, never on the command line
-          printf 'KNOWLARITY_AUTH=%s\nKNOWLARITY_API_KEY=%s\nKNOWLARITY_EXTENSIONS=%s\n' \
-            "$KNOWLARITY_AUTH" "$KNOWLARITY_API_KEY" "$KNOWLARITY_EXTENSIONS" \
-          | ssh -i ~/.ssh/id -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" '
-              set -e
-              cd '"$AWS_APP_DIR"'
-              cp -p .env .env.bak.$(date +%s)
-              incoming=$(mktemp); cat > "$incoming"
-              keys=$(cut -d= -f1 "$incoming" | tr "\n" "|" | sed "s/|$//")
-              merged=$(mktemp)
-              grep -vE "^(${keys})=" .env > "$merged" || true
-              cat "$incoming" >> "$merged"
-              cat "$merged" > .env          # in place: keeps owner, group and mode
-              rm -f "$incoming" "$merged"
-              echo "== .env =="; ls -l .env; grep -oE "^[A-Za-z0-9_]+" .env
-              sudo -n systemctl restart next-safestorage-transport.service && echo restarted
-              sleep 8; systemctl is-active next-safestorage-transport.service
-            '
+          ssh -i ~/.ssh/id -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" '
+            set -e
+            BASE="https://safestorage.in/safestorage-transport/api"
+            echo "== server time =="; date; echo "timezone: $(date +%Z)"
+            # The nightly rate-sync must land at 23:30 IST — convert if the box runs on UTC.
+            if [ "$(date +%Z)" = "UTC" ]; then NIGHTLY="0 18 * * *"; else NIGHTLY="30 23 * * *"; fi
+            echo "nightly schedule chosen: $NIGHTLY"
+
+            echo "== crontab BEFORE =="; crontab -l 2>/dev/null || echo "(none)"
+
+            # keep everything that is not ours, then append a fresh block
+            tmp=$(mktemp)
+            crontab -l 2>/dev/null | grep -v "safestorage-transport-jobs" > "$tmp" || true
+            {
+              echo "*/5 * * * * curl -s -m 240 -H \"x-vercel-cron: 1\" \"$BASE/retrieval/sync\" > /dev/null 2>&1 # safestorage-transport-jobs"
+              echo "$NIGHTLY curl -s -m 280 -H \"x-vercel-cron: 1\" \"$BASE/schedule/rate-sync\" > /dev/null 2>&1 # safestorage-transport-jobs"
+            } >> "$tmp"
+            crontab "$tmp"; rm -f "$tmp"
+
+            echo "== crontab AFTER =="; crontab -l
+            echo "== cron service =="; systemctl is-active cron 2>/dev/null || systemctl is-active crond 2>/dev/null || echo "check cron service"
+          '
