@@ -48,7 +48,9 @@ export default function Sidebar({ active, user }: { active: NavKey; user: Sessio
       </div>
 
       {/* nav */}
-      <nav className="flex-1 px-3 py-4">
+      {/* min-h-0 lets this flex child shrink so overflow-y-auto actually scrolls — without it the
+          menu grew past the viewport and the lower items were unreachable. */}
+      <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
         <button
           onClick={() => setOpen((o) => !o)}
           className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
