@@ -110,6 +110,15 @@ const WO_RE = /\b(?:WO[- ]?)?(\d{9})\b/;
 const GENERIC_SENDER = /@safestorage\.in$|^safestorage\.in@gmail\.com$|^info@|^support@|^noreply@|^no-reply@/i;
 const addrOf = (r: any) => String(r?.emailAddress?.address ?? "").trim();
 
+// UTC timestamp from Graph -> "YYYY-MM-DD HH:MM:SS" in IST, which is what the board displays.
+export function toIst(utc: unknown): string {
+  const raw = String(utc ?? "").trim();
+  if (!raw) return "";
+  const t = Date.parse(raw.endsWith("Z") || /[+-]\d\d:?\d\d$/.test(raw) ? raw : `${raw}Z`);
+  if (!Number.isFinite(t)) return raw.replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 19);
+  return new Date(t + 5.5 * 3600 * 1000).toISOString().slice(0, 19).replace("T", " ");
+}
+
 // --- ticket numbering -------------------------------------------------------------------------
 async function nextTicketNo(prefix: string): Promise<string> {
   const c = db();
@@ -177,7 +186,9 @@ async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Pr
     }
   }
 
-  const receivedIso = String(m.receivedDateTime ?? "").replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 19);
+  // Graph returns UTC ("2026-08-07T13:45:00Z"). Storing that verbatim made every mail read 5h30m
+  // earlier than Outlook shows it, so convert to IST — the timezone the team actually works in.
+  const receivedIso = toIst(m.receivedDateTime);
 
   if (!ticket) {
     // Our own outbound mail never opens a ticket on its own, and neither does an auto-reply.
@@ -325,7 +336,8 @@ export async function syncMailboxes(): Promise<{ ok: boolean; results: any[]; er
       const cursor = st?.last_message_at
         ? new Date(new Date(String(st.last_message_at).replace(" ", "T") + "Z").getTime() - 30 * 60_000)
         : new Date(Date.now() - 7 * 86_400_000);
-      const since = cursor.toISOString().replace(/\.\d+Z$/, "Z");
+      // the cursor came from an IST-stamped row, so wind it back to UTC for the Graph query
+      const since = new Date(cursor.getTime() - 5.5 * 3600 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
 
       const msgs = await fetchInbox(box.address, since);
       let newest = st?.last_message_at ?? null;
