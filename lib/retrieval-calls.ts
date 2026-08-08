@@ -3,7 +3,7 @@
 // tickets use. Runs on the same hourly job as the mailboxes.
 import { randomUUID } from "node:crypto";
 import { db, hasDb } from "./db";
-import { fetchCalls, isRetrievalCall, knowlarityConfigured, KCall } from "./knowlarity";
+import { fetchCalls, isRetrievalCall, knowlarityConfigured, retrievalExtensions, KCall } from "./knowlarity";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -48,7 +48,25 @@ export async function syncCalls(): Promise<{ ok: boolean; seen: number; created:
 
   let seen = 0, created = 0, matched = 0, newest = st?.last_call_at ?? null;
   try {
-    const calls = (await fetchCalls(since, new Date())).filter(isRetrievalCall);
+    // Ask Knowlarity for each retrieval extension directly rather than pulling the whole log.
+    const exts = retrievalExtensions();
+    const until = new Date();
+    const pulled: KCall[] = [];
+    for (const ext of exts.length ? exts : [undefined as any]) {
+      pulled.push(...(await fetchCalls(since, until, 1000, ext)));
+    }
+    const calls = pulled.filter(isRetrievalCall);
+
+    // Anything stored from an earlier, wider filter is no longer a retrieval call — drop it so the
+    // board shows only what the team asked for.
+    if (exts.length) {
+      try {
+        const { data: stale } = await c.from("ret_calls").select("id, extension").limit(5000);
+        for (const r of (stale ?? []) as any[]) {
+          if (!exts.includes(String(r.extension ?? "").trim())) await c.from("ret_calls").delete().eq("id", r.id);
+        }
+      } catch { /* best-effort tidy-up */ }
+    }
     const dir = calls.length ? await phoneDirectory() : new Map();
     for (const k of calls as KCall[]) {
       seen++;

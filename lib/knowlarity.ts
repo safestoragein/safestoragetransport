@@ -24,14 +24,19 @@ const fmt = (d: Date) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
 
+export const retrievalExtensions = () => RETRIEVAL_EXTENSIONS.filter(Boolean);
+
 // Calls between two instants, oldest first. Pages until the range is exhausted.
-export async function fetchCalls(since: Date, until: Date, max = 1000): Promise<KCall[]> {
+// `extension` is passed through to Knowlarity, which filters server-side (verified: extension=2
+// returns only IVR option 2) — far cheaper than pulling every call and discarding most of them.
+export async function fetchCalls(since: Date, until: Date, max = 1000, extension?: string): Promise<KCall[]> {
   if (!knowlarityConfigured) throw new Error("Knowlarity is not configured (set KNOWLARITY_AUTH / KNOWLARITY_API_KEY)");
   const out: KCall[] = [];
   for (let offset = 0; out.length < max; offset += 500) {
     const q = new URLSearchParams({
       start_time: fmt(since), end_time: fmt(until),
       limit: "500", offset: String(offset),
+      ...(extension ? { extension } : {}),
     });
     const res = await fetch(`${BASE}?${q.toString()}`, {
       headers: { authorization: AUTH, "x-api-key": XKEY, Accept: "application/json" },
