@@ -137,7 +137,14 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
     const isShifting = !!o.is_shifting;
     const transport = num(o.transport_charge);
     const isPickup = !/retriev/i.test(String(o.order_type ?? ""));
-    const pallets = o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : 0);
+    // PALLETS. Once an order is invoiced (the goods have been counted) the storage actually billed
+    // is the truth, so the count comes from storage / 1,000 — the team's own rule. Before that we
+    // keep the scheduled/stated figure, which is all that exists.
+    const INVOICED = ["completed", "stacking", "updated"];
+    const invoiced = INVOICED.includes(String(o.order_status ?? "").trim().toLowerCase());
+    const storage = num(o.storage_charges);
+    const stated = o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : 0);
+    const pallets = invoiced && storage > 0 ? Math.round((storage / 1000) * 10) / 10 : stated;
     const packageCharges = isPickup ? Math.round((Number(pallets) || 0) * PACKAGE_PER_PALLET) : 0;
 
     const date = String(run?.schedule_date ?? o.schedule_date ?? "").slice(0, 10);
@@ -152,7 +159,7 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
       custName: o.customer_name ?? "",
       teams: team || "— unassigned —",
       teamNames: v?.supervisor_name ?? "",
-      pallets: o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : null),
+      pallets,
       orderType: typeLabel(String(o.order_type ?? "")),
       vehicle: v?.vehicle_type ? `${v.vehicle_type}${v.vehicle_no ? ` · ${v.vehicle_no}` : ""}` : "Vendor Vehicle",
       porterCharges: 0,                                   // recorded manually by the team
