@@ -16,6 +16,12 @@ const STATUS: [string, string][] = [
 ];
 const STATUS_LABEL = Object.fromEntries(STATUS);
 const PRIORITIES = ["P1", "P2", "P3", "P4"];
+// Which WMS team the ticket should land with — the same list the feedback module raises against.
+const TEAMS: [string, string][] = [
+  ["retrieval", "Retrieval Team"], ["escalation", "Escalation Team"], ["warehouse", "Warehouse Team"],
+  ["transport", "Transport Team"], ["crm", "CRM Team"], ["payment", "Payment issue"],
+  ["instant_payment", "Instant Payment Team"], ["intercity", "Intercity retrieval team"],
+];
 // The team's own categories for what a mail is asking for.
 const ISSUE: [string, string][] = [
   ["missing_damaged", "Missing / damaged"],
@@ -108,6 +114,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
   const [thread, setThread] = useState<any[]>([]);
   const [showFull, setShowFull] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [team, setTeam] = useState<string>("");   // chosen when raising; blank = per-mailbox default
   // Sortable columns — chases first, since that is the queue the team works.
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "created_at", dir: -1 });
   // Live view: the board re-reads itself every minute and tells the team what arrived, so nobody
@@ -157,11 +164,11 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
     setBusy(null);
   }
 
-  async function raise(id: string) {
+  async function raise(id: string, chosen?: string) {
     setBusy(`${id}:push`);
     const r = await fetch("/api/retrieval/tickets", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, action: "push" }),
+      body: JSON.stringify({ id, action: "push", team: chosen || undefined }),
     }).then((x) => x.json()).catch(() => null);
     setBusy(null);
     if (r?.ok) { alert(`Raised in the ticket system — ticket ${r.ticketId ?? ""}`); load(); openTicket({ id }); }
@@ -362,7 +369,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                     <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
                       {t.external_ticket_id
                         ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">#{t.external_ticket_id}</span>
-                        : <button onClick={() => raise(t.id)} disabled={busy === `${t.id}:push`}
+                        : <button onClick={() => { setTeam(""); openTicket(t); }}
                             className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50">
                             {busy === `${t.id}:push` ? "…" : "＋ Raise"}
                           </button>}
@@ -468,12 +475,22 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(open.resolution_notes ?? "")) save(open.id, "resolution_notes", v); }}
                   className={sel} placeholder="how it was resolved…" />
               </label>
-              {!open.external_ticket_id && (
-                <button onClick={() => raise(open.id)} disabled={busy === `${open.id}:push`}
-                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
-                  ＋ Raise in ticket system
-                </button>
-              )}
+              {!open.external_ticket_id && (() => {
+                const chosen = team || (open.mailbox === "damages" ? "escalation" : "retrieval");
+                return (
+                  <>
+                    <label className="flex flex-col gap-0.5 text-[11px] text-slate-500">Assign to team
+                      <select value={chosen} onChange={(e) => setTeam(e.target.value)} className={sel}>
+                        {TEAMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                    </label>
+                    <button onClick={() => raise(open.id, chosen)} disabled={busy === `${open.id}:push`}
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+                      {busy === `${open.id}:push` ? "Raising…" : "＋ Raise in ticket system"}
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
