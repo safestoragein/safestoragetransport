@@ -9,6 +9,7 @@ import { SessionUser } from "@/lib/auth";
 import { money } from "@/lib/format";
 import { withBase } from "@/lib/base";
 import { PACKAGE_PER_PALLET } from "@/lib/config";
+
 import AppShell from "./AppShell";
 import { Card } from "./ui";
 
@@ -49,6 +50,26 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
   const [city, setCity] = useState("All");
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  // Package charge per pallet — stored as a setting so the team can change it without a release.
+  const [pkgRate, setPkgRate] = useState<number>(PACKAGE_PER_PALLET);
+  const [pkgDraft, setPkgDraft] = useState<string>("");
+  const [savingRate, setSavingRate] = useState(false);
+  useEffect(() => {
+    fetch("/api/settings").then((x) => x.json())
+      .then((r) => { const v = Number(r?.packagePerPallet); if (Number.isFinite(v)) { setPkgRate(v); setPkgDraft(String(v)); } })
+      .catch(() => {});
+  }, []);
+  async function saveRate() {
+    const v = Number(pkgDraft);
+    if (!Number.isFinite(v) || v < 0) { alert("Enter a valid amount."); return; }
+    setSavingRate(true);
+    const r = await fetch("/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packagePerPallet: v }),
+    }).then((x) => x.json()).catch(() => null);
+    setSavingRate(false);
+    if (r?.ok) { setPkgRate(v); load(); } else alert(r?.error || "Could not save the rate.");
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,6 +133,17 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
               {(data?.vendors ?? []).map((v: string) => <option key={v} value={v}>{v}</option>)}
             </select>
           </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-500">Package ₹/pallet
+            <span className="flex items-center gap-1">
+              <input type="number" min={0} value={pkgDraft} onChange={(e) => setPkgDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveRate(); }}
+                className="w-24 rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+              <button onClick={saveRate} disabled={savingRate || Number(pkgDraft) === pkgRate}
+                className="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-40">
+                {savingRate ? "…" : "Save"}
+              </button>
+            </span>
+          </label>
           <a
             href={withBase(`/api/pnl/rows?from=${from}&to=${to}&vendor=${encodeURIComponent(vendor)}&city=${encodeURIComponent(city)}&format=xlsx`)}
             className="ml-auto rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
@@ -139,7 +171,7 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
       </div>
       <p className="mb-4 text-[11px] text-slate-400">
         P&amp;L = transport collected from the customer − vendor payment − package charges
-        (₹{PACKAGE_PER_PALLET.toLocaleString("en-IN")}/pallet, pickups only). A vendor on a flat day rate has that
+        (₹{pkgRate.toLocaleString("en-IN")}/pallet, pickups only — editable above). A vendor on a flat day rate has that
         rate split across their jobs for the day, so the rows add up to what the vendor is actually paid.
       </p>
 

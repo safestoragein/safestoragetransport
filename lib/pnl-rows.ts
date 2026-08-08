@@ -9,7 +9,7 @@
 // the goods are counted (completed / stacking / updated), and on the INVENTORY figures after — that
 // choice is already baked into orders.transport_charge / storage_charges when the snapshot syncs.
 import { db, hasDb } from "./db";
-import { PACKAGE_PER_PALLET } from "./config";
+import { getPackagePerPallet } from "./settings";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -21,7 +21,7 @@ export const PNL_HEADERS = [
   "Package Charges", "Vendor Payment", "P&L",
 ] as const;
 
-export { PACKAGE_PER_PALLET } from "./config";
+export { PACKAGE_PER_PALLET } from "./config"; // fallback only — the live rate comes from settings
 
 export interface PnlRow {
   date: string; city: string; custId: string; custName: string;
@@ -125,6 +125,7 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
     ordersPerVendorDay.set(k, (ordersPerVendorDay.get(k) ?? 0) + 1);
   }
 
+  const packageRate = await getPackagePerPallet();
   const want = String(vendor ?? "").trim().toLowerCase();
   const rows: PnlRow[] = [];
   for (const a of picked) {
@@ -145,7 +146,7 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
     const storage = num(o.storage_charges);
     const stated = o.stated_pallets != null ? Number(o.stated_pallets) : (o.pallets != null ? Number(o.pallets) : 0);
     const pallets = invoiced && storage > 0 ? Math.round((storage / 1000) * 10) / 10 : stated;
-    const packageCharges = isPickup ? Math.round((Number(pallets) || 0) * PACKAGE_PER_PALLET) : 0;
+    const packageCharges = isPickup ? Math.round((Number(pallets) || 0) * packageRate) : 0;
 
     const date = String(run?.schedule_date ?? o.schedule_date ?? "").slice(0, 10);
     const vendorPayment = team ? payForOrder(v, ordersPerVendorDay.get(`${date}|${team}`) ?? 1) : 0;
