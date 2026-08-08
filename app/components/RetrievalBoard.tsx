@@ -3,7 +3,7 @@
 // Retrieval — tickets raised from the retrieval@ / damages@ mailboxes.
 // Priority climbs each time the CUSTOMER writes in again (1st mail P4 … 4th+ P1), so a customer
 // who keeps chasing rises to the top on its own. Setting a priority by hand pins it.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SessionUser } from "@/lib/auth";
 import AppShell from "./AppShell";
 import { Card } from "./ui";
@@ -110,16 +110,32 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
   const [busy, setBusy] = useState<string | null>(null);
   // Sortable columns — chases first, since that is the queue the team works.
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "created_at", dir: -1 });
+  // Live view: the board re-reads itself every minute and tells the team what arrived, so nobody
+  // has to keep pressing refresh to notice a new customer mail.
+  const seenIds = useRef<Set<string> | null>(null);
+  const [fresh, setFresh] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const r = await fetch(`/api/retrieval/tickets?status=${fStatus}&priority=${fPriority}&mailbox=${fBox}&q=${encodeURIComponent(q)}`)
       .then((x) => x.json()).catch(() => null);
-    setTickets(r?.tickets ?? []);
+    const list = r?.tickets ?? [];
+    // First load just records what exists; after that, anything unseen is genuinely new.
+    if (seenIds.current) {
+      const added = list.filter((t: any) => !seenIds.current!.has(String(t.id))).map((t: any) => String(t.ticket_no ?? t.id));
+      if (added.length) setFresh((f) => [...new Set([...added, ...f])].slice(0, 20));
+    }
+    seenIds.current = new Set(list.map((t: any) => String(t.id)));
+    setTickets(list);
     setTableMissing(!!r?.tableMissing);
     setLoading(false);
   }, [fStatus, fPriority, fBox, q]);
+  useEffect(() => { seenIds.current = null; setFresh([]); }, [fStatus, fPriority, fBox, q]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const t = setInterval(() => { if (!document.hidden) load(); }, 60_000);
+    return () => clearInterval(t);
+  }, [load]);
 
   async function openTicket(t: any) {
     setOpen(t); setThread([]); setShowFull({});
@@ -218,6 +234,14 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
           </button>
         </div>
       </header>
+
+      {fresh.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+          <span className="font-semibold">🔔 {fresh.length} new ticket{fresh.length > 1 ? "s" : ""}</span>
+          <span className="text-[12px] text-emerald-700">{fresh.slice(0, 6).join(", ")}{fresh.length > 6 ? "…" : ""}</span>
+          <button onClick={() => setFresh([])} className="ml-auto rounded px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100">dismiss</button>
+        </div>
+      )}
 
       {tableMissing && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">

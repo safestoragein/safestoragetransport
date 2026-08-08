@@ -2,7 +2,7 @@
 
 // Retrieval → Calls. Every call to the retrieval SR number, pulled from Knowlarity on the same
 // hourly job as the mailboxes and matched to a customer by the caller's number.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SessionUser } from "@/lib/auth";
 import AppShell from "./AppShell";
 import { Card } from "./ui";
@@ -30,16 +30,29 @@ export default function CallsBoard({ user }: { user: SessionUser | null }) {
   const [fAns, setFAns] = useState("All");
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const seenIds = useRef<Set<string> | null>(null);
+  const [fresh, setFresh] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     const r = await fetch(`/api/retrieval/calls?status=${fStatus}&answered=${fAns}&q=${encodeURIComponent(q)}`)
       .then((x) => x.json()).catch(() => null);
-    setCalls(r?.calls ?? []);
+    const list = r?.calls ?? [];
+    if (seenIds.current) {
+      const added = list.filter((x: any) => !seenIds.current!.has(String(x.id))).length;
+      if (added) setFresh((n) => n + added);
+    }
+    seenIds.current = new Set(list.map((x: any) => String(x.id)));
+    setCalls(list);
     setTableMissing(!!r?.tableMissing);
     setLoading(false);
   }, [fStatus, fAns, q]);
+  useEffect(() => { seenIds.current = null; setFresh(0); }, [fStatus, fAns, q]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const t = setInterval(() => { if (!document.hidden) load(); }, 60_000);
+    return () => clearInterval(t);
+  }, [load]);
 
   async function save(id: string, field: string, value: string) {
     setBusy(`${id}:${field}`);
@@ -90,6 +103,13 @@ export default function CallsBoard({ user }: { user: SessionUser | null }) {
           {busy === "sync" ? "Syncing…" : "⟳ Sync calls now"}
         </button>
       </header>
+
+      {fresh > 0 && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+          <span className="font-semibold">🔔 {fresh} new call{fresh > 1 ? "s" : ""} since you opened this page</span>
+          <button onClick={() => setFresh(0)} className="ml-auto rounded px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100">dismiss</button>
+        </div>
+      )}
 
       {tableMissing && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
