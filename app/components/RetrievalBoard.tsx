@@ -80,19 +80,19 @@ const QUOTE_MARKERS: RegExp[] = [
   /^on\s.{5,120}\bwrote:\s*$/im,                   // Gmail / Apple Mail
   /^\s*sent from my /im,
 ];
-function stripQuoted(raw: string): { text: string; trimmed: boolean } {
-  let t = String(raw ?? "").replace(/\[cid:[^\]]+\]/gi, "");   // inline-image placeholders
-  let cut = t.length;
+// The message is shown IN FULL by default — hiding the quote was cutting real content whenever the
+// writer replied *below* the quoted block, so the newest message looked missing until you expanded
+// it. Spacing is left exactly as the mail client wrote it; only the [cid:] image placeholders go.
+function stripQuoted(raw: string): { text: string; quoteAt: number } {
+  const t = String(raw ?? "").replace(/\[cid:[^\]]+\]/gi, "");
+  let cut = -1;
   for (const re of QUOTE_MARKERS) {
     const m = t.match(re);
-    if (m && m.index != null && m.index < cut) cut = m.index;
+    if (m && m.index != null && (cut < 0 || m.index < cut)) cut = m.index;
   }
-  let body = t.slice(0, cut);
-  body = body.split(/\r?\n/).filter((l) => !/^\s*>/.test(l)).join("\n");  // drop "> " quoted lines
-  body = body.replace(/\n{3,}/g, "\n\n").trim();
-  // If stripping left almost nothing, the markers were part of the real message — keep it whole.
-  if (body.length < 15) return { text: t.replace(/\n{3,}/g, "\n\n").trim(), trimmed: false };
-  return { text: body, trimmed: body.length < t.trim().length - 20 };
+  // Only offer to collapse when there is a real message above the quote AND a real quote below.
+  const worthCollapsing = cut > 40 && t.length - cut > 80;
+  return { text: t, quoteAt: worthCollapsing ? cut : -1 };
 }
 
 const ageDays = (s: string | null) => {
@@ -112,7 +112,7 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<any | null>(null);
   const [thread, setThread] = useState<any[]>([]);
-  const [showFull, setShowFull] = useState<Record<string, boolean>>({});
+  const [showFull, setShowFull] = useState<Record<string, boolean>>({}); // false = quote collapsed
   const [busy, setBusy] = useState<string | null>(null);
   const [team, setTeam] = useState<string>("");   // chosen when raising; blank = per-mailbox default
   // Sortable columns — chases first, since that is the queue the team works.
@@ -427,19 +427,19 @@ export default function RetrievalBoard({ user }: { user: SessionUser | null }) {
                     {!!m.has_attach && <span className="text-slate-400">📎</span>}
                   </div>
                   {(() => {
-                    const raw = String(m.body_text ?? m.snippet ?? "");
-                    const { text, trimmed } = stripQuoted(raw);
-                    const full = showFull[m.id];
+                    const { text, quoteAt } = stripQuoted(String(m.body_text ?? m.snippet ?? ""));
+                    const collapsed = showFull[m.id] === false;   // full by default; opt IN to hiding
+                    const shown = collapsed && quoteAt > 0 ? text.slice(0, quoteAt) : text;
                     return (
                       <>
-                        <div className="whitespace-pre-wrap text-[12px] leading-relaxed text-slate-700">
-                          {(full ? raw : text).slice(0, 8000)}
+                        <div className="whitespace-pre-wrap break-words font-sans text-[12px] leading-relaxed text-slate-700">
+                          {shown.slice(0, 20000)}
                         </div>
-                        {trimmed && (
+                        {quoteAt > 0 && (
                           <button
-                            onClick={() => setShowFull((f) => ({ ...f, [m.id]: !f[m.id] }))}
+                            onClick={() => setShowFull((f) => ({ ...f, [m.id]: f[m.id] === false }))}
                             className="mt-1 text-[10px] font-medium text-blue-600 hover:underline">
-                            {full ? "hide quoted history" : "show quoted history"}
+                            {collapsed ? "show quoted history" : "hide quoted history"}
                           </button>
                         )}
                       </>
