@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   if (!b?.id) return NextResponse.json({ ok: false, error: "id required" }, { status: 400 });
   const user = await getSession();
   if (b.action === "push") {
-    const r = await pushTicketToWms(String(b.id), user?.name ?? user?.email ?? "team");
+    const r = await pushTicketToWms(String(b.id), user?.name ?? user?.email ?? "team", b.team);
     return NextResponse.json(r, { status: r.ok ? 200 : 400 });
   }
   return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });

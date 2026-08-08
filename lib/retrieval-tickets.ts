@@ -578,10 +578,22 @@ export async function updateTicket(id: string, patch: Record<string, unknown>, a
 
 // --- push to the WMS ticket system ---------------------------------------------------------------
 const COMPLAINT_API = "https://safestorage.in/back/transport_controller_Dev0/add_internal_complaint_api";
-// Retrieval Team / Escalation Team task ids + their owners, as used by the feedback module.
-const TASK = { retrieval: { id: "16", assignee: "25213" }, damage: { id: "18", assignee: "36476" } };
+// The WMS task ids and their owners — the same list the feedback module raises against, so a
+// ticket from here lands with exactly the team that would have got it from a feedback call.
+export const WMS_TEAMS: { key: string; label: string; id: string; assignee: string }[] = [
+  { key: "retrieval", label: "Retrieval Team", id: "16", assignee: "25213" },
+  { key: "escalation", label: "Escalation Team", id: "18", assignee: "36476" },
+  { key: "warehouse", label: "Warehouse Team", id: "20", assignee: "27749" },
+  { key: "transport", label: "Transport Team", id: "15", assignee: "2907" },
+  { key: "crm", label: "CRM Team", id: "17", assignee: "7594" },
+  { key: "payment", label: "Payment issue", id: "1", assignee: "23167" },
+  { key: "instant_payment", label: "Instant Payment Team", id: "19", assignee: "36827" },
+  { key: "intercity", label: "Intercity retrieval team", id: "21", assignee: "37112" },
+];
+// Default when the team doesn't choose: damage mail goes to Escalation, everything else Retrieval.
+const defaultTeam = (category: string) => (category === "damage" ? "escalation" : "retrieval");
 
-export async function pushTicketToWms(id: string, actor: string): Promise<{ ok: boolean; ticketId?: string; error?: string }> {
+export async function pushTicketToWms(id: string, actor: string, team?: string): Promise<{ ok: boolean; ticketId?: string; error?: string }> {
   if (!hasDb) return { ok: false, error: "db not configured" };
   const c = db();
   const { data: t } = await c.from("ret_tickets").select("*").eq("id", id).maybeSingle();
@@ -591,7 +603,8 @@ export async function pushTicketToWms(id: string, actor: string): Promise<{ ok: 
   // with "No active customer found for this Customer Unique ID" (learned in the feedback module).
   if (!t.customer_unique_id) return { ok: false, error: "no booking id on this ticket — add one before raising it in the WMS" };
 
-  const task = TASK[String(t.category) as keyof typeof TASK] ?? TASK.retrieval;
+  const wanted = String(team ?? "").trim() || defaultTeam(String(t.category));
+  const task = WMS_TEAMS.find((x) => x.key === wanted) ?? WMS_TEAMS[0];
   const follow = new Date(Date.now() + 86_400_000);
   const dd = String(follow.getDate()).padStart(2, "0"), mm = String(follow.getMonth() + 1).padStart(2, "0");
   const payload = {
@@ -606,7 +619,8 @@ export async function pushTicketToWms(id: string, actor: string): Promise<{ ok: 
     user_id: task.assignee,
     is_internal: "1",
     from_feedback_calls: "0",
-    message: `[${t.ticket_no}] ${String(t.subject ?? "").slice(0, 200)} — from ${t.mailbox}@safestorage.in (transport module)`,
+    message: `[${t.ticket_no}] ${String(t.subject ?? "").slice(0, 200)} — from ${t.mailbox}@safestorage.in`
+      + ` · assigned to ${task.label} (transport module)`,
   };
   try {
     const res = await fetch(COMPLAINT_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
