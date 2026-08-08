@@ -22,6 +22,25 @@ export const MAILBOXES: { key: string; address: string; category: string; prefix
 // count towards the customer's chase count — otherwise answering a customer escalates their ticket.
 const isInternal = (addr: string) => /@safestorage\.in\s*$/i.test(String(addr ?? "").trim());
 
+// The shared boxes themselves — mail we sent out of retrieval@ / damages@. Never opens a ticket.
+const isOwnMailbox = (addr: string) =>
+  MAILBOXES.some((b) => b.address.toLowerCase() === String(addr ?? "").trim().toLowerCase());
+
+// A colleague forwarding a customer's mail into the box ("@Retrieval, kindly take care" out of
+// customers@) is real work, but it arrives from an internal address and the inbound-only rule
+// dropped it silently. Treat internal mail as a forward when it carries a quoted From: header for
+// someone outside the company, or when the subject is marked Fwd — and bill the ticket to the
+// ORIGINAL sender, not to the colleague who passed it on.
+const FWD_SUBJECT = /^\s*(fwd?|forwarded)\s*:/i;
+const FWD_FROM = /(?:^|\n)\s*(?:>\s*)?From:\s*"?([^"<\n]*?)"?\s*<?([\w.+-]+@[\w.-]+\.\w{2,})>?/i;
+function forwardedOrigin(subject: string, body: string): { email: string; name: string } | null {
+  const m = String(body ?? "").match(FWD_FROM);
+  const email = String(m?.[2] ?? "").trim();
+  const name = String(m?.[1] ?? "").trim();
+  if (email && !isInternal(email)) return { email, name };
+  return FWD_SUBJECT.test(String(subject ?? "")) ? { email: "", name: "" } : null;
+}
+
 // Out-of-office / bounces are noise: they neither open tickets nor raise priority.
 const AUTO_RE = /^(auto(matic)?[- ]?reply|out of (the )?office|automatic reply|undeliverable|delivery status notification|mail delivery)/i;
 
@@ -171,6 +190,8 @@ async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Pr
   const auto = AUTO_RE.test(subject);
   const inbound = !isInternal(fromAddr);
   const body = String(m.body?.content ?? m.bodyPreview ?? "");
+  // an internal colleague forwarding a customer mail in — real work, even though it is not "inbound"
+  const fwd = !inbound && !isOwnMailbox(fromAddr) ? forwardedOrigin(subject, body) : null;
 
   // find the ticket: conversationId first, then sender + normalised subject within 30 days
   const thread = normSubject(subject);
@@ -191,9 +212,10 @@ async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Pr
   const receivedIso = toIst(m.receivedDateTime);
 
   if (!ticket) {
-    // Our own outbound mail never opens a ticket on its own, and neither does an auto-reply.
-    if (!inbound || auto) return "skipped";
-    const who = await resolveCustomer(`${subject} ${body}`, fromAddr);
+    // Our own outbound mail never opens a ticket on its own, and neither does an auto-reply —
+    // but a forward from another internal address does.
+    if ((!inbound && !fwd) || auto) return "skipped";
+    const who = await resolveCustomer(`${subject} ${body}`, fwd?.email || fromAddr);
     const id = randomUUID();
     let row: Record<string, unknown> = {
       id,
@@ -202,8 +224,9 @@ async function ingestMessage(box: typeof MAILBOXES[number], m: GraphMessage): Pr
       category: box.category,
       subject,
       root_message_id: m.conversationId ?? null,
-      thread_key: `${fromAddr}|${thread}`.slice(0, 250),
-      from_email: fromAddr, from_name: fromName,
+      thread_key: `${fwd?.email || fromAddr}|${thread}`.slice(0, 250),
+      from_email: fwd?.email || fromAddr,
+      from_name: fwd ? (fwd.name || fwd.email || `forwarded by ${fromName}`) : fromName,
       ...who,
       status: "new",
       priority: priorityFor(1),
@@ -322,7 +345,7 @@ export async function logEvent(ticketId: string, kind: string, from: string | nu
 }
 
 // --- the hourly job ---------------------------------------------------------------------------
-export async function syncMailboxes(): Promise<{ ok: boolean; results: any[]; error?: string }> {
+export async function syncMailboxes(opts?: { sinceDays?: number }): Promise<{ ok: boolean; results: any[]; error?: string }> {
   if (!hasDb) return { ok: false, results: [], error: "db not configured" };
   if (!graphConfigured) return { ok: false, results: [], error: "Microsoft Graph is not configured on the server" };
   const c = db();
@@ -333,11 +356,12 @@ export async function syncMailboxes(): Promise<{ ok: boolean; results: any[]; er
     try {
       const { data: st } = await c.from("ret_mail_sync").select("*").eq("mailbox", box.key).maybeSingle();
       // Re-read a small overlap so a mail that arrived mid-run is never missed; message_id dedupes.
-      const cursor = st?.last_message_at
+      const rescan = Number(opts?.sinceDays) > 0 ? new Date(Date.now() - Number(opts?.sinceDays) * 86_400_000) : null;
+      const cursor = rescan ? rescan : st?.last_message_at
         ? new Date(new Date(String(st.last_message_at).replace(" ", "T") + "Z").getTime() - 30 * 60_000)
         : new Date(Date.now() - 7 * 86_400_000);
-      // the cursor came from an IST-stamped row, so wind it back to UTC for the Graph query
-      const since = new Date(cursor.getTime() - 5.5 * 3600 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
+      // last_message_at is stored as Graph gave it (UTC), so it can be used for the query as-is.
+      const since = cursor.toISOString().replace(/\.\d+Z$/, "Z");
 
       const msgs = await fetchInbox(box.address, since);
       let newest = st?.last_message_at ?? null;

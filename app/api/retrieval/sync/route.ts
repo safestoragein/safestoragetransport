@@ -10,7 +10,10 @@ export const maxDuration = 300;
 
 async function run(req: Request) {
   try {
-    const sync = await syncMailboxes();
+    // ?days=N re-reads that many days of mail instead of resuming from the cursor — used to pick up
+    // messages an earlier version of the filter skipped. message_id dedupes, so it is safe to re-run.
+    const days = Number(new URL(req.url).searchParams.get("days")) || 0;
+    const sync = await syncMailboxes(days > 0 ? { sinceDays: days } : undefined);
     // After every sync (and on demand) try to put a booking id on tickets that still lack one.
     const backfill = await backfillCustomers().catch(() => null);
     if (new URL(req.url).searchParams.get("backfillOnly") === "1") {
