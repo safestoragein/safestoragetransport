@@ -34,8 +34,18 @@ export interface PnlRow {
 }
 
 const cityName = (s: string) => String(s ?? "").replace(/(^|[\s-])\w/g, (m) => m.toUpperCase());
-const typeLabel = (t: string) =>
-  /partial/i.test(t) ? "Partial Retrieval" : /retriev/i.test(t) ? "Retrieval" : "Pickup";
+// A shifting or intercity job used to read as plain "Pickup" here, which made the column wrong and
+// left the team no way to tell those jobs apart. Shifting is checked first because the feed marks
+// every shifting order intercity as well.
+const typeLabel = (o: any): string => {
+  const t = String(o?.order_type ?? "");
+  if (o?.is_shifting || /shifting/i.test(t)) return "Shifting";
+  if (o?.is_intercity || /intercity/i.test(t)) return "Intercity";
+  return /partial/i.test(t) ? "Partial Retrieval" : /retriev/i.test(t) ? "Retrieval" : "Pickup";
+};
+
+// Every label the Order Type column can produce — the filter list, in a sensible reading order.
+export const ORDER_TYPES = ["Pickup", "Retrieval", "Partial Retrieval", "Intercity", "Shifting"] as const;
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
 export async function pnlRows(from: string, to: string, vendor?: string | null): Promise<PnlRow[]> {
@@ -161,7 +171,7 @@ export async function pnlRows(from: string, to: string, vendor?: string | null):
       teams: team || "— unassigned —",
       teamNames: v?.supervisor_name ?? "",
       pallets,
-      orderType: typeLabel(String(o.order_type ?? "")),
+      orderType: typeLabel(o),
       vehicle: v?.vehicle_type ? `${v.vehicle_type}${v.vehicle_no ? ` · ${v.vehicle_no}` : ""}` : "Vendor Vehicle",
       porterCharges: 0,                                   // recorded manually by the team
       storageCharges: num(o.storage_charges),

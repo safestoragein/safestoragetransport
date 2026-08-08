@@ -48,6 +48,7 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
   const [[from, to], setRange] = useState<[string, string]>(monthOf(today));
   const [vendor, setVendor] = useState("All");
   const [city, setCity] = useState("All");
+  const [orderType, setOrderType] = useState("All");
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   // Package charge per pallet — stored as a setting so the team can change it without a release.
@@ -73,11 +74,11 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await fetch(`/api/pnl/rows?from=${from}&to=${to}&vendor=${encodeURIComponent(vendor)}&city=${encodeURIComponent(city)}`)
+    const r = await fetch(`/api/pnl/rows?from=${from}&to=${to}&vendor=${encodeURIComponent(vendor)}&city=${encodeURIComponent(city)}&type=${encodeURIComponent(orderType)}`)
       .then((x) => x.json()).catch(() => null);
     setData(r);
     setLoading(false);
-  }, [from, to, vendor, city]);
+  }, [from, to, vendor, city, orderType]);
   useEffect(() => { load(); }, [load]);
 
   const setWeek = () => { setMode("week"); setRange(weekOf(new Date())); };
@@ -133,6 +134,14 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
               {(data?.vendors ?? []).map((v: string) => <option key={v} value={v}>{v}</option>)}
             </select>
           </label>
+
+          <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            Order type
+            <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
+              <option value="All">All order types</option>
+              {(data?.types ?? []).map((t: string) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
           <label className="flex flex-col gap-0.5 text-[11px] font-medium text-slate-500">Package ₹/pallet
             <span className="flex items-center gap-1">
               <input type="number" min={0} value={pkgDraft} onChange={(e) => setPkgDraft(e.target.value)}
@@ -145,12 +154,12 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
             </span>
           </label>
           <a
-            href={withBase(`/api/pnl/rows?from=${from}&to=${to}&vendor=${encodeURIComponent(vendor)}&city=${encodeURIComponent(city)}&format=xlsx`)}
+            href={withBase(`/api/pnl/rows?from=${from}&to=${to}&vendor=${encodeURIComponent(vendor)}&city=${encodeURIComponent(city)}&type=${encodeURIComponent(orderType)}&format=xlsx`)}
             className="ml-auto rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
           >⬇ Download Excel</a>
         </div>
         <div className="mt-2 text-[11px] text-slate-400">
-          {fmtDate(from)} → {fmtDate(to)}{city !== "All" ? ` · ${city}` : ""}{vendor !== "All" ? ` · ${vendor}` : ""}
+          {fmtDate(from)} → {fmtDate(to)}{city !== "All" ? ` · ${city}` : ""}{vendor !== "All" ? ` · ${vendor}` : ""}{orderType !== "All" ? ` · ${orderType}` : ""}
         </div>
       </Card>
 
@@ -227,7 +236,7 @@ export default function PnlBoard({ user }: { user: SessionUser | null }) {
       ) : rows.length === 0 ? (
         <Card className="p-8 text-center text-sm text-slate-500">
           No scheduled orders between {fmtDate(from)} and {fmtDate(to)}
-          {city !== "All" ? ` in ${city}` : ""}{vendor !== "All" ? ` for ${vendor}` : ""}.
+          {city !== "All" ? ` in ${city}` : ""}{vendor !== "All" ? ` for ${vendor}` : ""}{orderType !== "All" ? ` of type ${orderType}` : ""}.
         </Card>
       ) : (
         <Card className="overflow-x-auto">

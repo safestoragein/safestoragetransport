@@ -1,40 +1,50 @@
-name: Server admin (install cron jobs)
+name: Server admin (run pending migrations)
 
-# Installs the app's scheduled jobs on the server. Idempotent: entries are tagged with a marker
-# comment and rewritten each run, so this can be re-run safely without piling up duplicates.
+# Applies the SQL migrations that ship with the app to the live database.
+# Every migration file is written to be re-runnable, and each one is applied inside its own mysql
+# invocation so a failure in one is reported without stopping the rest.
 on:
   workflow_dispatch: {}
 
 jobs:
-  cron:
+  migrate:
     runs-on: ubuntu-latest
     steps:
-      - name: Install crontab entries
+      - name: Apply migrations
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_USER: ${{ secrets.AWS_USER }}
           AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
+          AWS_APP_DIR: ${{ secrets.AWS_APP_DIR }}
         run: |
           mkdir -p ~/.ssh && printf '%s\n' "$AWS_SSH_KEY" > ~/.ssh/id && chmod 600 ~/.ssh/id
-          ssh -i ~/.ssh/id -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" '
+          ssh -i ~/.ssh/id -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$AWS_USER@$AWS_HOST" "
             set -e
-            BASE="https://safestorage.in/safestorage-transport/api"
-            echo "== server time =="; date; echo "timezone: $(date +%Z)"
-            # The nightly rate-sync must land at 23:30 IST — convert if the box runs on UTC.
-            if [ "$(date +%Z)" = "UTC" ]; then NIGHTLY="0 18 * * *"; else NIGHTLY="30 23 * * *"; fi
-            echo "nightly schedule chosen: $NIGHTLY"
+            cd '$AWS_APP_DIR'
 
-            echo "== crontab BEFORE =="; crontab -l 2>/dev/null || echo "(none)"
+            # Credentials come from the app's own .env — read only, never rewritten.
+            DBH=\$(grep -m1 '^MYSQL_HOST=' .env | cut -d= -f2- | tr -d '\"')
+            DBU=\$(grep -m1 '^MYSQL_USER=' .env | cut -d= -f2- | tr -d '\"')
+            DBP=\$(grep -m1 '^MYSQL_PASSWORD=' .env | cut -d= -f2- | tr -d '\"')
+            DBN=\$(grep -m1 '^MYSQL_DATABASE=' .env | cut -d= -f2- | tr -d '\"')
+            echo \"database: \$DBN on \$DBH as \$DBU\"
 
-            # keep everything that is not ours, then append a fresh block
-            tmp=$(mktemp)
-            crontab -l 2>/dev/null | grep -v "safestorage-transport-jobs" > "$tmp" || true
-            {
-              echo "*/5 * * * * curl -s -m 240 -H \"x-vercel-cron: 1\" \"$BASE/retrieval/sync\" > /dev/null 2>&1 # safestorage-transport-jobs"
-              echo "$NIGHTLY curl -s -m 280 -H \"x-vercel-cron: 1\" \"$BASE/schedule/rate-sync\" > /dev/null 2>&1 # safestorage-transport-jobs"
-            } >> "$tmp"
-            crontab "$tmp"; rm -f "$tmp"
+            for f in \
+              mysql/migrations/2026-08-05-escalation-followup.sql \
+              mysql/migrations/2026-08-07-retrieval-severity.sql \
+              mysql/migrations/2026-08-07-retrieval-call-tickets.sql ; do
+              echo \"== \$f ==\"
+              if mysql -h \"\$DBH\" -u \"\$DBU\" -p\"\$DBP\" \"\$DBN\" < \"\$f\" ; then
+                echo \"   applied\"
+              else
+                echo \"   FAILED (see error above)\"
+              fi
+            done
 
-            echo "== crontab AFTER =="; crontab -l
-            echo "== cron service =="; systemctl is-active cron 2>/dev/null || systemctl is-active crond 2>/dev/null || echo "check cron service"
-          '
+            echo '== resulting columns =='
+            mysql -h \"\$DBH\" -u \"\$DBU\" -p\"\$DBP\" \"\$DBN\" -e \"
+              SHOW COLUMNS FROM sst_ret_tickets LIKE 'severity%';
+              SHOW COLUMNS FROM sst_ret_tickets LIKE 'issue_type';
+              SHOW COLUMNS FROM sst_order_escalations LIKE 'followup%';
+            \"
+          "

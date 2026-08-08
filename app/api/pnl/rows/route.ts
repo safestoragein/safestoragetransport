@@ -1,9 +1,9 @@
 // Order-level P&L rows for the Weekly / Monthly P&L tab.
-//   GET /api/pnl/rows?from=&to=&vendor=&city=            -> { ok, rows, vendors, cities, totals }
-//   GET /api/pnl/rows?from=&to=&vendor=&city=&format=xlsx -> the team's workbook (same 17 columns)
+//   GET /api/pnl/rows?from=&to=&vendor=&city=&type=            -> { ok, rows, vendors, cities, types, totals }
+//   GET /api/pnl/rows?from=&to=&vendor=&city=&type=&format=xlsx -> the team's workbook (same 17 columns)
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { pnlRows, rowToArray, PNL_HEADERS, unpricedVendors } from "@/lib/pnl-rows";
+import { pnlRows, rowToArray, PNL_HEADERS, unpricedVendors, ORDER_TYPES } from "@/lib/pnl-rows";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -15,13 +15,15 @@ export async function GET(req: NextRequest) {
   if (!from || !to) return NextResponse.json({ ok: false, error: "from and to are required" }, { status: 400 });
   const vendor = p.get("vendor");
   const city = p.get("city");
+  const orderType = p.get("type");
 
   try {
     // Both dropdowns are built from the UNFILTERED range so neither ever loses its options.
     const all = await pnlRows(from, to, null);
     const rows = all
       .filter((r) => !vendor || vendor === "All" || r.teams === vendor)
-      .filter((r) => !city || city === "All" || r.city === city);
+      .filter((r) => !city || city === "All" || r.city === city)
+      .filter((r) => !orderType || orderType === "All" || r.orderType === orderType);
 
     if (p.get("format") === "xlsx") {
       const ws = XLSX.utils.aoa_to_sheet([[...PNL_HEADERS], ...rows.map(rowToArray)]);
@@ -65,6 +67,8 @@ export async function GET(req: NextRequest) {
       unpriced: unpricedVendors(rows),
       vendors: [...new Set(all.map((r) => r.teams))].sort(),
       cities: [...new Set(all.map((r) => r.city))].filter(Boolean).sort(),
+      // only offer the types that actually occur in the range, in the canonical order
+      types: ORDER_TYPES.filter((t) => all.some((r) => r.orderType === t)),
     });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message, rows: [] }, { status: 500 });
