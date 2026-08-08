@@ -3,7 +3,8 @@
 //   POST  /api/retrieval/calls { action:"sync" }      -> pull new calls
 //   PATCH /api/retrieval/calls { id, ...fields }      -> status / owner / notes
 import { NextRequest, NextResponse } from "next/server";
-import { listCalls, syncCalls, updateCall } from "@/lib/retrieval-calls";
+import { listCalls, syncCalls, updateCall, pushCallToWms } from "@/lib/retrieval-calls";
+import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -19,6 +20,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
+  if (b?.action === "push") {
+    if (!b?.id) return NextResponse.json({ ok: false, error: "id required" }, { status: 400 });
+    const user = await getSession();
+    const r = await pushCallToWms(String(b.id), user?.name ?? user?.email ?? "team");
+    return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+  }
   if (b?.action !== "sync") return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });
   const r = await syncCalls();
   return NextResponse.json(r, { status: r.ok ? 200 : 500 });

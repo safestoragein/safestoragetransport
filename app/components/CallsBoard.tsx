@@ -52,6 +52,17 @@ export default function CallsBoard({ user }: { user: SessionUser | null }) {
     setBusy(null);
   }
 
+  async function raise(id: string) {
+    setBusy(`${id}:push`);
+    const r = await fetch("/api/retrieval/calls", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action: "push" }),
+    }).then((x) => x.json()).catch(() => null);
+    setBusy(null);
+    if (r?.ok) { alert(`Raised in the ticket system — ticket ${r.ticketId ?? ""}`); load(); }
+    else alert(r?.error || "Could not raise the ticket.");
+  }
+
   async function syncNow() {
     setBusy("sync");
     const r = await fetch("/api/retrieval/calls", {
@@ -132,6 +143,7 @@ export default function CallsBoard({ user }: { user: SessionUser | null }) {
                 <th className="w-[11%] px-2 py-1.5">Request type</th>
                 <th className="w-[10%] px-2 py-1.5">Status</th>
                 <th className="w-[12%] px-2 py-1.5">Notes</th>
+                <th className="w-[10%] px-2 py-1.5">WMS ticket</th>
               </tr>
             </thead>
             <tbody>
@@ -145,7 +157,9 @@ export default function CallsBoard({ user }: { user: SessionUser | null }) {
                   <td className="px-2 py-1.5 text-slate-600">
                     {c.customer_unique_id
                       ? <><span className="font-semibold text-slate-800">{c.customer_unique_id}</span> {c.customer_name ?? ""}</>
-                      : <span className="text-slate-400">not matched</span>}
+                      : <input key={`${c.id}:bk`} defaultValue="" placeholder="booking id…"
+                          onBlur={(e) => { const v = e.target.value.trim().toUpperCase(); if (v) save(c.id, "customer_unique_id", v); }}
+                          className="w-full rounded border border-slate-200 bg-white px-1 py-1 text-[11px]" />}
                   </td>
                   <td className="px-2 py-1.5 text-slate-500">{c.extension ?? "—"}</td>
                   <td className="px-2 py-1.5">
@@ -177,6 +191,16 @@ export default function CallsBoard({ user }: { user: SessionUser | null }) {
                     <input key={`${c.id}:${c.notes ?? ""}`} defaultValue={c.notes ?? ""} placeholder="notes…"
                       onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(c.notes ?? "")) save(c.id, "notes", v); }}
                       className="w-full rounded border border-slate-200 bg-white px-1 py-1 text-[11px]" />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    {c.external_ticket_id
+                      ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">#{c.external_ticket_id}</span>
+                      : <button onClick={() => raise(c.id)} disabled={busy === `${c.id}:push`}
+                          title={c.customer_unique_id ? "Raise this call in the WMS ticket system" : "Add the booking id first — the ticket system needs it"}
+                          className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50">
+                          {busy === `${c.id}:push` ? "…" : "＋ Raise"}
+                        </button>}
+                    {c.external_error && <div className="text-[9px] text-red-500" title={c.external_error}>failed</div>}
                   </td>
                 </tr>
               ))}

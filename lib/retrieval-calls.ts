@@ -125,6 +125,66 @@ export async function listCalls(opts: { status?: string | null; answered?: strin
   }
 }
 
+// --- raise a call into the WMS ticket system ----------------------------------------------------
+const COMPLAINT_API = "https://safestorage.in/back/transport_controller_Dev0/add_internal_complaint_api";
+const TASK = { id: "16", assignee: "25213" }; // Retrieval Team + its owner, as used elsewhere
+
+export async function pushCallToWms(id: string, actor: string): Promise<{ ok: boolean; ticketId?: string; error?: string }> {
+  if (!hasDb) return { ok: false, error: "db not configured" };
+  const c = db();
+  const { data: call } = await c.from("ret_calls").select("*").eq("id", id).maybeSingle();
+  if (!call) return { ok: false, error: "call not found" };
+  if (call.external_ticket_id) return { ok: true, ticketId: String(call.external_ticket_id) };
+  // Their API resolves the customer by the BOOKING code (BH…) — the numeric id is rejected.
+  if (!call.customer_unique_id) {
+    return { ok: false, error: "no booking id on this call — add one first (the ticket system needs it)" };
+  }
+  const follow = new Date(Date.now() + 86_400_000);
+  const dd = String(follow.getDate()).padStart(2, "0"), mm = String(follow.getMonth() + 1).padStart(2, "0");
+  const when = String(call.started_at ?? "").slice(0, 16);
+  const mins = Math.round((Number(call.duration_sec) || 0) / 60);
+  const payload = {
+    customer_id: String(call.customer_unique_id),
+    customer_contact: String(call.customer_number ?? "").replace(/^\+91/, ""),
+    customer_email: "",
+    follow_up_date: `${dd}/${mm}/${follow.getFullYear()}`,
+    complaint_id: TASK.id,
+    assigned_user_id: Number(TASK.assignee),
+    assign_user_id: TASK.assignee,
+    assigned_to: TASK.assignee,
+    user_id: TASK.assignee,
+    is_internal: "1",
+    from_feedback_calls: "0",
+    message: `[Call ${when}] ${call.answered ? `${mins} min call` : "missed call"} from ${call.customer_number ?? ""}`
+      + `${call.notes ? ` — ${String(call.notes).slice(0, 200)}` : ""}`
+      + `${call.recording_url ? ` · recording: ${call.recording_url}` : ""} (transport module)`,
+  };
+  try {
+    const res = await fetch(COMPLAINT_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const text = await res.text().catch(() => "");
+    let j: any = null;
+    try { j = JSON.parse(text); } catch { /* non-JSON */ }
+    // The API answers HTTP 200 even on failure — success is ONLY {"status":true,…}.
+    const ok = res.ok && j && (j.status === true || j.status === "true");
+    if (!ok) {
+      const err = j?.message || `complaint API ${res.status}: ${text.slice(0, 140)}`;
+      try { await c.from("ret_calls").update({ external_error: err }).eq("id", id); } catch { /* column pending */ }
+      return { ok: false, error: err };
+    }
+    const ext = String(j.ticket_id ?? "");
+    try {
+      await c.from("ret_calls").update({
+        external_ticket_id: ext || null, external_error: null,
+        external_synced_at: new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 19).replace("T", " "),
+        status: call.status === "new" ? "in_progress" : call.status,
+      }).eq("id", id);
+    } catch { /* run 2026-08-07-retrieval-call-tickets.sql to store the link */ }
+    return { ok: true, ticketId: ext };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 const EDITABLE = new Set(["status", "assigned_to", "notes", "request_type", "customer_unique_id"]);
 export async function updateCall(id: string, patch: Record<string, unknown>) {
   if (!hasDb) return { ok: false, error: "db not configured" };
